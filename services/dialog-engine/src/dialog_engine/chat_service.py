@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 import time
 from collections.abc import AsyncGenerator, Callable
@@ -32,6 +33,11 @@ class ChatService:
         self._memory_store = memory_store
         self._ltm_client = ltm_client
         self._state_store = state_store
+        prompt = getattr(self._settings, "prompts", None)
+        if prompt and getattr(prompt, "system_prompt", None):
+            self._system_prompt = prompt.system_prompt.strip()
+        else:
+            self._system_prompt = ""
 
         self.last_token_count: int = 0
         self.last_ttft_ms: Optional[float] = None
@@ -60,32 +66,48 @@ class ChatService:
                 meta=meta,
             )
             self._log_context_info(len(context_turns), len(ltm_snippets))
-            try:
-                async for delta in self._emit_with_metrics(
-                    self._stream_llm(
-                        session_id=session_id,
-                        user_text=user_text,
-                        meta=meta,
-                        context=context_turns,
-                        ltm_snippets=ltm_snippets,
-                    ),
-                    source="llm",
-                ):
-                    yield delta
-                return
-            except LLMStreamEmptyError as exc:
-                self.last_error = "llm_empty_stream"
-                # Process tool calls if present
-                if exc.tool_calls and self._state_store:
-                    await self._process_tool_calls(exc.tool_calls, session_id)
-                self._log_llm_fallback(reason=f"empty_stream:{exc.tool_calls}")
-            except LLMNotConfiguredError as exc:
-                self.last_error = "llm_not_configured"
-                self._log_llm_fallback(reason=str(exc))
-            except Exception as exc:  # pragma: no cover - defensive catch
-                self.last_error = exc.__class__.__name__
-                self._log_llm_fallback(reason=repr(exc))
-
+            extra_messages: List[Dict[str, Any]] = []
+            tool_retry = 0
+            while True:
+                try:
+                    async for delta in self._emit_with_metrics(
+                        self._stream_llm(
+                            session_id=session_id,
+                            user_text=user_text,
+                            meta=meta,
+                            context=context_turns,
+                            ltm_snippets=ltm_snippets,
+                            extra_messages=extra_messages,
+                        ),
+                        source="llm",
+                    ):
+                        yield delta
+                    return
+                except LLMStreamEmptyError as exc:
+                    self.last_error = "llm_empty_stream"
+                    handled_tool_calls = False
+                    if exc.tool_calls and self._state_store:
+                        tool_messages = await self._process_tool_calls(exc.tool_calls, session_id)
+                        handled_tool_calls = bool(tool_messages)
+                        if handled_tool_calls and tool_retry < 3:
+                            tool_retry += 1
+                            extra_messages.extend(
+                                [
+                                    {"role": "assistant", "content": None, "tool_calls": exc.tool_calls},
+                                    *tool_messages,
+                                ]
+                            )
+                            continue
+                    self._log_llm_fallback(reason=f"empty_stream:{exc.tool_calls}")
+                    break
+                except LLMNotConfiguredError as exc:
+                    self.last_error = "llm_not_configured"
+                    self._log_llm_fallback(reason=str(exc))
+                    break
+                except Exception as exc:  # pragma: no cover - defensive catch
+                    self.last_error = exc.__class__.__name__
+                    self._log_llm_fallback(reason=repr(exc))
+                    break
         async for delta in self._emit_with_metrics(
             self._stream_mock(user_text=user_text, meta=meta),
             source="mock",
@@ -168,6 +190,7 @@ class ChatService:
         meta: Dict[str, Any],
         context: List[MemoryTurn],
         ltm_snippets: List[str],
+        extra_messages: Optional[List[Dict[str, Any]]] = None,
     ) -> AsyncGenerator[str, None]:
         client = await self._ensure_llm_client()
         meta_with_session = dict(meta)
@@ -177,6 +200,7 @@ class ChatService:
             meta=meta_with_session,
             context=context,
             ltm_snippets=ltm_snippets,
+            extra_messages=extra_messages,
         )
         extra_options: Dict[str, Any] = {
             "extra_headers": {"x-session-id": session_id},
@@ -286,11 +310,18 @@ class ChatService:
         meta: Dict[str, Any],
         context: List[MemoryTurn],
         ltm_snippets: List[str],
-    ) -> list[Dict[str, str]]:
-        system_prompt = meta.get("system_prompt")
-        messages: list[Dict[str, str]] = []
-        if system_prompt:
-            messages.append({"role": "system", "content": str(system_prompt)})
+        extra_messages: Optional[List[Dict[str, Any]]] = None,
+    ) -> list[Dict[str, Any]]:
+        messages: list[Dict[str, Any]] = []
+        if "system_prompt" in meta and meta["system_prompt"] != self._system_prompt:
+            from logging import getLogger
+
+            getLogger(__name__).info(
+                "chat.system_prompt.meta_override_ignored",
+                extra={"sessionId": meta.get("session_id"), "override_length": len(str(meta["system_prompt"]))},
+            )
+        if self._system_prompt:
+            messages.append({"role": "system", "content": self._system_prompt})
 
         # Inject internal states as context if available
         if self._state_store:
@@ -311,6 +342,8 @@ class ChatService:
         if ltm_snippets:
             messages.append({"role": "system", "content": self._format_ltm_snippets(ltm_snippets)})
         messages.append({"role": "user", "content": user_text})
+        if extra_messages:
+            messages.extend(extra_messages)
         return messages
 
     def _estimate_tokens(self, chunk: str) -> int:
@@ -322,20 +355,40 @@ class ChatService:
         self.last_source = "mock"
         self.last_error = None
 
-    async def _process_tool_calls(self, tool_calls: List[Any], session_id: str) -> None:
-        """Process tool calls from LLM to update internal states."""
+    async def _process_tool_calls(self, tool_calls: List[Any], session_id: str) -> List[Dict[str, Any]]:
+        """Process tool calls from LLM to update internal states and return tool response messages."""
         if not self._state_store:
-            return
+            return []
 
+        tool_messages: List[Dict[str, Any]] = []
         for tool_call in tool_calls:
             try:
-                call_info = {
-                    "name": getattr(tool_call, "function", {}).get("name"),
-                    "arguments": getattr(tool_call, "function", {}).get("arguments", "{}")
-                }
-                await handle_tool_call(call_info, session_id, self._state_store)
+                if isinstance(tool_call, dict):
+                    function = tool_call.get("function") or {}
+                    name = function.get("name")
+                    arguments = function.get("arguments", "{}")
+                    tool_call_id = tool_call.get("id")
+                else:
+                    function = getattr(tool_call, "function", {}) or {}
+                    name = function.get("name")
+                    arguments = function.get("arguments", "{}")
+                    tool_call_id = getattr(tool_call, "id", None)
+
+                call_info = {"name": name, "arguments": arguments}
+                result = await handle_tool_call(call_info, session_id, self._state_store)
+                message_payload = json.dumps(result or {"success": True}, ensure_ascii=False)
+                tool_messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call_id or name or "tool_call",
+                        "name": name or "tool",
+                        "content": message_payload,
+                    }
+                )
             except Exception as exc:
                 self._log_context_warning("tool_call.error", exc)
+
+        return tool_messages
 
     async def get_internal_states(self, session_id: str) -> Dict[str, float]:
         """Get current internal states for a session."""

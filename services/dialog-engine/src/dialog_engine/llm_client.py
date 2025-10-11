@@ -104,7 +104,8 @@ class OpenAIChatClient:
                     },
                 )
                 has_content = False
-                collected_tool_calls: list[Any] = []
+                collected_tool_calls: list[Dict[str, Any]] = []
+                tool_call_acc: Dict[int, Dict[str, Any]] = {}
                 async for chunk in stream:
                     for choice in chunk.choices:
                         delta = choice.delta
@@ -116,7 +117,30 @@ class OpenAIChatClient:
                             yield text_delta
                         tool_calls = getattr(delta, "tool_calls", None)
                         if tool_calls:
-                            collected_tool_calls.extend(tool_calls)
+                            for tool_call in tool_calls:
+                                index = getattr(tool_call, "index", 0) or 0
+                                entry = tool_call_acc.setdefault(
+                                    index,
+                                    {
+                                        "id": getattr(tool_call, "id", None),
+                                        "type": getattr(tool_call, "type", "function"),
+                                        "function": {"name": None, "arguments": ""},
+                                    },
+                                )
+                                if getattr(tool_call, "id", None):
+                                    entry["id"] = tool_call.id
+                                tool_type = getattr(tool_call, "type", None)
+                                if tool_type:
+                                    entry["type"] = tool_type
+                                func = getattr(tool_call, "function", None)
+                                if func:
+                                    func_name = getattr(func, "name", None)
+                                    if func_name:
+                                        entry["function"]["name"] = func_name
+                                    func_args = getattr(func, "arguments", None)
+                                    if func_args:
+                                        entry["function"]["arguments"] += func_args
+                            collected_tool_calls = list(tool_call_acc.values())
                 if not has_content:
                     logger.warning(
                         "llm.stream.empty",
@@ -151,6 +175,8 @@ class OpenAIChatClient:
                     except Exception:  # pragma: no cover - best effort cleanup
                         logger.debug("llm.stream.close_failed", exc_info=True)
 
+        if isinstance(last_error, LLMStreamEmptyError):
+            raise last_error
         raise RuntimeError("LLM streaming failed after retries") from last_error
 
     async def generate_vision_reply(

@@ -1,6 +1,6 @@
 import asyncio
 import base64
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Dict
 
 import pytest
 
@@ -11,6 +11,7 @@ from dialog_engine.settings import (
     AsrSettings,
     LLMSettings,
     LTMInlineSettings,
+    PromptSettings,
     OpenAISettings,
     Settings,
     ShortTermMemorySettings,
@@ -23,6 +24,7 @@ def _make_settings(
     stm_enabled: bool = False,
     ltm_enabled: bool = False,
     base_url: Optional[str] = None,
+    system_prompt: str = "你是一位后端定义的虚拟主播助手。",
 ) -> Settings:
     return Settings(
         openai=OpenAISettings(api_key=None, organization=None, base_url=None),
@@ -38,6 +40,7 @@ def _make_settings(
             retry_limit=0,
             retry_backoff_seconds=0.0,
         ),
+        prompts=PromptSettings(system_prompt=system_prompt),
         short_term=ShortTermMemorySettings(
             enabled=stm_enabled,
             db_path=":memory:",
@@ -127,6 +130,55 @@ class _StubLTMClient:
     async def retrieve(self, *, session_id: str, user_text: str, meta, limit=None):
         self.calls.append((session_id, user_text, dict(meta)))
         return list(self.snippets)
+
+
+class _ToolCallLLMClient:
+    def __init__(self, responses: Iterable[str]) -> None:
+        self._responses = list(responses)
+        self.calls: List[list[Dict[str, object]]] = []
+        self.invocations = 0
+
+    async def stream_chat(self, messages, **kwargs):
+        self.calls.append(list(messages))
+        self.invocations += 1
+        if self.invocations == 1:
+            if False:
+                yield ""  # pragma: no cover
+            raise LLMStreamEmptyError(
+                "tool",
+                tool_calls=[
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "update_internal_state",
+                            "arguments": '{"state_key":"emotion","value":80}',
+                        },
+                    }
+                ],
+            )
+        for token in self._responses:
+            await asyncio.sleep(0)
+            yield token
+
+    async def generate_vision_reply(self, messages, **kwargs):
+        if False:
+            return ""  # pragma: no cover
+        raise RuntimeError("not used")
+
+
+class _StubStateStore:
+    def __init__(self):
+        self.states: Dict[str, Dict[str, float]] = {}
+
+    async def update_state(self, session_id: str, state_key: str, new_value: float):
+        self.states.setdefault(session_id, {})[state_key] = new_value
+
+    async def get_state(self, session_id: str, state_key: str):
+        return self.states.get(session_id, {}).get(state_key)
+
+    async def list_states(self, session_id: str):
+        return self.states.get(session_id, {})
 
 
 @pytest.mark.asyncio
@@ -238,6 +290,56 @@ async def test_stream_reply_llm_includes_ltm_snippets():
     sent_messages = stub_llm.calls[0]
     system_blocks = [m for m in sent_messages if m["role"] == "system"]
     assert any("Relevant memories" in m["content"] for m in system_blocks)
+
+
+@pytest.mark.asyncio
+async def test_stream_reply_llm_handles_tool_call_then_continues():
+    stub_llm = _ToolCallLLMClient(["情绪已经同步调整，感谢你的分享！"])
+    state_store = _StubStateStore()
+    service = ChatService(
+        settings=_make_settings(enabled=True),
+        llm_client_factory=lambda: stub_llm,
+        state_store=state_store,
+    )
+
+    chunks: List[str] = []
+    async for delta in service.stream_reply(
+        "sess-tool",
+        "我今天特别开心，你也调整一下情绪吧",
+        meta={},
+    ):
+        chunks.append(delta)
+
+    reply = "".join(chunks)
+    assert "情绪" in reply
+    assert state_store.states["sess-tool"]["emotion"] == 80
+    assert stub_llm.invocations == 2
+    assert any(
+        isinstance(msg, dict) and msg.get("tool_calls")
+        for msg in stub_llm.calls[1]
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_reply_llm_uses_backend_system_prompt():
+    backend_prompt = "后端维护的系统提示词。"
+    stub_llm = _StubLLMClient(["Hi"])
+    service = ChatService(
+        settings=_make_settings(enabled=True, system_prompt=backend_prompt),
+        llm_client_factory=lambda: stub_llm,
+    )
+
+    async for _ in service.stream_reply(
+        "sess-system",
+        "hello",
+        meta={"system_prompt": "前端尝试覆盖"},
+    ):
+        pass
+
+    sent_messages = stub_llm.calls[0]
+    assert sent_messages[0]["role"] == "system"
+    assert sent_messages[0]["content"] == backend_prompt
+    assert all(msg.get("content") != "前端尝试覆盖" for msg in sent_messages if isinstance(msg, dict))
 
 
 @pytest.mark.asyncio

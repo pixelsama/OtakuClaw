@@ -7,6 +7,11 @@ from dataclasses import dataclass
 
 _BOOL_TRUTHY = {"1", "true", "yes", "on"}
 
+DEFAULT_SYSTEM_PROMPT = (
+    "你是一位友好、专业的虚拟主播助手，以亲切的语气与用户互动，"
+    "善于引导对话并提供有趣、实用的信息。"
+)
+
 
 def _env_bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
@@ -73,6 +78,11 @@ class LTMInlineSettings:
 
 
 @dataclass(frozen=True)
+class PromptSettings:
+    system_prompt: str
+
+
+@dataclass(frozen=True)
 class AsrSettings:
     enabled: bool
     provider: str
@@ -92,6 +102,7 @@ class AsrSettings:
 class Settings:
     openai: OpenAISettings
     llm: LLMSettings
+    prompts: PromptSettings
     short_term: ShortTermMemorySettings
     ltm_inline: LTMInlineSettings
     asr: AsrSettings
@@ -117,6 +128,10 @@ def load_settings() -> Settings:
         api_key=os.getenv("OPENAI_API_KEY"),
         organization=os.getenv("OPENAI_ORG_ID"),
         base_url=os.getenv("OPENAI_BASE_URL"),
+    )
+
+    prompt_settings = PromptSettings(
+        system_prompt=os.getenv("CHAT_SYSTEM_PROMPT", DEFAULT_SYSTEM_PROMPT).strip(),
     )
 
     short_term_settings = ShortTermMemorySettings(
@@ -151,6 +166,7 @@ def load_settings() -> Settings:
     return Settings(
         openai=openai_settings,
         llm=llm_settings,
+        prompts=prompt_settings,
         short_term=short_term_settings,
         ltm_inline=ltm_inline_settings,
         asr=asr_settings,
@@ -165,6 +181,7 @@ __all__ = [
     "OpenAISettings",
     "ShortTermMemorySettings",
     "LTMInlineSettings",
+    "PromptSettings",
     "AsrSettings",
     "settings",
     "load_settings",
