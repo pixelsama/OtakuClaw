@@ -85,6 +85,8 @@ services:
       - LLM_REQUEST_TIMEOUT=${LLM_REQUEST_TIMEOUT:-30}
       - LLM_RETRY_LIMIT=${LLM_RETRY_LIMIT:-2}
       - LLM_RETRY_BACKOFF_SECONDS=${LLM_RETRY_BACKOFF_SECONDS:-0.5}
+      # Internal state management (AI emotions & affinity)
+      - INTERNAL_STATE_DB_PATH=${INTERNAL_STATE_DB_PATH:-/app/data/internal_states.db}
     ports:
       - "8100:8100"
     volumes:

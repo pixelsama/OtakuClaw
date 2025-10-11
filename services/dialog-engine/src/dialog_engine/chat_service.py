@@ -11,7 +11,7 @@ from .ltm_client import LTMInlineClient
 from .memory_store import MemoryTurn, ShortTermMemoryStore
 from .settings import Settings, settings as runtime_settings
 from .internal_state_store import InternalStateStore
-from .llm_functions import FUNCTION_DEFINITIONS, handle_tool_call
+from .llm_functions import FUNCTION_DEFINITIONS, TOOL_DEFINITIONS, handle_tool_call
 
 
 class ChatService:
@@ -183,8 +183,9 @@ class ChatService:
         }
 
         # Add function calling support if state store is available
+        # Use modern tools format (compatible with DeepSeek and OpenAI)
         if self._state_store:
-            extra_options["functions"] = FUNCTION_DEFINITIONS
+            extra_options["tools"] = TOOL_DEFINITIONS
             extra_options["tool_choice"] = "auto"
 
         async for delta in client.stream_chat(messages, extra_options=extra_options):

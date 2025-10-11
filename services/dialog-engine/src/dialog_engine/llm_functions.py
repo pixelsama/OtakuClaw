@@ -6,6 +6,10 @@ from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
+# State value constraints
+STATE_MIN_VALUE = 0
+STATE_MAX_VALUE = 100
+
 # Function definitions for OpenAI function calling
 FUNCTION_DEFINITIONS = [
     {
@@ -24,6 +28,31 @@ FUNCTION_DEFINITIONS = [
                 }
             },
             "required": ["state_key", "value"]
+        }
+    }
+]
+
+# Tool definitions for modern OpenAI/DeepSeek tools format
+TOOL_DEFINITIONS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "update_internal_state",
+            "description": "更新 AI 的内部状态，如情绪值或好感度。可以用来表达当前的情感状态或对用户的态度变化。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "state_key": {
+                        "type": "string",
+                        "description": "状态名，如 'emotion'（情绪）、'affinity'（好感度）、'energy'（能量）等"
+                    },
+                    "value": {
+                        "type": "number",
+                        "description": "新的数值，通常范围在 0-100 之间。数值越高表示正面情绪或好感度越高"
+                    }
+                },
+                "required": ["state_key", "value"]
+            }
         }
     }
 ]
@@ -80,18 +109,11 @@ async def handle_tool_call(tool_call: Dict[str, Any], session_id: str, state_sto
                     "error": f"Invalid value type: {value} must be a number"
                 }
 
-            # Validate value range (optional but recommended)
-            if not isinstance(value, (int, float)):
+            # Add boundary check for state values
+            if not STATE_MIN_VALUE <= value <= STATE_MAX_VALUE:
                 return {
                     "success": False,
-                    "error": f"Invalid value: {value} must be numeric"
-                }
-
-            # Add boundary check for state values (0-100 range)
-            if not 0 <= value <= 100:
-                return {
-                    "success": False,
-                    "error": f"Value {value} out of valid range (0-100). State values should be between 0 and 100."
+                    "error": f"Value {value} out of valid range ({STATE_MIN_VALUE}-{STATE_MAX_VALUE}). State values should be between {STATE_MIN_VALUE} and {STATE_MAX_VALUE}."
                 }
 
             # Update the state
@@ -176,6 +198,7 @@ def create_state_system_message(states: Dict[str, float]) -> Dict[str, str]:
 
 __all__ = [
     "FUNCTION_DEFINITIONS",
+    "TOOL_DEFINITIONS",
     "handle_tool_call",
     "format_state_for_context",
     "create_state_system_message"
