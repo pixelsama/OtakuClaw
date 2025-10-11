@@ -77,7 +77,7 @@ class ChatService:
                 self.last_error = "llm_empty_stream"
                 # Process tool calls if present
                 if exc.tool_calls and self._state_store:
-                    self._process_tool_calls(exc.tool_calls, session_id)
+                    await self._process_tool_calls(exc.tool_calls, session_id)
                 self._log_llm_fallback(reason=f"empty_stream:{exc.tool_calls}")
             except LLMNotConfiguredError as exc:
                 self.last_error = "llm_not_configured"
@@ -172,7 +172,7 @@ class ChatService:
         client = await self._ensure_llm_client()
         meta_with_session = dict(meta)
         meta_with_session["session_id"] = session_id
-        messages = self._compose_messages(
+        messages = await self._compose_messages(
             user_text=user_text,
             meta=meta_with_session,
             context=context,
@@ -215,7 +215,7 @@ class ChatService:
         client = await self._ensure_llm_client()
         meta_with_session = dict(meta)
         meta_with_session["session_id"] = session_id
-        messages = self._compose_messages(
+        messages = await self._compose_messages(
             user_text=prompt_text,
             meta=meta_with_session,
             context=context,
@@ -278,7 +278,7 @@ class ChatService:
         self._llm_client = client
         return client
 
-    def _compose_messages(
+    async def _compose_messages(
         self,
         *,
         user_text: str,
@@ -294,7 +294,7 @@ class ChatService:
         # Inject internal states as context if available
         if self._state_store:
             session_id = meta.get("session_id", "default")
-            state_dict = self.get_internal_states(session_id)
+            state_dict = await self.get_internal_states(session_id)
             if state_dict:
                 mood_summary = "; ".join([f"{k}:{v:.2f}" for k, v in state_dict.items()])
                 state_message = {
@@ -321,7 +321,7 @@ class ChatService:
         self.last_source = "mock"
         self.last_error = None
 
-    def _process_tool_calls(self, tool_calls: List[Any], session_id: str) -> None:
+    async def _process_tool_calls(self, tool_calls: List[Any], session_id: str) -> None:
         """Process tool calls from LLM to update internal states."""
         if not self._state_store:
             return
@@ -332,16 +332,16 @@ class ChatService:
                     "name": getattr(tool_call, "function", {}).get("name"),
                     "arguments": getattr(tool_call, "function", {}).get("arguments", "{}")
                 }
-                handle_tool_call(call_info, session_id, self._state_store)
+                await handle_tool_call(call_info, session_id, self._state_store)
             except Exception as exc:
                 self._log_context_warning("tool_call.error", exc)
 
-    def get_internal_states(self, session_id: str) -> Dict[str, float]:
+    async def get_internal_states(self, session_id: str) -> Dict[str, float]:
         """Get current internal states for a session."""
         if not self._state_store:
             return {}
         try:
-            return self._state_store.list_states(session_id)
+            return await self._state_store.list_states(session_id)
         except Exception:
             return {}
 

@@ -205,7 +205,7 @@ async def chat_stream(request: Request) -> StreamingResponse:
         stats = {"ttft_ms": round(ttft_ms or 0.0, 1), "tokens": chat_service.last_token_count}
 
         # Include internal states in the done event
-        internal_states = chat_service.get_internal_states(session_id)
+        internal_states = await chat_service.get_internal_states(session_id)
         if internal_states:
             stats["internal_states"] = internal_states
 
@@ -436,7 +436,7 @@ async def chat_audio_stream(request: Request) -> StreamingResponse:
         }
 
         # Include internal states in the done event
-        internal_states = chat_service.get_internal_states(session_id)
+        internal_states = await chat_service.get_internal_states(session_id)
         if internal_states:
             stats["internal_states"] = internal_states
 
