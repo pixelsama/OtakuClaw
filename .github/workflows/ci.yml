@@ -1,53 +1,51 @@
-# 工作流的名称
-name: CI for Microservices
+name: Project CI
 
-# 触发工作流的事件
 on:
-  # 当有代码推送到 main 分支时触发
   push:
-    branches: [ "main" ]
-  # 当有针对 main 分支的拉取请求（Pull Request）时触发
+    branches:
+      - main
   pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
 
-# 定义工作流中的所有任务
 jobs:
-  # 我们定义一个名为 test-services 的任务
-  test-services:
-    # 指定任务运行在最新的 Ubuntu 环境中
+  python-services:
+    name: Python service checks (${{ matrix.service }})
     runs-on: ubuntu-latest
-
-    # --- 这里是关键：使用矩阵策略 ---
     strategy:
-      # fail-fast: false 表示即使一个微服务的测试失败了，其他微服务的测试也会继续进行
       fail-fast: false
       matrix:
-        # 定义一个名为 service 的变量，下面列出了它所有可能的值
-        # 您可以在这里添加或删除您的微服务目录名
         service:
-          - asr-python
-          - chat-ai-python
+          - dialog-engine
           - gateway-python
-          - tts-python
-          - memory-python
           - input-handler-python
+          - memory-python
+          - long-term-memory-python
           - output-handler-python
-          # 如果未来有新的服务，比如 'new-service-python'，直接在这里加一行即可
-          # - new-service-python
-
-    # 任务的执行步骤
+          - async-workers
     steps:
-      # 第1步：检出（下载）您的代码库到运行器中
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 第2步：根据不同的服务设置 Python 环境
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.12' # 您可以根据需要修改 Python 版本
+          python-version: "3.11"
 
-      # 第2.5步：启动服务依赖
+      - name: Install audio dependencies
+        if: ${{ matrix.service == 'dialog-engine' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libsndfile1
+
+      - name: Install dependencies
+        run: |
+          cd services/${{ matrix.service }}
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+          pip install pytest pytest-asyncio pytest-mock flake8
+
       - name: Start service dependencies
         if: ${{ hashFiles(format('services/{0}/docker-compose.ci.yml', matrix.service)) != '' }}
         run: |
@@ -63,58 +61,62 @@ jobs:
             done
           fi
 
-      # 第3步：安装依赖
-      # ${{ matrix.service }} 会自动被替换成上面 matrix 中定义的服务名称
-      - name: Install dependencies for ${{ matrix.service }}
+      - name: Lint with flake8
         run: |
-          # 首先进入对应的微服务目录
           cd services/${{ matrix.service }}
-          # 安装该目录下的依赖
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          # 安装测试专用的依赖，比如 pytest 和 flake8
-          pip install pytest flake8
-          # 为所有需要 Redis 的服务确保安装 redis 依赖
-          if [ "${{ matrix.service }}" = "asr-python" ] || [ "${{ matrix.service }}" = "chat-ai-python" ] || [ "${{ matrix.service }}" = "gateway-python" ] || [ "${{ matrix.service }}" = "tts-python" ] || [ "${{ matrix.service }}" = "memory-python" ] || [ "${{ matrix.service }}" = "input-handler-python" ] || [ "${{ matrix.service }}" = "output-handler-python" ]; then
-            pip install redis
-          fi
-          # 为 gateway 服务安装额外的 Flask 依赖（如果 requirements.txt 中没有）
-          if [ "${{ matrix.service }}" = "gateway-python" ]; then
-            pip install Flask Werkzeug
-          fi
-          # 为 ASR 服务安装音频处理依赖
-          if [ "${{ matrix.service }}" = "asr-python" ]; then
-            sudo apt-get update && sudo apt-get install -y libasound2-dev libsndfile1-dev ffmpeg
-          fi
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude .git,__pycache__,venv,.venv
 
-      # 第4步：运行代码风格检查 (Linting)
-      - name: Lint with flake8 for ${{ matrix.service }}
+      - name: Run pytest
+        env:
+          PYTHONPATH: ${{ github.workspace }}/services/${{ matrix.service }}/src:${{ github.workspace }}/services/${{ matrix.service }}
+          REDIS_URL: redis://localhost:6379
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
         run: |
-          # 进入对应的微服务目录
           cd services/${{ matrix.service }}
-          # 运行 flake8 对当前目录进行检查
-          # --count 会在发现问题时显示统计并以失败状态退出
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-
-      # 第5步：运行单元测试
-      - name: Run tests with pytest for ${{ matrix.service }}
-        run: |
-          # 进入对应的微服务目录
-          cd services/${{ matrix.service }}
-          # 为测试设置 Redis 环境变量
-          export REDIS_URL=redis://localhost:6379
-          export REDIS_HOST=localhost
-          export REDIS_PORT=6379
-          # 检查是否有测试文件存在再运行
-          if [ "${{ matrix.service }}" = "chat-ai-python" ]; then
-            pytest tests/unit -v
-            pytest tests/integration -q
-          elif [ -d "tests" ] || [ -f "test_*.py" ] || [ -f "*_test.py" ]; then
-            pytest -v
+          if [ -d tests ]; then
+            if find tests -type f \( -name "test_*.py" -o -name "*_test.py" \) | grep -q .; then
+              pytest -q
+            else
+              echo "No tests found for ${{ matrix.service }}, skipping tests."
+            fi
           else
-            echo "No tests found for ${{ matrix.service }}, skipping test execution"
+            echo "No tests directory for ${{ matrix.service }}, skipping tests."
           fi
 
       - name: Collect dependency logs
         if: ${{ always() && hashFiles(format('services/{0}/docker-compose.ci.yml', matrix.service)) != '' }}
         run: docker compose -f services/${{ matrix.service }}/docker-compose.ci.yml logs
+
+      - name: Shutdown service dependencies
+        if: ${{ always() && hashFiles(format('services/{0}/docker-compose.ci.yml', matrix.service)) != '' }}
+        run: docker compose -f services/${{ matrix.service }}/docker-compose.ci.yml down
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: front_end
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: front_end/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run unit tests
+        run: npm run test -- --run
+
+      - name: Build
+        run: npm run build
