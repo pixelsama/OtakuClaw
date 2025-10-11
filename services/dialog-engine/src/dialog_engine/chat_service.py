@@ -10,6 +10,8 @@ from .llm_client import LLMNotConfiguredError, LLMStreamEmptyError, OpenAIChatCl
 from .ltm_client import LTMInlineClient
 from .memory_store import MemoryTurn, ShortTermMemoryStore
 from .settings import Settings, settings as runtime_settings
+from .internal_state_store import InternalStateStore
+from .llm_functions import FUNCTION_DEFINITIONS, handle_tool_call
 
 
 class ChatService:
@@ -22,12 +24,14 @@ class ChatService:
         llm_client_factory: Optional[Callable[[], OpenAIChatClient]] = None,
         memory_store: Optional[ShortTermMemoryStore] = None,
         ltm_client: Optional[LTMInlineClient] = None,
+        state_store: Optional[InternalStateStore] = None,
     ) -> None:
         self._settings = settings or runtime_settings
         self._llm_client_factory = llm_client_factory
         self._llm_client: Optional[OpenAIChatClient] = None
         self._memory_store = memory_store
         self._ltm_client = ltm_client
+        self._state_store = state_store
 
         self.last_token_count: int = 0
         self.last_ttft_ms: Optional[float] = None

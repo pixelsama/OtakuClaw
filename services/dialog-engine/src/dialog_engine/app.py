@@ -17,11 +17,20 @@ from .audio import AudioBundle, AudioIngestor, AudioPreprocessor, IngestLimits
 from .asr import AsrOptions, AsrService
 from .tts_streamer import stream_text as tts_stream_text
 from .ltm_outbox import add_event as outbox_add_event, start_flush_task as outbox_start_flush
+from .internal_state_store import InternalStateStore
 
 
 app = FastAPI()
-chat_service = ChatService()
 logger = logging.getLogger(__name__)
+
+# Initialize internal state store
+try:
+    state_store = InternalStateStore()
+except Exception as exc:
+    logger.exception("Failed to initialize InternalStateStore", extra={"error": repr(exc)})
+    state_store = None
+
+chat_service = ChatService(state_store=state_store)
 SYNC_TTS_STREAMING = os.getenv("SYNC_TTS_STREAMING", "false").lower() in {"1", "true", "yes", "on"}
 ENABLE_ASYNC_EXT = os.getenv("ENABLE_ASYNC_EXT", "false").lower() in {"1", "true", "yes", "on"}
 VISION_MAX_BYTES = int(os.getenv("VISION_MAX_BYTES", 4 * 1024 * 1024))
