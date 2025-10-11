@@ -25,7 +25,9 @@ logger = logging.getLogger(__name__)
 
 # Initialize internal state store
 try:
-    state_store = InternalStateStore()
+    import os
+    db_path = os.getenv("INTERNAL_STATE_DB_PATH", "internal_states.db")
+    state_store = InternalStateStore(db_path=db_path)
 except Exception as exc:
     logger.exception("Failed to initialize InternalStateStore", extra={"error": repr(exc)})
     state_store = None
@@ -201,6 +203,12 @@ async def chat_stream(request: Request) -> StreamingResponse:
                 return
 
         stats = {"ttft_ms": round(ttft_ms or 0.0, 1), "tokens": chat_service.last_token_count}
+
+        # Include internal states in the done event
+        internal_states = chat_service.get_internal_states(session_id)
+        if internal_states:
+            stats["internal_states"] = internal_states
+
         yield _sse_format("done", {"stats": stats})
 
         # Emit async events via outbox
@@ -426,6 +434,11 @@ async def chat_audio_stream(request: Request) -> StreamingResponse:
             "reply": reply_text,
             "stats": stats,
         }
+
+        # Include internal states in the done event
+        internal_states = chat_service.get_internal_states(session_id)
+        if internal_states:
+            stats["internal_states"] = internal_states
 
         yield _sse_format("done", done_payload)
 

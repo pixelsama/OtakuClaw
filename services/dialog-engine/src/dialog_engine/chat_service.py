@@ -75,6 +75,9 @@ class ChatService:
                 return
             except LLMStreamEmptyError as exc:
                 self.last_error = "llm_empty_stream"
+                # Process tool calls if present
+                if exc.tool_calls and self._state_store:
+                    self._process_tool_calls(exc.tool_calls, session_id)
                 self._log_llm_fallback(reason=f"empty_stream:{exc.tool_calls}")
             except LLMNotConfiguredError as exc:
                 self.last_error = "llm_not_configured"
@@ -167,15 +170,23 @@ class ChatService:
         ltm_snippets: List[str],
     ) -> AsyncGenerator[str, None]:
         client = await self._ensure_llm_client()
+        meta_with_session = dict(meta)
+        meta_with_session["session_id"] = session_id
         messages = self._compose_messages(
             user_text=user_text,
-            meta=meta,
+            meta=meta_with_session,
             context=context,
             ltm_snippets=ltm_snippets,
         )
         extra_options: Dict[str, Any] = {
             "extra_headers": {"x-session-id": session_id},
         }
+
+        # Add function calling support if state store is available
+        if self._state_store:
+            extra_options["functions"] = FUNCTION_DEFINITIONS
+            extra_options["tool_choice"] = "auto"
+
         async for delta in client.stream_chat(messages, extra_options=extra_options):
             yield delta
 
@@ -202,9 +213,11 @@ class ChatService:
         ltm_snippets: List[str],
     ) -> str:
         client = await self._ensure_llm_client()
+        meta_with_session = dict(meta)
+        meta_with_session["session_id"] = session_id
         messages = self._compose_messages(
             user_text=prompt_text,
-            meta=meta,
+            meta=meta_with_session,
             context=context,
             ltm_snippets=ltm_snippets,
         )
@@ -278,6 +291,18 @@ class ChatService:
         if system_prompt:
             messages.append({"role": "system", "content": str(system_prompt)})
 
+        # Inject internal states as context if available
+        if self._state_store:
+            session_id = meta.get("session_id", "default")
+            state_dict = self.get_internal_states(session_id)
+            if state_dict:
+                mood_summary = "; ".join([f"{k}:{v:.2f}" for k, v in state_dict.items()])
+                state_message = {
+                    "role": "system",
+                    "content": f"当前内部状态：{mood_summary}。请据此调整语气与行为。"
+                }
+                messages.append(state_message)
+
         for turn in context:
             role = turn.role if turn.role in {"user", "assistant", "system"} else "assistant"
             messages.append({"role": role, "content": turn.content})
@@ -295,6 +320,30 @@ class ChatService:
         self.last_ttft_ms = None
         self.last_source = "mock"
         self.last_error = None
+
+    def _process_tool_calls(self, tool_calls: List[Any], session_id: str) -> None:
+        """Process tool calls from LLM to update internal states."""
+        if not self._state_store:
+            return
+
+        for tool_call in tool_calls:
+            try:
+                call_info = {
+                    "name": getattr(tool_call, "function", {}).get("name"),
+                    "arguments": getattr(tool_call, "function", {}).get("arguments", "{}")
+                }
+                handle_tool_call(call_info, session_id, self._state_store)
+            except Exception as exc:
+                self._log_context_warning("tool_call.error", exc)
+
+    def get_internal_states(self, session_id: str) -> Dict[str, float]:
+        """Get current internal states for a session."""
+        if not self._state_store:
+            return {}
+        try:
+            return self._state_store.list_states(session_id)
+        except Exception:
+            return {}
 
     def _log_llm_fallback(self, *, reason: str) -> None:
         # Deliberately late import to avoid global logging setup requirements.
