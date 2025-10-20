@@ -1,126 +1,122 @@
-# Bilibili Live Integration Feasibility Report
+# Bilibili直播集成可行性报告
 
-## 1. Objective
+## 1. 目标
 
-Evaluate technical options for connecting the Free-Agent Vtuber system to live-streaming chat and Super Chat ("Super Chat" = Paid highlighted messages, a.k.a. 醒目留言/SC) on Bilibili (priority) and outline next steps for extending to other platforms.
+评估将 Free-Agent Vtuber 系统与哔哩哔哩直播间醒目留言（“Super Chat”=付费高亮消息，亦称醒目留言/SC）优先对接、随后扩展至普通弹幕的技术方案，使 AI 能够接收消息并触发语音播报、虚拟形象动作和叠加层等即时反馈，同时梳理扩展到其他平台的下一步计划。
 
-## 2. Bilibili Live Ecosystem Overview
+## 2. Bilibili 直播生态概览
 
-Bilibili exposes multiple mechanisms for accessing live room events:
+哔哩哔哩提供多种机制来获取直播间事件：
 
-- **Official Open Platform (直播开放平台)** – offers REST APIs for room management and server push callbacks. Requires developer registration, application approval, and room ownership binding. Callback events can deliver gift, guard, and SC notifications, but chat (普通弹幕) still requires WebSocket Danmaku connection.
-- **Danmaku WebSocket Gateways** – public endpoints (e.g., `wss://broadcastlv.chat.bilibili.com:443/sub`) accept authenticated connections to join a room's danmaku stream. Messages include chat, gifts, Super Chats, guard, enter room, etc. Requires periodically sending heartbeats and decoding binary packets.
-- **Third-party relay services** – community projects expose simplified HTTP/WebSocket APIs but have ToS and stability risks; avoid for production.
+- **官方直播开放平台**——提供房间管理和服务器推送回调的 REST API。需要开发者注册、应用审核以及房间绑定。回调事件可覆盖礼物、舰长、醒目留言等，但普通弹幕仍需通过弹幕 WebSocket 获取。
+- **弹幕 WebSocket 网关**——公共端点（如 `wss://broadcastlv.chat.bilibili.com:443/sub`）允许认证连接加入指定房间的弹幕流。消息包括普通弹幕、礼物、醒目留言、舰长、进场等，需要定期发送心跳并解码二进制数据包。
+- **第三方中继服务**——社区项目提供简化的 HTTP/WebSocket 接口，但存在服务条款和稳定性风险，生产环境不建议使用。
 
-A complete integration must combine Danmaku WebSocket reception with authenticated REST interactions (e.g., replying with bot messages or triggering actions via the official APIs where possible).
+完整的集成需要结合弹幕 WebSocket 接入以及官方 REST/回调接口（例如获取房间状态、领取 SC 签名或协调回调）。
 
-## 3. Access Requirements & Constraints
+## 3. 接入要求与限制
 
-| Item | Details | Notes |
-| ---- | ------- | ----- |
-| Developer account | Bilibili Open Platform account, verified identity, approved application. | Needed for official REST & callback APIs. |
-| Room binding | The livestream room must be bound to the developer application. | For Free-Agent Vtuber, coordinate with the streamer account owner. |
-| Authentication | REST APIs use `app_id`, `app_secret`, and signed requests (HMAC SHA-256). WebSocket danmaku requires `authBody` containing room ID, user ID (`uid`), and `key`. |
-| Rate limits | Documented per endpoint; typically `QPS <= 1` for management APIs. | WebSocket is push-based, so ensure consumer handles bursty traffic. |
-| Terms of Service | Bot interactions must respect platform policies (no spam, unauthorized automation). | Secure consent from channel owner. |
+| 项目 | 详情 | 备注 |
+| ---- | ---- | ---- |
+| 开发者账号 | 需要哔哩哔哩开放平台账号、实名认证和应用审核通过。 | 用于访问官方 REST 与回调接口。 |
+| 房间绑定 | 必须将直播间绑定至开发者应用。 | Free-Agent Vtuber 需与主播账号协调。 |
+| 鉴权 | REST 接口使用 `app_id`、`app_secret` 以及 HMAC SHA-256 签名；弹幕 WebSocket 需要包含房间号、`uid`、`key` 的 `authBody`。 |  |
+| 频率限制 | 每个接口有不同的 QPS 限制，管理类接口通常 `QPS <= 1`。 | WebSocket 为推送式，需要处理突发流量。 |
+| 使用条款 | 机器人交互需遵守平台规则（禁止垃圾信息和未授权自动化）。 | 需获得房主同意。 |
 
-## 4. Danmaku WebSocket Integration
+## 4. 弹幕 WebSocket 集成
 
-1. **Handshake**
-   - Connect to `wss://broadcastlv.chat.bilibili.com:443/sub`.
-   - Send auth packet with fields: `uid` (0 for guest or bot account ID), `roomid`, `protover`, `platform`, `clientver`, `key` (token). Official tokens can be obtained from REST API `app-start` or by logging in via Bilibili account cookies.
-2. **Heartbeat**
-   - Send heartbeat packet (`op=2`) every 30s to keep connection alive.
-3. **Message decoding**
-   - Packets are binary with header (16 bytes) and payload. Payload may be JSON or compressed (zlib/brotli). Need parser to handle `cmd` values:
-     - `DANMU_MSG`: normal chat.
-     - `SUPER_CHAT_MESSAGE` & `SUPER_CHAT_MESSAGE_JPN`: SC events.
-     - `SEND_GIFT`, `GUARD_BUY`, etc.
-4. **Scaling**
-   - Use async consumers (e.g., `asyncio` + `websockets` or `aiohttp`). For high volume, shard by room or spawn multiple workers with shared message queue (Redis / RabbitMQ).
-5. **Security**
-   - Store auth tokens in secrets manager. Rotate if using account cookies.
+为降低集成复杂度，我们计划分阶段实现：阶段一仅通过 WebSocket 捕获并处理与醒目留言相关的事件（如 `SUPER_CHAT_MESSAGE`），确保 SC 优先上线；阶段二再在同一通道上扩展到普通弹幕（`DANMU_MSG`）及其他互动类型。
 
-### Existing Libraries
-- Python: `bilibili_api`, `biliup`, `danmaku` community libs; may need adaptation for production reliability.
-- Node.js: `bilibili-live-ws`, `blive-message-listener`. Could wrap via gateway service if needed.
+1. **握手**
+   - 连接 `wss://broadcastlv.chat.bilibili.com:443/sub`。
+   - 发送认证数据包，字段包括：`uid`（游客填 0 或机器人账号 ID）、`roomid`、`protover`、`platform`、`clientver`、`key`（令牌）。官方令牌可通过 REST 接口 `app-start` 或登录账号获取。
+2. **心跳**
+   - 每 30 秒发送一次心跳包（`op=2`）保持连接。
+3. **消息解码**
+   - 数据包为 16 字节头部 + 负载，负载可能是 JSON 或 zlib/brotli 压缩。需要解析 `cmd` 字段，阶段一聚焦：
+     - `SUPER_CHAT_MESSAGE` 与 `SUPER_CHAT_MESSAGE_JPN`：醒目留言事件（阶段一必须支持）。
+     - `DANMU_MSG`：普通弹幕（阶段二扩展）。
+     - `SEND_GIFT`、`GUARD_BUY` 等：礼物与舰长事件（阶段二视优先级规划）。
+4. **扩展性**
+   - 采用异步消费者（如 `asyncio` + `websockets` 或 `aiohttp`）。高流量场景可按房间分片或启动多个 worker，经 Redis/RabbitMQ 分发。
+5. **安全**
+   - 将令牌存储在安全的密钥管理系统中。如使用账号 Cookie，需要定期轮换。
 
-## 5. Receiving Super Chats
+### 现有库
+- Python: `bilibili_api`、`biliup`、`danmaku` 等社区库，可能需增强以满足生产可靠性。
+- Node.js: `bilibili-live-ws`、`blive-message-listener`，可在网关服务中封装使用。
 
-SC events arrive through both WebSocket and official callbacks:
+## 5. 接收醒目留言
 
-- **WebSocket** `SUPER_CHAT_MESSAGE` payload includes user info, price, message, background color, duration. Parse to internal event schema. Example fields: `price`, `message`, `background_color`, `start_time`, `end_time`.
-- **Open Platform Callback**: configure callback URL to receive POST JSON for `superChatMessage`. This provides reliable delivery even if WebSocket drops, but only available after application approval.
+醒目留言事件可通过 WebSocket 与官方回调同步获取：
 
-Recommendation: consume via WebSocket for low latency and use callback as redundancy (acknowledge events, deduplicate via SC `id`).
+- **WebSocket**：`SUPER_CHAT_MESSAGE` 负载包含用户信息、价格、留言内容、背景色、持续时间等，可解析为内部事件结构，例如 `price`、`message`、`background_color`、`start_time`、`end_time`。
+- **开放平台回调**：配置回调 URL 接收 `superChatMessage` 的 POST JSON。该渠道在 WebSocket 异常时可提供冗余，但仅在应用审核通过后可用。
 
-## 6. Sending Chat Messages / Responses
+建议优先使用 WebSocket 以获得低延迟，同时利用回调冗余并基于 SC `id` 去重。完成这一链路后，再将同样的消息分发机制拓展到普通弹幕事件。
 
-Bilibili currently lacks an official public API for automated chat sending. Options:
+## 6. 出站反馈（不在范围内）
 
-1. **Browser automation / Headless client** – log into a bot account and send chat via headless browser (e.g., Playwright). High maintenance and risk of captcha.
-2. **Reverse-engineered APIs** – community endpoints exist (`send_msg`), but may violate ToS and require human verification tokens.
-3. **Use streamer tools** – integrate with OBS/Streamlabs to render agent responses on-screen instead of in chat.
+Free-Agent Vtuber 通过语音合成、虚拟形象动作和屏幕叠加层来表达反应，因此此次集成不包含自动向 Bilibili 聊天发送消息。我们会关注平台未来是否发布官方支持，但不会采用逆向接口或浏览器自动化方案。
 
-Given policy risk, prefer on-screen rendering or manual moderation tools rather than automatic chat posting, unless official support becomes available.
-
-## 7. Integration Architecture Proposal
+## 7. 集成架构方案
 
 ```
 [Danmaku WS Client] --events--> [Gateway Python Service] --Redis--> [Dialog Engine]
-                                                 \
-                                                  --> [Persistence/Analytics]
+                                                \
+                                                 --> [Persistence/Analytics]
 ```
 
-1. **Input Handler Extension**
-   - Build a new worker (`services/input-handler-python`) module `bilibili_live.py` to manage WebSocket connection, parse events, and publish normalized messages to Redis topic (`live.chat`).
-   - Normalize payload structure: `{platform, room_id, user_id, username, message_type, content, metadata}`.
-2. **Dialog Engine Adaptation**
-   - Add handler to subscribe to `live.chat` events, trigger agent response pipeline, and emit actions (e.g., TTS + avatar animation).
-3. **SC Prioritization**
-   - Mark SC events with high priority. Provide metadata `amount`, `duration`. Optionally trigger `memory` service updates (e.g., thanking supporter).
-4. **Callback Receiver (optional)**
-   - Deploy minimal FastAPI service to accept Bilibili callbacks for SC/gift reliability. Write dedup logic based on `id`.
-5. **Monitoring & Resilience**
-   - Metrics: connection uptime, message throughput, processing latency.
-   - Auto-reconnect with exponential backoff.
-   - Heartbeat watch: restart worker if no messages for >60s.
+1. **输入处理扩展**
+   - 在 `services/input-handler-python` 中新增模块 `bilibili_live.py`，负责维护 WebSocket 连接、解析事件，并将标准化消息发布到 Redis 主题 `live.chat`。阶段一仅订阅并处理醒目留言相关 `cmd`，为后续扩展弹幕奠定架构基础。
+   - 标准化结构示例：`{platform, room_id, user_id, username, message_type, content, metadata}`，阶段一主要使用 `message_type="super_chat"`。
+2. **对话引擎适配**
+   - 订阅 `live.chat` 事件，触发智能体响应流程，并输出语音、虚拟形象动画等内部动作，无需出站聊天。阶段一仅处理醒目留言消息，阶段二再解锁普通弹幕。
+3. **醒目留言优先级**
+   - 对 SC 事件打上高优先级标签，附带 `amount`、`duration` 等元数据，可选地触发记忆服务更新（例如感谢支持者）。
+4. **回调接收（可选）**
+   - 部署轻量 FastAPI 服务接收 Bilibili 回调，基于事件 `id` 去重并确认交付。
+5. **监控与韧性**
+   - 指标：连接在线率、消息吞吐、处理延迟。
+   - 自动重连并使用指数退避。
+   - 心跳监测：超过 60 秒未收到消息时重启 worker。
 
-## 8. Security & Compliance Considerations
+## 8. 安全与合规注意事项
 
-- Follow Bilibili automation policy; maintain separate bot account with verified phone/email.
-- Rate-limit outbound requests; avoid spamming chat.
-- Store credentials in `.env` / secrets vault; never commit tokens.
-- Ensure callback endpoint validates signatures (`X-Bili-Signature`) using shared secret.
-- Log personally identifiable information (PII) sparingly; comply with data protection laws.
+- 遵守 Bilibili 自动化政策，为机器人准备独立的认证账号。
+- 对官方 API 的出站请求进行速率控制，避免被判定为滥用或垃圾行为。
+- 在 `.env`/密钥管理中保存凭证，禁止将令牌写入代码库。
+- 回调接口需使用共享密钥验证 `X-Bili-Signature`。
+- 尽量减少记录可识别个人信息（PII），并遵循数据保护法规。
 
-## 9. Extension to Other Platforms
+## 9. 拓展其他平台
 
-| Platform | Chat API | Paid Message API | Notes |
-| -------- | -------- | ---------------- | ----- |
-| YouTube Live | Official LiveChat API (polling via REST) | `superChatEvents` endpoint | Requires OAuth 2.0; rate-limited polling. |
-| Twitch | IRC (chat) | EventSub (channel.cheer, subscriptions) | Webhook or WebSocket EventSub. |
-| Kick | Unofficial WebSocket | Paid features limited documentation | Evaluate after Bilibili & YouTube. |
+| 平台 | 聊天接口 | 付费消息接口 | 备注 |
+| ---- | -------- | ------------ | ---- |
+| YouTube Live | 官方 LiveChat REST 轮询 | `superChatEvents` 端点 | 需要 OAuth 2.0，存在轮询频率限制。 |
+| Twitch | IRC（聊天） | EventSub（cheer、订阅等） | 支持 Webhook 或 WebSocket EventSub。 |
+| Kick | 非官方 WebSocket | 付费功能文档有限 | 在完成 Bilibili 与 YouTube 后评估。 |
 
-Common abstraction: define `LiveEvent` schema and platform-specific connectors.
+通用做法：定义 `LiveEvent` 抽象，并针对平台实现对应的连接器。
 
-## 10. Roadmap
+## 10. 路线图
 
-1. **Week 1** – Obtain Bilibili developer credentials, document secrets, prototype Python WebSocket client (manual run).
-2. **Week 2** – Integrate with `input-handler` service, publish normalized events to Redis, add Dialog Engine consumer.
-3. **Week 3** – Implement SC prioritization, memory updates, and callback redundancy.
-4. **Week 4** – QA in staging stream, add monitoring dashboards, review compliance.
-5. **Future** – Explore YouTube/Twitch connectors, unify under multi-platform interface.
+1. **第 1 周**——获取 Bilibili 开发者凭证，完善密钥文档，针对醒目留言建立 WebSocket 客户端原型并完成 SC 数据解析。
+2. **第 2 周**——将 SC 事件集成到 `input-handler` 服务，发布标准化 SC 消息到 Redis，并新增对话引擎消费者完成端到端播报。
+3. **第 3 周**——完善醒目留言优先级、记忆服务更新与官方回调冗余，完成 SC MVP。
+4. **第 4 周**——在预演直播中验证 SC 流程，补充监控看板并完成合规审查，同时制定普通弹幕扩展方案。
+5. **第 5 周及以后**——按计划扩展普通弹幕（`DANMU_MSG`）处理，随后探索 YouTube/Twitch 等多平台接口。
 
-## 11. Risks & Mitigations
+## 11. 风险与缓解
 
-| Risk | Impact | Mitigation |
-| ---- | ------ | ---------- |
-| Token invalidation / captchas | Stream disruption | Maintain session refresh service; alert on auth errors. |
-| WebSocket disconnects | Missed events | Auto-reconnect + callback redundancy. |
-| Policy changes | Loss of functionality | Monitor Bilibili announcements; keep fallback (on-screen messages). |
-| High traffic bursts | Backlog in dialog engine | Implement message prioritization & rate limiting. |
+| 风险 | 影响 | 缓解措施 |
+| ---- | ---- | -------- |
+| 令牌失效/验证码 | 直播中断 | 搭建会话刷新机制并在鉴权失败时告警。 |
+| WebSocket 断连 | 漏收事件 | 自动重连并结合回调冗余。 |
+| 平台政策变动 | 功能受限 | 持续关注官方公告，并保留屏幕叠加等兜底方案。 |
+| 高并发突发 | 对话引擎积压 | 实施消息优先级和速率限制。 |
 
-## 12. Conclusion
+## 12. 结论
 
-Integration with Bilibili live chat and Super Chat is feasible using the Danmaku WebSocket combined with official callbacks. Focus on robust connection management, priority handling for SC events, and compliance with platform policies. The outlined roadmap provides concrete steps to deliver an MVP within one month, after which the architecture can expand to other platforms with similar event abstractions.
+通过弹幕 WebSocket 与官方回调的组合，并将回应限制在语音、虚拟形象和叠加层范围内，可以实现与 Bilibili 醒目留言的高优先级集成，并为后续扩展到普通弹幕奠定基础。重点在于稳定的连接管理、醒目留言优先处理以及合规要求。本路线图预计在一个月内完成 SC MVP，随后平滑拓展到其他消息类型与直播平台。
