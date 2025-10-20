@@ -21,9 +21,9 @@ from config.bilibili_credentials import (
     CredentialError,
     load_bilibili_credentials,
 )
+from .bilibili_normalizer import normalize_bilibili_message
 from .bilibili_protocol import BilibiliOperation, BilibiliProtocolError, parse_messages
 from publisher import RedisLiveEventPublisher
-from utils.live_events import LiveEvent
 
 logger = logging.getLogger(__name__)
 
@@ -265,30 +265,9 @@ class BilibiliDanmakuClient:
             logger.debug("Heartbeat reply: %s", message.get("value"))
             return
 
-        if cmd not in {"SUPER_CHAT_MESSAGE", "SUPER_CHAT_MESSAGE_JPN"}:
+        event = normalize_bilibili_message(message, self._config.room_id)
+        if not event:
             return
-
-        data = message.get("data") or {}
-        user_info = data.get("user_info") or {}
-        username = user_info.get("uname") or data.get("uname")
-        event = LiveEvent(
-            platform="bilibili",
-            room_id=str(self._config.room_id),
-            user_id=str(user_info.get("uid") or data.get("uid") or ""),
-            username=username,
-            message_type="super_chat",
-            content=data.get("message") or data.get("message_jpn") or "",
-            metadata={
-                "cmd": cmd,
-                "super_chat_id": data.get("id"),
-                "price": data.get("price"),
-                "message": data.get("message"),
-                "background_color": data.get("background_color"),
-                "start_time": data.get("start_time"),
-                "end_time": data.get("end_time"),
-            },
-            priority=100,
-        )
         await self._publisher.publish(event)
 
     async def _start_app_session(self) -> Tuple[str, str]:

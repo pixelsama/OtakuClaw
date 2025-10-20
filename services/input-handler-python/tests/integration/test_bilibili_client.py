@@ -83,6 +83,8 @@ async def test_bilibili_client_publishes_super_chat(unused_tcp_port: int):
     assert event.room_id == str(config.room_id)
     assert event.content == "Thanks!"
     assert event.metadata["price"] == 50
+    assert event.message_type == "super_chat"
+    assert event.priority and event.priority >= 100
 
     await client.stop()
     server.close()
