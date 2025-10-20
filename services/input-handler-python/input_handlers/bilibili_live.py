@@ -17,6 +17,10 @@ import websockets
 from websockets import WebSocketClientProtocol
 from websockets.exceptions import ConnectionClosed
 
+from config.bilibili_credentials import (
+    CredentialError,
+    load_bilibili_credentials,
+)
 from .bilibili_protocol import BilibiliOperation, BilibiliProtocolError, parse_messages
 from publisher import RedisLiveEventPublisher
 from utils.live_events import LiveEvent
@@ -66,9 +70,15 @@ class BilibiliDanmakuConfig:
                 logger.warning("Invalid float for %s: %s", name, raw)
                 return default
 
+        try:
+            creds = load_bilibili_credentials()
+        except CredentialError as exc:
+            logger.warning("Failed to load Bilibili credentials: %s", exc)
+            creds = None
+
         room_id = _get_int("BILI_ROOM_ID") or 0
         uid = _get_int("BILI_UID") or 0
-        access_token = os.getenv("BILI_ACCESS_TOKEN")
+        access_token = os.getenv("BILI_ACCESS_TOKEN") or (creds.access_token if creds else None)
         heartbeat = _get_int("BILI_HEARTBEAT_INTERVAL") or 30
         websocket_endpoint = os.getenv("BILI_WEBSOCKET_URL") or cls.websocket_endpoint  # type: ignore[attr-defined]
         reconnect_initial = _get_float("BILI_RECONNECT_INITIAL", 5.0)
@@ -77,10 +87,10 @@ class BilibiliDanmakuConfig:
         platform = os.getenv("BILI_PLATFORM", "web")
         client_version = os.getenv("BILI_CLIENT_VERSION", "2.8.10")
         http_timeout = _get_float("BILI_HTTP_TIMEOUT", 10.0)
-        app_id = _get_int("BILI_APP_ID")
-        app_key = os.getenv("BILI_APP_KEY")
-        app_secret = os.getenv("BILI_APP_SECRET")
-        anchor_code = os.getenv("BILI_ANCHOR_CODE")
+        app_id = _get_int("BILI_APP_ID") or (creds.app_id if creds else None)
+        app_key = os.getenv("BILI_APP_KEY") or (creds.app_key if creds else None)
+        app_secret = os.getenv("BILI_APP_SECRET") or (creds.app_secret if creds else None)
+        anchor_code = os.getenv("BILI_ANCHOR_CODE") or (creds.anchor_code if creds else None)
         app_heartbeat_interval = _get_int("BILI_APP_HEARTBEAT_INTERVAL") or 20
         api_base = os.getenv("BILI_API_BASE", "https://live-open.biliapi.com")
 
