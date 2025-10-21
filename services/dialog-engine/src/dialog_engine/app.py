@@ -18,6 +18,7 @@ from .asr import AsrOptions, AsrService
 from .tts_streamer import stream_text as tts_stream_text
 from .ltm_outbox import add_event as outbox_add_event, start_flush_task as outbox_start_flush
 from .internal_state_store import InternalStateStore
+from .live_chat_consumer import LiveChatConsumer, LiveChatConsumerSettings
 
 
 app = FastAPI()
@@ -35,8 +36,10 @@ except Exception as exc:
 chat_service = ChatService(state_store=state_store)
 SYNC_TTS_STREAMING = os.getenv("SYNC_TTS_STREAMING", "false").lower() in {"1", "true", "yes", "on"}
 ENABLE_ASYNC_EXT = os.getenv("ENABLE_ASYNC_EXT", "false").lower() in {"1", "true", "yes", "on"}
+ENABLE_LIVE_CHAT_CONSUMER = os.getenv("ENABLE_BILIBILI_CONSUMER", "false").lower() in {"1", "true", "yes", "on"}
 VISION_MAX_BYTES = int(os.getenv("VISION_MAX_BYTES", 4 * 1024 * 1024))
 _flush_task = None
+_live_chat_consumer: LiveChatConsumer | None = None
 
 try:
     from .settings import settings as runtime_settings
@@ -574,7 +577,7 @@ if __name__ == "__main__":
 
 @app.on_event("startup")
 async def _on_startup():
-    global _flush_task
+    global _flush_task, _live_chat_consumer
     if ENABLE_ASYNC_EXT:
         # best-effort Redis connection for outbox flusher
         try:
@@ -583,12 +586,27 @@ async def _on_startup():
             _flush_task = await outbox_start_flush(r, enabled=True)
         except Exception:
             _flush_task = None
+    if ENABLE_LIVE_CHAT_CONSUMER:
+        try:
+            settings = LiveChatConsumerSettings()
+            consumer = LiveChatConsumer(chat_service=chat_service, settings=settings)
+            await consumer.start()
+            _live_chat_consumer = consumer
+        except Exception:
+            _live_chat_consumer = None
+            logger.exception("live.chat.consumer_start_failed")
 
 @app.on_event("shutdown")
 async def _on_shutdown():
-    global _flush_task
+    global _flush_task, _live_chat_consumer
     try:
         if _flush_task:
             _flush_task.cancel()
     except Exception:
         pass
+    if _live_chat_consumer:
+        try:
+            await _live_chat_consumer.stop()
+        except Exception:
+            logger.warning("live.chat.consumer_stop_failed", exc_info=True)
+    _live_chat_consumer = None
