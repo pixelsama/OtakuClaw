@@ -12,6 +12,7 @@ from utils.live_events import LiveEvent, LiveMessageType
 class FakeChatService:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, dict]] = []
+        self.remembered: list[tuple[str, str, str]] = []
 
     async def stream_reply(self, *, session_id: str, user_text: str, meta: dict):
         self.calls.append((session_id, user_text, meta))
@@ -21,6 +22,9 @@ class FakeChatService:
 
         async for chunk in generator():
             yield chunk
+
+    async def remember_turn(self, session_id: str, *, role: str, content: str) -> None:
+        self.remembered.append((session_id, role, content))
 
 
 class FakeTts:
@@ -32,12 +36,22 @@ class FakeTts:
 
 
 @pytest.mark.asyncio
-async def test_priority_processing_order():
+async def test_super_chat_processed_before_chat(monkeypatch: pytest.MonkeyPatch):
     chat_service = FakeChatService()
     tts = FakeTts()
+    recorded_events: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        "dialog_engine.live_chat_consumer.outbox_add_event",
+        lambda event_type, payload: recorded_events.append((event_type, payload)),
+    )
     consumer = LiveChatConsumer(
         chat_service=chat_service,
-        settings=LiveChatConsumerSettings(enable_tts=True),
+        settings=LiveChatConsumerSettings(
+            enable_tts=True,
+            auto_thanks_enabled=True,
+            super_chat_use_llm=False,
+            thanks_dedupe_prefix="test.thanks",
+        ),
         tts_streamer=tts.stream,
     )
 
@@ -67,9 +81,21 @@ async def test_priority_processing_order():
     await consumer.drain_once_for_test()
     await asyncio.sleep(0)
 
-    assert len(chat_service.calls) == 2
-    assert chat_service.calls[0][1] == "Super!"
-    assert tts.calls[0][1] == "reply"
+    # Super Chat processed before the regular chat message
+    assert len(chat_service.calls) == 1
+    assert chat_service.calls[0][1] == "hello"
+
+    assert len(chat_service.remembered) >= 3
+    assert chat_service.remembered[0][1] == "user"
+    assert chat_service.remembered[0][2] == "Super!"
+    assert chat_service.remembered[1][1] == "assistant"
+    assert "感谢" in chat_service.remembered[1][2]
+
+    assert len(tts.calls) == 2
+    assert "感谢" in tts.calls[0][1]
+    assert tts.calls[1][1] == "reply"
+
+    assert recorded_events and recorded_events[0][0] == "LtmLiveSuperChat"
 
 
 @pytest.mark.asyncio
@@ -98,3 +124,45 @@ async def test_non_chat_events_ignored():
 
     assert chat_service.calls == []
     assert tts.calls == []
+
+
+@pytest.mark.asyncio
+async def test_super_chat_dedupe_skips_repeat(monkeypatch: pytest.MonkeyPatch):
+    chat_service = FakeChatService()
+    tts = FakeTts()
+    recorded_events: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        "dialog_engine.live_chat_consumer.outbox_add_event",
+        lambda event_type, payload: recorded_events.append((event_type, payload)),
+    )
+
+    consumer = LiveChatConsumer(
+        chat_service=chat_service,
+        settings=LiveChatConsumerSettings(
+            enable_tts=True,
+            auto_thanks_enabled=True,
+            super_chat_use_llm=False,
+            thanks_dedupe_prefix="test.thanks",
+        ),
+        tts_streamer=tts.stream,
+    )
+
+    event = LiveEvent(
+        platform="bilibili",
+        room_id="9",
+        user_id="100",
+        username="fan",
+        message_type=LiveMessageType.SUPER_CHAT,
+        content="Nice stream!",
+        metadata={"super_chat_id": "abc", "price": 50},
+    )
+
+    await consumer.enqueue_event(event)
+    await consumer.enqueue_event(event)
+    await consumer.drain_once_for_test()
+    await consumer.drain_once_for_test()
+    await asyncio.sleep(0)
+
+    assert len(tts.calls) == 1
+    assert len(chat_service.remembered) == 2
+    assert len(recorded_events) == 1
