@@ -5,6 +5,7 @@ import hmac
 import json
 import logging
 import os
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
@@ -43,17 +44,11 @@ class CallbackSettings:
 
 
 settings = CallbackSettings()
-
-app = FastAPI(title="Bilibili Callback Receiver")
-
-_redis_client: Optional[redis.Redis] = None
-_publisher: Optional[RedisLiveEventPublisher] = None
 _local_dedupe: set[str] = set()
 
 
-@app.on_event("startup")
-async def startup() -> None:
-    global _redis_client, _publisher
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     try:
         settings.require_secret()
     except RuntimeError as exc:
@@ -61,15 +56,16 @@ async def startup() -> None:
         raise
 
     try:
-        client = redis.Redis(
+        redis_client = redis.Redis(
             host=settings.redis_host,
             port=settings.redis_port,
             encoding="utf-8",
             decode_responses=True,
         )
-        await client.ping()
-        _redis_client = client
-        _publisher = RedisLiveEventPublisher(client, channel=settings.redis_channel)
+        await redis_client.ping()
+        publisher = RedisLiveEventPublisher(redis_client, channel=settings.redis_channel)
+        app.state.redis_client = redis_client
+        app.state.redis_publisher = publisher
         logger.info(
             "bili.callback.redis_connected",
             extra={"host": settings.redis_host, "port": settings.redis_port, "channel": settings.redis_channel},
@@ -77,24 +73,22 @@ async def startup() -> None:
     except Exception as exc:  # pragma: no cover - connection errors logged
         logger.exception("bili.callback.redis_connect_failed", extra={"error": repr(exc)})
         raise
+    try:
+        yield
+    finally:
+        redis_client = getattr(app.state, "redis_client", None)
+        if redis_client is not None:
+            try:
+                await redis_client.close()
+            except Exception:  # pragma: no cover - best effort
+                pass
+            del app.state.redis_client
+        if hasattr(app.state, "redis_publisher"):
+            del app.state.redis_publisher
+        _local_dedupe.clear()
 
 
-@app.on_event("shutdown")
-async def shutdown() -> None:
-    global _redis_client, _publisher
-    if _redis_client is not None:
-        try:
-            await _redis_client.close()
-        except Exception:  # pragma: no cover - best effort
-            pass
-    _redis_client = None
-    _publisher = None
-    _local_dedupe.clear()
-
-
-async def _ensure_ready() -> None:
-    if _publisher is None:
-        raise HTTPException(status_code=503, detail="callback_not_ready")
+app = FastAPI(title="Bilibili Callback Receiver", lifespan=lifespan)
 
 
 def _compute_content_md5(body: bytes) -> str:
@@ -273,17 +267,20 @@ def _extract_event_id(payload: Dict[str, Any], data: Dict[str, Any]) -> Optional
     return None
 
 
-async def _mark_event_seen(event_id: Optional[str], event_type: str) -> bool:
+async def _mark_event_seen(
+    event_id: Optional[str],
+    event_type: str,
+    redis_client: Optional[redis.Redis],
+) -> bool:
     if not event_id:
         return True
     token = f"{settings.dedupe_prefix}:{event_type}:{event_id}"
 
-    client = _redis_client
-    if client is not None:
+    if redis_client is not None:
         try:
-            added = await client.sadd(settings.dedupe_prefix, token)
+            added = await redis_client.sadd(settings.dedupe_prefix, token)
             if added and settings.dedupe_ttl > 0:
-                await client.expire(settings.dedupe_prefix, settings.dedupe_ttl)
+                await redis_client.expire(settings.dedupe_prefix, settings.dedupe_ttl)
             if added:
                 return True
             return False
@@ -298,7 +295,11 @@ async def _mark_event_seen(event_id: Optional[str], event_type: str) -> bool:
 
 @app.post("/bilibili/callback", status_code=202)
 async def bilibili_callback(request: Request) -> JSONResponse:
-    await _ensure_ready()
+    publisher: Optional[RedisLiveEventPublisher] = getattr(request.app.state, "redis_publisher", None)
+    if publisher is None:
+        raise HTTPException(status_code=503, detail="callback_not_ready")
+    redis_client: Optional[redis.Redis] = getattr(request.app.state, "redis_client", None)
+
     body = await request.body()
     headers = {k.lower(): v for k, v in request.headers.items()}
 
@@ -325,12 +326,11 @@ async def bilibili_callback(request: Request) -> JSONResponse:
     event_type = payload.get("event") or payload.get("event_type") or event.message_type
     data = _extract_event_data(payload, event_type or "")
     event_id = _extract_event_id(payload, data)
-    is_new = await _mark_event_seen(event_id, event_type or "unknown")
+    is_new = await _mark_event_seen(event_id, event_type or "unknown", redis_client)
     if not is_new:
         return JSONResponse({"status": "duplicate"}, status_code=200)
 
-    assert _publisher is not None  # guarded by _ensure_ready
-    await _publisher.publish(event)
+    await publisher.publish(event)
     logger.info(
         "bili.callback.event_published",
         extra={
