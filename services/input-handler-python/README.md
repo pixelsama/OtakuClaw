@@ -11,6 +11,7 @@
 - **任务管理**: 自动生成task_id，跟踪处理状态
 - **错误处理**: 完善的错误处理和日志记录
 - **Bilibili 集成（可选）**: 在 `ENABLE_BILIBILI` 开启后采集 Bilibili 醒目留言并推送到 Redis `live.chat` 频道
+- **Prometheus 指标**: 通过 `/metrics` 暴露运行时指标（连接状态、事件吞吐、看门狗触发次数等）
 - **Bilibili 回调接收（可选）**: 通过独立 FastAPI 服务验证开放平台回调签名并补充醒目留言/礼物事件
 
 ## 接口端点

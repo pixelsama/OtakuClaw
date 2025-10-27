@@ -24,8 +24,35 @@ from config.bilibili_credentials import (
 from .bilibili_normalizer import normalize_bilibili_message
 from .bilibili_protocol import BilibiliOperation, BilibiliProtocolError, parse_messages
 from publisher import RedisLiveEventPublisher
+from prometheus_client import Counter, Gauge
 
 logger = logging.getLogger(__name__)
+
+_CONNECTION_STATUS = Gauge(
+    "bilibili_connection_status",
+    "Connection state for Bilibili danmaku client (1=connected,0=disconnected)",
+    ["room_id"],
+)
+_RECONNECT_COUNTER = Counter(
+    "bilibili_reconnect_total",
+    "Number of reconnect attempts for Bilibili danmaku client",
+    ["room_id"],
+)
+_EVENT_COUNTER = Counter(
+    "bilibili_events_total",
+    "Total Bilibili events processed",
+    ["room_id", "message_type"],
+)
+_WATCHDOG_COUNTER = Counter(
+    "bilibili_watchdog_trigger_total",
+    "Times the Bilibili watchdog forced a reconnect",
+    ["room_id"],
+)
+_LAST_EVENT_GAUGE = Gauge(
+    "bilibili_last_event_timestamp",
+    "Unix timestamp of the last Bilibili event received",
+    ["room_id"],
+)
 
 
 @dataclass(slots=True)
@@ -47,6 +74,10 @@ class BilibiliDanmakuConfig:
     anchor_code: Optional[str] = None
     app_heartbeat_interval: int = 20
     api_base: str = "https://live-open.biliapi.com"
+    watchdog_timeout: float = 60.0
+    alert_webhook: Optional[str] = None
+    alert_threshold: int = 3
+    alert_cooldown_seconds: int = 300
 
     @classmethod
     def from_env(cls) -> "BilibiliDanmakuConfig":
@@ -93,6 +124,10 @@ class BilibiliDanmakuConfig:
         anchor_code = os.getenv("BILI_ANCHOR_CODE") or (creds.anchor_code if creds else None)
         app_heartbeat_interval = _get_int("BILI_APP_HEARTBEAT_INTERVAL") or 20
         api_base = os.getenv("BILI_API_BASE", "https://live-open.biliapi.com")
+        watchdog_timeout = _get_float("BILI_WATCHDOG_SECONDS", 60.0)
+        alert_webhook = os.getenv("BILI_ALERT_WEBHOOK")
+        alert_threshold = _get_int("BILI_ALERT_THRESHOLD") or 3
+        alert_cooldown = _get_int("BILI_ALERT_COOLDOWN_SECONDS") or 300
 
         return cls(
             room_id=room_id,
@@ -112,6 +147,10 @@ class BilibiliDanmakuConfig:
             anchor_code=anchor_code,
             app_heartbeat_interval=app_heartbeat_interval,
             api_base=api_base,
+            watchdog_timeout=watchdog_timeout,
+            alert_webhook=alert_webhook,
+            alert_threshold=alert_threshold,
+            alert_cooldown_seconds=alert_cooldown,
         )
 
     @property
@@ -131,11 +170,19 @@ class BilibiliDanmakuClient:
         self._http_client: Optional[httpx.AsyncClient] = None
         self._game_id: Optional[str] = None
         self._task: Optional[asyncio.Task[None]] = None
+        self._current_websocket: Optional[WebSocketClientProtocol] = None
+        self._last_event_ts: float = time.monotonic()
+        self._watchdog_task: Optional[asyncio.Task[None]] = None
+        self._metrics_labels = {"room_id": str(config.room_id)}
+        self._consecutive_failures = 0
+        self._last_alert_ts: float = 0.0
 
     async def start(self) -> None:
         if self._running:
             return
         self._running = True
+        _CONNECTION_STATUS.labels(**self._metrics_labels).set(0)
+        _LAST_EVENT_GAUGE.labels(**self._metrics_labels).set(time.time())
         self._task = asyncio.create_task(self._run_loop(), name="bilibili-danmaku-loop")
 
     async def stop(self) -> None:
@@ -153,17 +200,23 @@ class BilibiliDanmakuClient:
         if self._http_client:
             await self._http_client.aclose()
             self._http_client = None
+        _CONNECTION_STATUS.labels(**self._metrics_labels).set(0)
 
     async def _run_loop(self) -> None:
         backoff = self._config.reconnect_initial
         while self._running:
+            labels = self._metrics_labels
+            _RECONNECT_COUNTER.labels(**labels).inc()
             try:
                 await self._connect_once()
+                self._consecutive_failures = 0
                 backoff = self._config.reconnect_initial
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 logger.exception("Bilibili client error: %s", exc)
+                self._consecutive_failures += 1
+                self._schedule_alert(f"connect_failure:{exc.__class__.__name__}")
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, self._config.reconnect_max)
 
@@ -176,8 +229,17 @@ class BilibiliDanmakuClient:
             max_queue=None,
             compression=None,
         ) as websocket:
-            await self._authenticate(websocket, auth_body)
-            await self._consume(websocket)
+            self._current_websocket = websocket
+            labels = self._metrics_labels
+            _CONNECTION_STATUS.labels(**labels).set(1)
+            self._last_event_ts = time.monotonic()
+            _LAST_EVENT_GAUGE.labels(**labels).set(time.time())
+            try:
+                await self._authenticate(websocket, auth_body)
+                await self._consume(websocket)
+            finally:
+                _CONNECTION_STATUS.labels(**labels).set(0)
+                self._current_websocket = None
 
     async def _prepare_connection(self) -> Tuple[str, str]:
         if self._config.use_open_api:
@@ -203,6 +265,8 @@ class BilibiliDanmakuClient:
         if not success:
             raise RuntimeError("Bilibili auth failed")
         logger.info("Bilibili auth success")
+        self._last_event_ts = time.monotonic()
+        _LAST_EVENT_GAUGE.labels(**self._metrics_labels).set(time.time())
 
     async def _consume(self, websocket: WebSocketClientProtocol) -> None:
         heartbeat_task = asyncio.create_task(
@@ -218,11 +282,20 @@ class BilibiliDanmakuClient:
         tasks = [heartbeat_task, recv_task]
         if app_heartbeat_task:
             tasks.append(app_heartbeat_task)
+        watchdog_task = None
+        if self._config.watchdog_timeout > 0:
+            watchdog_task = asyncio.create_task(self._watchdog_loop(), name="bilibili-watchdog")
+            tasks.append(watchdog_task)
+            self._watchdog_task = watchdog_task
         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
         for task in pending:
             task.cancel()
         for task in done:
-            task.result()
+            try:
+                task.result()
+            except asyncio.CancelledError:
+                pass
+        self._watchdog_task = None
 
     async def _heartbeat_loop(self, websocket: WebSocketClientProtocol) -> None:
         interval = max(self._config.heartbeat_interval, 5)
@@ -260,6 +333,8 @@ class BilibiliDanmakuClient:
             raise
 
     async def _handle_message(self, message: Dict[str, Any]) -> None:
+        self._last_event_ts = time.monotonic()
+        _LAST_EVENT_GAUGE.labels(**self._metrics_labels).set(time.time())
         cmd = message.get("cmd")
         if cmd == "HEARTBEAT_REPLY":
             logger.debug("Heartbeat reply: %s", message.get("value"))
@@ -268,6 +343,7 @@ class BilibiliDanmakuClient:
         event = normalize_bilibili_message(message, self._config.room_id)
         if not event:
             return
+        _EVENT_COUNTER.labels(room_id=self._metrics_labels["room_id"], message_type=event.message_type).inc()
         await self._publisher.publish(event)
 
     async def _start_app_session(self) -> Tuple[str, str]:
@@ -292,6 +368,74 @@ class BilibiliDanmakuClient:
             raise
         except Exception as exc:
             logger.warning("Bilibili app heartbeat error: %s", exc)
+
+    async def _watchdog_loop(self) -> None:
+        timeout = float(self._config.watchdog_timeout)
+        if timeout <= 0:
+            return
+        interval = max(timeout / 2.0, 1.0)
+        labels = self._metrics_labels
+        try:
+            while True:
+                await asyncio.sleep(interval)
+                if not self._running:
+                    return
+                elapsed = time.monotonic() - self._last_event_ts
+                if elapsed >= timeout:
+                    _WATCHDOG_COUNTER.labels(**labels).inc()
+                    logger.warning(
+                        "Bilibili watchdog triggered after %.1fs without events (room %s)",
+                        elapsed,
+                        self._config.room_id,
+                    )
+                    self._schedule_alert("watchdog_timeout", force=True)
+                    await self._trigger_reconnect("watchdog_timeout")
+                    self._last_event_ts = time.monotonic()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Bilibili watchdog loop failed")
+
+    async def _trigger_reconnect(self, reason: str) -> None:
+        websocket = self._current_websocket
+        if websocket is None:
+            return
+        self._current_websocket = None
+        try:
+            await websocket.close(code=4000, reason=reason)
+        except Exception:
+            pass
+
+    def _schedule_alert(self, reason: str, *, force: bool = False) -> None:
+        webhook = self._config.alert_webhook
+        if not webhook:
+            return
+        threshold = max(1, self._config.alert_threshold)
+        if not force and self._consecutive_failures < threshold:
+            return
+        now = time.time()
+        cooldown = max(0, self._config.alert_cooldown_seconds)
+        if now - self._last_alert_ts < cooldown:
+            return
+        self._last_alert_ts = now
+        asyncio.create_task(self._send_alert(reason))
+
+    async def _send_alert(self, reason: str) -> None:
+        webhook = self._config.alert_webhook
+        if not webhook:
+            return
+        payload = {
+            "reason": reason,
+            "room_id": self._config.room_id,
+            "failures": self._consecutive_failures,
+        }
+        if reason == "watchdog_timeout":
+            payload["elapsed_seconds"] = self._config.watchdog_timeout
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(webhook, json=payload)
+        except Exception:
+            logger.warning("Bilibili alert webhook failed", exc_info=True)
 
     async def _ensure_http_client(self) -> httpx.AsyncClient:
         if self._http_client:

@@ -12,7 +12,8 @@ import httpx
 import redis.asyncio as redis
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from input_handlers.bilibili_live import BilibiliDanmakuClient, BilibiliDanmakuConfig
 from publisher import RedisLiveEventPublisher
@@ -97,6 +98,11 @@ async def lifespan(app: FastAPI):
     await cleanup_redis()
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.get("/metrics")
+async def metrics_endpoint() -> Response:
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 class InputHandler:
     def __init__(self):
