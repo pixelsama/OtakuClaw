@@ -1,8 +1,6 @@
 # 注意：测试在模块目录下运行：cd services/gateway-python && pytest
+import base64
 import importlib
-import json
-import os
-import types
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,35 +24,41 @@ def test_asr_route_requires_absolute_path(client, monkeypatch):
     resp = client.post("/api/asr", json={"path": "relative.wav"})
     assert resp.status_code == 400
     data = resp.json()
-    assert "path must be absolute" in data.get("error", "")
+    assert data.get("error") == "path_must_be_absolute"
 
 
-def test_asr_route_pushes_to_redis_list(client, monkeypatch):
-    # 准备一个假的 Redis 客户端来捕获 lpush 调用
-    pushed = []
-
-    class DummyRedis:
-        async def lpush(self, queue, message):
-            pushed.append((queue, message))
-
-    # 替换 asr_routes.get_redis 返回 DummyRedis
+def test_asr_route_reads_file_and_invokes_dialog_engine(client, monkeypatch, tmp_path):
     asr_routes = importlib.import_module("src.services.asr_routes")
-    monkeypatch.setattr(asr_routes, "get_redis", lambda: DummyRedis())
 
-    abs_path = "/tmp/file.wav"
-    resp = client.post("/api/asr", json={"path": abs_path, "options": {"lang": "zh"}})
+    audio_path = tmp_path / "sample.wav"
+    audio_path.write_bytes(b"audio-bytes")
+
+    captured_payload = {}
+
+    async def fake_invoke(payload):
+        captured_payload.update(payload)
+        return {"sessionId": payload["sessionId"], "reply": "hi", "transcript": "test"}
+
+    monkeypatch.setattr(asr_routes, "_invoke_dialog_engine", fake_invoke)
+
+    resp = client.post(
+        "/api/asr",
+        json={
+            "path": str(audio_path),
+            "sessionId": "sess-1",
+            "contentType": "audio/wav",
+            "options": {"lang": "zh"},
+        },
+    )
+
     assert resp.status_code == 200
     data = resp.json()
-    assert "task_id" in data
+    assert data["reply"] == "hi"
+    assert data["sessionId"] == "sess-1"
 
-    # 验证写入了正确的队列与消息格式
-    assert len(pushed) == 1
-    queue, message = pushed[0]
-    assert queue == os.environ.get("ASR_TASKS_QUEUE", "asr_tasks")
+    assert captured_payload["sessionId"] == "sess-1"
+    assert captured_payload["contentType"] == "audio/wav"
+    assert captured_payload["lang"] == "zh"
 
-    msg = json.loads(message)
-    assert msg["audio"]["type"] == "file"
-    assert msg["audio"]["path"] == abs_path
-    assert msg["audio"]["format"] == "wav"
-    assert msg["options"]["lang"] == "zh"
-    assert msg["meta"]["source"] == "gateway"
+    decoded_audio = base64.b64decode(captured_payload["audio"])
+    assert decoded_audio == b"audio-bytes"
