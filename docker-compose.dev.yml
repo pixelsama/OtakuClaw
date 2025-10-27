@@ -115,6 +115,28 @@ services:
     depends_on:
       - redis
 
+  bilibili-callback:
+    build:
+      context: ./services/input-handler-python
+      dockerfile: Dockerfile
+    container_name: aivtuber-bili-callback-dev
+    command: uvicorn callbacks.bilibili:app --host 0.0.0.0 --port 8010
+    environment:
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - LIVE_CHAT_CHANNEL=${LIVE_CHAT_CHANNEL:-live.chat}
+      - BILI_CALLBACK_SECRET=${BILI_CALLBACK_SECRET}
+      - BILI_CALLBACK_KEY=${BILI_CALLBACK_KEY:-${BILI_APP_KEY}}
+      - PYTHONPATH=/app
+    volumes:
+      - ./services/input-handler-python:/app
+      - ./utils:/app/utils 
+    ports:
+      - "8010:8010"
+    restart: "no"
+    depends_on:
+      - redis
+
   # 记忆服务
   memory:
     build:

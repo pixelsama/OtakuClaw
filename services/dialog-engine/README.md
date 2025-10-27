@@ -46,6 +46,16 @@ Use any SSE client (curl `-N`, Postman, or VS Code REST client) to hit `/chat/au
 | `ASR_WHISPER_CACHE_DIR` | Optional model cache path | unset |
 | `SYNC_TTS_STREAMING` | Enable `/tts/mock` audio push | `false` |
 | `ENABLE_ASYNC_EXT` | Enables outbox + analytics events | `false` |
+| `ENABLE_BILIBILI_CONSUMER` | Subscribe to live chat events from Redis | `false` |
+| `LIVE_CHAT_CHANNEL` | Redis Pub/Sub channel for live events | `live.chat` |
+| `LIVE_CHAT_ENABLE_TTS` | Stream dialog replies to output handler when enabled | `true` |
+| `LIVE_CHAT_AUTO_THANKS` | Send templated thank-you replies for Super Chats | `true` |
+| `LIVE_CHAT_THANK_TEMPLATE` | Format string for Super Chat thanks (`{username}`, `{price_display}`, `{content}`) | `感谢 {username} 的支持！` |
+| `LIVE_CHAT_THANK_MIN_AMOUNT` | Minimum Super Chat amount (RMB) to trigger auto thanks | `0` |
+| `LIVE_CHAT_THANK_PREFIX` | Redis set prefix for Super Chat dedupe | `live.chat.superchat` |
+| `LIVE_CHAT_THANK_TTL` | Deduplication TTL (seconds) | `43200` |
+| `LIVE_CHAT_SUPERCHAT_USE_LLM` | Continue with LLM reply after auto thanks | `false` |
+| `LIVE_CHAT_SESSION_PREFIX` | Session id prefix for live chat conversations | `bili` |
 | `VISION_MAX_BYTES` | Max accepted image payload size in bytes | `4194304` |
 | `OUTPUT_INGEST_WS_URL` | Output handler WS endpoint | `ws://localhost:8002/ws/ingest/tts` |
 
@@ -77,4 +87,3 @@ Current unit coverage includes audio ingestion, ASR service wiring, memory/outbo
 - Docker: `docker compose up -d` (see project root) to launch full stack.
 - Local dev: `uvicorn dialog_engine.app:app --reload --port 8100` (requires env vars).
 - Postman/VS Code REST: import the above examples and adjust `audio` payload as needed (WAV base64).
-
