@@ -3,17 +3,17 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from typing import Dict
-
-import websockets
-import httpx
 from urllib.parse import urlparse, urlunparse
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
-from src.services.asr_routes import bp_asr as _flask_bp  # type: ignore
-from fastapi.middleware.wsgi import WSGIMiddleware
-from flask import Flask as _Flask  # shim for mounting Flask blueprint
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+
+import httpx
 import uvicorn
+import websockets
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.wsgi import WSGIMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from flask import Flask as _Flask  # shim for mounting Flask blueprint
+from src.services.asr_routes import bp_asr as _flask_bp  # type: ignore
 
 # 配置日志
 logging.basicConfig(
@@ -27,6 +27,9 @@ BACKEND_SERVICES = {
     "input": os.getenv("INPUT_HANDLER_URL", "ws://localhost:8001"),
     "output": os.getenv("OUTPUT_HANDLER_URL", "ws://localhost:8002")
 }
+
+DIALOG_ENGINE_URL = os.getenv("DIALOG_ENGINE_URL", "http://dialog-engine:8100")
+SSE_TIMEOUT = httpx.Timeout(60.0, connect=5.0, read=None, write=10.0)
 
 # 活跃连接跟踪
 active_connections: Dict[str, WebSocket] = {}
@@ -173,6 +176,91 @@ def _output_http_base() -> str:
     scheme = "https" if parsed.scheme == "wss" else "http"
     http_parsed = parsed._replace(scheme=scheme, path="", params="", query="", fragment="")
     return urlunparse(http_parsed).rstrip("/")
+
+
+def _dialog_engine_http_base() -> str:
+    return DIALOG_ENGINE_URL.rstrip("/")
+
+
+def _build_forward_headers(request: Request) -> Dict[str, str]:
+    excluded = {"host", "content-length"}
+    headers: Dict[str, str] = {
+        key: value
+        for key, value in request.headers.items()
+        if key.lower() not in excluded
+    }
+    headers.setdefault("accept", "text/event-stream")
+    headers.setdefault("content-type", "application/json")
+    return headers
+
+
+async def _proxy_dialog_engine_stream(request: Request, path: str) -> StreamingResponse:
+    """Generic helper to proxy SSE POST endpoints to dialog-engine."""
+    target_url = f"{_dialog_engine_http_base()}{path}"
+    body = await request.body()
+    if not body:
+        body = b"{}"
+
+    headers = _build_forward_headers(request)
+
+    client = httpx.AsyncClient(timeout=SSE_TIMEOUT, follow_redirects=False)
+    try:
+        upstream_response = await client.send(
+            client.build_request(
+                "POST",
+                target_url,
+                content=body,
+                headers=headers,
+            ),
+            stream=True,
+        )
+    except httpx.RequestError as exc:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail=f"dialog-engine unreachable: {exc}") from exc
+
+    if upstream_response.status_code >= 400:
+        detail_bytes = await upstream_response.aread()
+        await upstream_response.aclose()
+        await client.aclose()
+        detail = detail_bytes.decode("utf-8", errors="replace") or upstream_response.reason_phrase
+        return JSONResponse(
+            {"error": "dialog_engine_error", "detail": detail},
+            status_code=upstream_response.status_code,
+        )
+
+    async def event_stream():
+        try:
+            async for chunk in upstream_response.aiter_raw():
+                if chunk:
+                    yield chunk
+        finally:
+            await upstream_response.aclose()
+            await client.aclose()
+
+    response_headers = {}
+    for header_name in ("cache-control", "content-language"):
+        if header_name in upstream_response.headers:
+            response_headers[header_name] = upstream_response.headers[header_name]
+
+    media_type = upstream_response.headers.get("content-type", "text/event-stream")
+    return StreamingResponse(
+        event_stream(),
+        status_code=upstream_response.status_code,
+        media_type=media_type,
+        headers=response_headers,
+    )
+
+
+@app.post("/chat/stream")
+async def proxy_chat_stream(request: Request):
+    """Proxy SSE chat stream to dialog-engine."""
+    return await _proxy_dialog_engine_stream(request, "/chat/stream")
+
+
+@app.post("/chat/audio/stream")
+async def proxy_chat_audio_stream(request: Request):
+    """Proxy SSE audio stream to dialog-engine."""
+    return await _proxy_dialog_engine_stream(request, "/chat/audio/stream")
 
 
 @app.post("/control/stop")
