@@ -19,7 +19,6 @@
           variant="tonal"
           color="primary"
           @click="showConfigPanel = true"
-          :disabled="!modelLoaded"
         ></v-btn>
         <SubtitleBar :text="subtitleText" />
       </div>
