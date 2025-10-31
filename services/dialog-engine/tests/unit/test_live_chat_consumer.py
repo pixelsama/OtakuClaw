@@ -6,7 +6,7 @@ from dialog_engine.live_chat_consumer import (
     LiveChatConsumer,
     LiveChatConsumerSettings,
 )
-from utils.live_events import LiveEvent, LiveMessageType
+from dialog_engine.live_events import LiveEvent, LiveMessageType
 
 
 class FakeChatService:

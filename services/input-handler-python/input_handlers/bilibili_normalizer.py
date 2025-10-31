@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from utils.live_events import LiveEvent, LiveMessageType
+from live_events import LiveEvent, LiveMessageType
 
 logger = logging.getLogger(__name__)
 
@@ -115,4 +115,3 @@ def normalize_bilibili_message(message: Dict[str, Any], room_id: int) -> Optiona
 
 
 __all__ = ["normalize_bilibili_message"]
-

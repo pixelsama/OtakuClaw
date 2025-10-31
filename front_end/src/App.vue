@@ -19,7 +19,13 @@
           variant="tonal"
           color="primary"
           @click="showConfigPanel = true"
-          :disabled="!modelLoaded"
+        ></v-btn>
+        <v-btn
+          class="mic-toggle"
+          :icon="isRecording ? 'mdi-microphone-off' : 'mdi-microphone'"
+          variant="tonal"
+          :color="isRecording ? 'error' : 'primary'"
+          @click="toggleMicrophone"
         ></v-btn>
         <SubtitleBar :text="subtitleText" />
       </div>
@@ -80,7 +86,7 @@ const subtitleText = ref('');
 const viewerWidth = ref(400);
 const viewerHeight = ref(600);
 
-const { receivedAudioUrl } = useApi();
+const { receivedAudioUrl, isRecording, startRecording, stopRecording, recordingError } = useApi();
 const { startStreaming, cancelStreaming, onDelta, onDone, onError } = useStreamingChat();
 
 const detachDelta = onDelta((delta) => {
@@ -160,6 +166,12 @@ watch(receivedAudioUrl, (newUrl) => {
   }
 });
 
+watch(recordingError, (error) => {
+  if (error) {
+    console.error('录音发生错误:', error);
+  }
+});
+
 const sendUserText = async (content, options = {}) => {
   if (!content) return;
   clearSubtitle();
@@ -168,6 +180,14 @@ const sendUserText = async (content, options = {}) => {
 
 const stopStreaming = () => {
   cancelStreaming();
+};
+
+const toggleMicrophone = () => {
+  if (isRecording.value) {
+    stopRecording();
+  } else {
+    startRecording();
+  }
 };
 
 onBeforeUnmount(() => {
@@ -213,6 +233,13 @@ defineExpose({
   position: absolute;
   top: 20px;
   right: 20px;
+  z-index: 5;
+}
+
+.mic-toggle {
+  position: absolute;
+  top: 20px;
+  right: 80px;
   z-index: 5;
 }
 

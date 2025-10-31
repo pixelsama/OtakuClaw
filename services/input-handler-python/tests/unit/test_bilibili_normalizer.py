@@ -1,5 +1,5 @@
 from input_handlers.bilibili_normalizer import normalize_bilibili_message
-from utils.live_events import LiveMessageType
+from live_events import LiveMessageType
 
 
 def test_normalize_super_chat_message():

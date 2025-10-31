@@ -418,6 +418,15 @@ export function useApi() {
           return;
       }
 
+      // Ensure the input WebSocket is ready before we start capturing audio
+      try {
+          await connectInput();
+      } catch (error) {
+          console.error("Failed to establish input connection before recording:", error);
+          recordingError.value = "无法连接到输入服务，录音已取消。";
+          return;
+      }
+
       console.log("Requesting microphone access...");
       recordingError.value = null; // Clear previous errors
       recordedAudioChunks.value = []; // Reset chunks

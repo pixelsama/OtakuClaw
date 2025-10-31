@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from publisher import RedisLiveEventPublisher
-from utils.live_events import LiveEvent, LiveMessageType
+from live_events import LiveEvent, LiveMessageType
 
 logger = logging.getLogger(__name__)
 

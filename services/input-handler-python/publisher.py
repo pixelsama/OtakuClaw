@@ -5,7 +5,7 @@ from typing import Optional
 
 import redis.asyncio as redis
 
-from utils.live_events import LiveEvent
+from live_events import LiveEvent
 
 logger = logging.getLogger(__name__)
 
@@ -26,4 +26,3 @@ class RedisLiveEventPublisher:
             logger.debug("Published live event to %s", self._channel)
         except Exception as exc:  # pragma: no cover - network/redis errors
             logger.error("Failed to publish live event: %s", exc, exc_info=True)
-

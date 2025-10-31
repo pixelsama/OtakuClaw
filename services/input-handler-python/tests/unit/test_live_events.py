@@ -1,4 +1,4 @@
-from utils.live_events import LiveEvent, LiveMessageType, compute_priority
+from live_events import LiveEvent, LiveMessageType, compute_priority
 
 
 def test_live_event_priority_defaults_from_message_type():

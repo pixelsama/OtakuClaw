@@ -8,7 +8,7 @@ import websockets
 from input_handlers.bilibili_live import BilibiliDanmakuClient, BilibiliDanmakuConfig
 from input_handlers.bilibili_protocol import BilibiliOperation
 from publisher import RedisLiveEventPublisher
-from utils.live_events import LiveEvent
+from live_events import LiveEvent
 
 
 def build_packet(operation: int, version: int, body: bytes, sequence: int = 1) -> bytes:

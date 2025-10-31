@@ -14,7 +14,7 @@ import redis.asyncio as redis
 from .chat_service import ChatService
 from .tts_streamer import stream_text as default_tts_streamer
 from .ltm_outbox import add_event as outbox_add_event
-from utils.live_events import LiveEvent, LiveMessageType
+from .live_events import LiveEvent, LiveMessageType
 
 logger = logging.getLogger(__name__)
 

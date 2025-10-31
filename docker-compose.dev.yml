@@ -130,7 +130,6 @@ services:
       - PYTHONPATH=/app
     volumes:
       - ./services/input-handler-python:/app
-      - ./utils:/app/utils 
     ports:
       - "8010:8010"
     restart: "no"
