@@ -33,6 +33,7 @@
 - 新增 `VolcengineAsrProvider`，基于豆包语音 WebSocket API 实现分片上传和增量转写，支持 `ASR_VOLC_*` 环境变量配置凭证。
 - `AsrProvider` / `AsrService` 支持真正的流式生成，`chat_audio_stream` 在 SSE 中实时发送 `asr-partial` 事件后再进入 LLM 回复阶段。
 - 为向后兼容，`transcribe_bundle` 仍可返回批量结果，且在被 monkeypatch 时作为流式路径的最终兜底。
+- `input-handler` 通过 `/chat/audio/stream` 建立 SSE，边上传音频边转发 `asr-partial`、`text-delta` 事件到 Redis，`output-handler` 与前端 WebSocket 即时展示转写与回复增量。
 
 ### 4. 基础设施与性能
 - 评估流式模型的 CPU/GPU 占用，调整部署拓扑、容器资源、自动扩缩容策略。

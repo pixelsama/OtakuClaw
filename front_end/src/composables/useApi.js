@@ -25,6 +25,8 @@ const isProcessing = ref(false); // 用于表示从发送完成到收到结果�
 const uploadCompleteConfirmed = ref(false); // 确认 upload_complete 已被后端处理
 const processingError = ref(null); // 存储处理过程中或连接中的错误信息
 const receivedText = ref(''); // 存储接收到的 AI 文本结果
+const streamingTranscript = ref(''); // 实时 ASR 文本
+const streamingReply = ref(''); // 实时回复片段
 // Audio related state
 const audioChunks = shallowRef([]); // Store received audio binary chunks
 const expectedAudioChunks = ref(0);
@@ -108,6 +110,8 @@ const resetState = () => {
     uploadCompleteConfirmed.value = false;
     processingError.value = null;
     receivedText.value = '';
+    streamingTranscript.value = '';
+    streamingReply.value = '';
     audioChunks.value = [];
     expectedAudioChunks.value = 0;
     receivedAudioChunkCount.value = 0;
@@ -522,14 +526,16 @@ export function useApi() {
        try {
          const message = JSON.parse(event.data);
 
-         if (message.status === 'success' && message.task_id === currentTaskId) {
-           console.log('Received successful text result:', message.content);
-           receivedText.value = message.content || '';
-           // If audio is NOT present, processing is fully complete.
-           if (!message.audio_present) {
-               isProcessing.value = false; // Processing complete
-               disconnectOutput();
-           } else {
+        if (message.status === 'success' && message.task_id === currentTaskId) {
+          console.log('Received successful text result:', message.content);
+          receivedText.value = message.content || '';
+          streamingReply.value = '';
+          streamingTranscript.value = '';
+          // If audio is NOT present, processing is fully complete.
+          if (!message.audio_present) {
+              isProcessing.value = false; // Processing complete
+              disconnectOutput();
+          } else {
                console.log("Audio is present, preparing to receive chunks...");
                // Reset audio state for receiving, wait for first audio_chunk metadata
                resetAudioState();
@@ -549,12 +555,29 @@ export function useApi() {
              isProcessing.value = false; // All processing is now complete
              reassembleAndHandleAudio(); // Process the collected chunks
              disconnectOutput(); // Disconnect after processing audio
-         } else if (message.status === 'error') {
-           console.error('Output WebSocket error message:', message.error);
-           processingError.value = message.error || '未知处理错误。';
-           isProcessing.value = false;
-           disconnectOutput();
-         } else {
+         } else if (message.status === 'streaming' && message.task_id === currentTaskId) {
+             const eventType = message.event;
+             if (eventType === 'asr-partial' || eventType === 'asr-final') {
+                 if (typeof message.text === 'string') {
+                     streamingTranscript.value = message.text;
+                 }
+                 if (eventType === 'asr-final') {
+                     streamingTranscript.value = message.text || streamingTranscript.value;
+                 }
+             } else if (eventType === 'text-delta') {
+                 const deltaContent = typeof message.content === 'string' ? message.content : '';
+                 if (deltaContent) {
+                     streamingReply.value += deltaContent;
+                 }
+             }
+        } else if (message.status === 'error') {
+          console.error('Output WebSocket error message:', message.error);
+          processingError.value = message.error || '未知处理错误。';
+          isProcessing.value = false;
+          streamingReply.value = '';
+          streamingTranscript.value = '';
+          disconnectOutput();
+        } else {
            console.warn('Received unknown message structure on output WebSocket:', message);
          }
        } catch (e) {
@@ -624,6 +647,8 @@ export function useApi() {
       console.log("Requesting microphone access...");
       recordingError.value = null; // Clear previous errors
       recordedAudioChunks.value = []; // 保留以兼容旧逻辑，但不再用于发送
+      streamingTranscript.value = '';
+      streamingReply.value = '';
 
       let stream;
       try {
@@ -716,6 +741,8 @@ export function useApi() {
     uploadCompleteConfirmed,
     processingError,
     receivedText,
+    streamingTranscript,
+    streamingReply,
     receivedAudioUrl, // Export the audio URL
     // Export recording state and methods
     isRecording,

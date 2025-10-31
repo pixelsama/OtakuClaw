@@ -98,6 +98,8 @@ const messages = ref([
     // { sender: 'ai', text: '你好！有什么可以帮你的吗？' }
 ]);
 const chatListRef = ref(null); // Ref for the message list container
+const streamingUserMessageId = ref(null);
+const streamingAiMessageId = ref(null);
 
 // --- API Composable ---
 const {
@@ -107,6 +109,8 @@ const {
   isProcessing,
   processingError,
   receivedText,
+  streamingTranscript,
+  streamingReply,
   receivedAudioUrl, // Import this to potentially display/play received audio later
   connectInput,
   sendTextInput,
@@ -178,11 +182,56 @@ const toggleRecording = () => {
 
 // --- Watchers ---
 
+watch(streamingTranscript, (newText) => {
+  if (!newText) {
+    streamingUserMessageId.value = null;
+    return;
+  }
+  if (!streamingUserMessageId.value) {
+    const id = Date.now() + Math.random();
+    streamingUserMessageId.value = id;
+    messages.value.push({ sender: 'user', text: newText, id });
+  } else {
+    const msg = messages.value.find((m) => m.id === streamingUserMessageId.value);
+    if (msg) {
+      msg.text = newText;
+    }
+  }
+  scrollToBottom();
+});
+
+watch(streamingReply, (newText) => {
+  if (!newText) {
+    streamingAiMessageId.value = null;
+    return;
+  }
+  if (!streamingAiMessageId.value) {
+    const id = Date.now() + Math.random();
+    streamingAiMessageId.value = id;
+    messages.value.push({ sender: 'ai', text: newText, id });
+  } else {
+    const msg = messages.value.find((m) => m.id === streamingAiMessageId.value);
+    if (msg) {
+      msg.text = newText;
+    }
+  }
+  scrollToBottom();
+});
+
 // Watch for AI text response
 watch(receivedText, (newText) => {
   if (newText) {
-    // Add the actual AI response directly (no loading message to remove)
-    messages.value.push({ sender: 'ai', text: newText, id: Date.now() + Math.random() });
+    if (streamingAiMessageId.value) {
+      const msg = messages.value.find((m) => m.id === streamingAiMessageId.value);
+      if (msg) {
+        msg.text = newText;
+      } else {
+        messages.value.push({ sender: 'ai', text: newText, id: Date.now() + Math.random() });
+      }
+      streamingAiMessageId.value = null;
+    } else {
+      messages.value.push({ sender: 'ai', text: newText, id: Date.now() + Math.random() });
+    }
     scrollToBottom();
     // Reset receivedText in composable? Or assume it's only set once per response.
      receivedText.value = ''; // Clear it after processing

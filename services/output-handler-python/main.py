@@ -134,6 +134,10 @@ class OutputHandler:
                     try:
                         logger.info(f"Received message on {channel_name}: {message['data'][:100]}...")
                         response_data = json.loads(message["data"])
+                        status = str(response_data.get("status") or "").lower()
+                        if status == "streaming":
+                            await self._send_stream_event(websocket, task_id, response_data)
+                            continue
                         await self._send_response(websocket, task_id, response_data)
                         task_status[task_id] = "completed"
                         logger.info(f"Successfully processed response for task {task_id}")
@@ -169,6 +173,25 @@ class OutputHandler:
                 except Exception as e:
                     logger.error(f"Error cleaning up pubsub: {e}")
     
+    async def _send_stream_event(self, websocket: WebSocket, task_id: str, payload: dict) -> None:
+        event = payload.get("event")
+        message = {
+            "status": "streaming",
+            "task_id": task_id,
+            "event": event,
+            "text": payload.get("text"),
+            "confidence": payload.get("confidence"),
+            "content": payload.get("content"),
+            "is_final": payload.get("is_final"),
+            "eos": payload.get("eos"),
+        }
+        if event and event.lower() == "asr-final":
+            task_status[task_id] = "asr-final"
+        try:
+            await websocket.send_text(json.dumps(message))
+        except Exception as exc:
+            logger.error(f"Failed to send streaming event for task {task_id}: {exc}")
+
     async def _send_response(self, websocket: WebSocket, task_id: str, response_data: dict):
         try:
             status = str(response_data.get("status") or "success").lower()

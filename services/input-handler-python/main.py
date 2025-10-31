@@ -299,20 +299,33 @@ class InputHandler:
 
     async def _handle_audio_task(self, task_id: str, audio_file: Path) -> None:
         try:
-            result = await self._invoke_dialog_engine_audio(task_id, audio_file)
-            payload = {
-                "status": "success",
-                "sessionId": task_id,
-                "text": result.get("reply", ""),
-                "transcript": result.get("transcript", ""),
-                "stats": result.get("stats"),
-                "source": "dialog-engine",
-                "input_mode": "audio",
-            }
-            partials = result.get("partials")
-            if partials:
-                payload["partials"] = partials
-            await self._publish_response(task_id, payload)
+            async for event, payload in self._stream_dialog_engine_audio(task_id, audio_file):
+                event_name = (event or "").lower()
+                if event_name in {"asr-partial", "asr-final", "text-delta"}:
+                    await self._publish_stream_event(task_id, event_name, payload if isinstance(payload, dict) else {})
+                    continue
+                if event_name == "done":
+                    data = payload if isinstance(payload, dict) else {}
+                    response_payload = {
+                        "status": "success",
+                        "sessionId": task_id,
+                        "text": data.get("reply", ""),
+                        "transcript": data.get("transcript", ""),
+                        "stats": data.get("stats"),
+                        "source": "dialog-engine",
+                        "input_mode": "audio",
+                    }
+                    if "partials" in data:
+                        response_payload["partials"] = data["partials"]
+                    await self._publish_response(task_id, response_payload)
+                    return
+                if event_name == "error":
+                    message = ""
+                    if isinstance(payload, dict):
+                        message = payload.get("message") or ""
+                    await self._publish_error(task_id, message or "dialog_engine_failed")
+                    return
+            await self._publish_error(task_id, "dialog_engine_stream_incomplete")
         except Exception as exc:
             logger.error(f"Dialog-engine audio handling failed for task {task_id}: {exc}")
             await self._publish_error(task_id, str(exc) or "dialog_engine_failed")
@@ -350,6 +363,34 @@ class InputHandler:
             await self._publish_error(task_id, str(exc) or "dialog_engine_failed")
 
     async def _publish_response(self, task_id: str, payload: Dict[str, Any]) -> None:
+        await self._publish_payload(task_id, payload)
+
+    async def _publish_error(self, task_id: str, message: str) -> None:
+        payload = {
+            "status": "error",
+            "task_id": task_id,
+            "error": message,
+            "source": "dialog-engine",
+        }
+        await self._publish_payload(task_id, payload)
+
+    async def _publish_stream_event(self, task_id: str, event: str, data: Dict[str, Any]) -> None:
+        payload = {
+            "status": "streaming",
+            "task_id": task_id,
+            "event": event,
+            "text": data.get("text"),
+            "confidence": data.get("confidence"),
+            "content": data.get("content"),
+            "is_final": data.get("is_final"),
+            "source": "dialog-engine",
+            "input_mode": "audio",
+        }
+        if "eos" in data:
+            payload["eos"] = data.get("eos")
+        await self._publish_payload(task_id, payload)
+
+    async def _publish_payload(self, task_id: str, payload: Dict[str, Any]) -> None:
         if not redis_client:
             logger.error("Redis client not available; cannot publish response")
             return
@@ -359,15 +400,6 @@ class InputHandler:
             logger.info(f"Published dialog-engine result to {channel}")
         except Exception as exc:
             logger.error(f"Failed to publish response for task {task_id}: {exc}")
-
-    async def _publish_error(self, task_id: str, message: str) -> None:
-        payload = {
-            "status": "error",
-            "task_id": task_id,
-            "error": message,
-            "source": "dialog-engine",
-        }
-        await self._publish_response(task_id, payload)
 
     async def _stream_dialog_engine(self, task_id: str, content: str) -> Tuple[str, Dict[str, Any]]:
         url = f"{DIALOG_ENGINE_URL.rstrip('/')}{TEXT_STREAM_ENDPOINT}"
@@ -425,7 +457,7 @@ class InputHandler:
         reply_text = "".join(deltas)
         return reply_text, stats
 
-    async def _invoke_dialog_engine_audio(self, task_id: str, audio_file: Path) -> Dict[str, Any]:
+    async def _stream_dialog_engine_audio(self, task_id: str, audio_file: Path):
         url = f"{DIALOG_ENGINE_URL.rstrip('/')}{AUDIO_ENDPOINT}"
         try:
             audio_bytes = audio_file.read_bytes()
@@ -442,10 +474,37 @@ class InputHandler:
             "meta": {"source": "input-handler"},
         }
         try:
+            headers = {"Accept": "text/event-stream"}
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-                resp = await client.post(url, json=body)
-                resp.raise_for_status()
-                return resp.json()
+                async with client.stream(
+                    "POST",
+                    url + "/stream",
+                    json=body,
+                    headers=headers,
+                ) as resp:
+                    resp.raise_for_status()
+                    current_event = "message"
+                    async for line in resp.aiter_lines():
+                        if line == "":
+                            current_event = "message"
+                            continue
+                        if line.startswith(":"):
+                            continue
+                        if line.lower().startswith("event:"):
+                            current_event = line.split(":", 1)[1].strip() or "message"
+                            continue
+                        if line.lower().startswith("data:"):
+                            payload_raw = line.split(":", 1)[1].strip()
+                            if not payload_raw:
+                                continue
+                            try:
+                                data_obj = json.loads(payload_raw)
+                            except json.JSONDecodeError:
+                                logger.debug(f"Non-JSON SSE payload ignored: %s", payload_raw[:80])
+                                continue
+                            yield current_event, data_obj
+                            if current_event.lower() in {"done", "error"}:
+                                return
         except httpx.HTTPStatusError as exc:
             try:
                 detail = exc.response.json()
