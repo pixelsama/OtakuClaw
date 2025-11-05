@@ -236,6 +236,14 @@ class VolcengineAsrProvider(AsrProvider):
 
         if message_type == self._MESSAGE_TYPE_ERROR:
             message, code = self._extract_error(payload)
+            if code in {"13", 13} or (isinstance(message, str) and "stream is done" in message.lower()):
+                logger.info(
+                    "volcengine.asr.stream_done code=%s logid=%s message=%s",
+                    code,
+                    self._last_log_id,
+                    message,
+                )
+                return []
             raise VolcengineAsrError(message, code=code, log_id=self._last_log_id)
 
         if message_type != self._MESSAGE_TYPE_RESPONSE:
