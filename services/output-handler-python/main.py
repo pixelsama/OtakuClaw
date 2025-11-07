@@ -26,6 +26,9 @@ active_connections: Dict[str, WebSocket] = {}
 task_status: Dict[str, str] = {}
 ingest_ws: Optional[WebSocket] = None  # dialog-engine upstream connection
 _chunk_seq: Dict[str, int] = {}  # per-session chunk counters
+streaming_events: Dict[str, asyncio.Event] = {}  # signal streaming TTS completion
+
+STREAMING_AUDIO_TIMEOUT = float(os.getenv("STREAMING_AUDIO_TIMEOUT", "120"))
 
 async def init_redis():
     global redis_client
@@ -70,11 +73,20 @@ class OutputHandler:
         await websocket.accept()
         active_connections[task_id] = websocket
         task_status[task_id] = "connected"
+        stream_event = asyncio.Event()
+        streaming_events[task_id] = stream_event
         logger.info(f"Output connection established for task_id: {task_id}")
         
         try:
             # 等待处理结果
-            await self._wait_for_result(websocket, task_id)
+            expects_stream = await self._wait_for_result(websocket, task_id)
+            if expects_stream:
+                logger.info("Waiting for streaming audio to finish for task %s", task_id)
+                try:
+                    await asyncio.wait_for(stream_event.wait(), timeout=STREAMING_AUDIO_TIMEOUT)
+                    logger.info("Streaming audio completed for task %s", task_id)
+                except asyncio.TimeoutError:
+                    logger.warning("Timed out waiting for streaming audio completion for task %s", task_id)
         except WebSocketDisconnect:
             logger.info(f"Output connection disconnected, task_id: {task_id}")
         except Exception as e:
@@ -91,14 +103,18 @@ class OutputHandler:
                 del active_connections[task_id]
             if task_id in task_status:
                 del task_status[task_id]
+            event = streaming_events.pop(task_id, None)
+            if event is not None:
+                event.set()
     
-    async def _wait_for_result(self, websocket: WebSocket, task_id: str):
+    async def _wait_for_result(self, websocket: WebSocket, task_id: str) -> bool:
+        streaming_pending = False
         if not redis_client:
             await websocket.send_text(json.dumps({
                 "status": "error",
                 "error": "Redis connection not available"
             }))
-            return
+            return streaming_pending
         
         pubsub = None
         try:
@@ -138,7 +154,8 @@ class OutputHandler:
                         if status == "streaming":
                             await self._send_stream_event(websocket, task_id, response_data)
                             continue
-                        await self._send_response(websocket, task_id, response_data)
+                        expects_stream = await self._send_response(websocket, task_id, response_data)
+                        streaming_pending = streaming_pending or expects_stream
                         task_status[task_id] = "completed"
                         logger.info(f"Successfully processed response for task {task_id}")
                         break
@@ -172,6 +189,7 @@ class OutputHandler:
                     logger.debug(f"Cleaned up pubsub for task {task_id}")
                 except Exception as e:
                     logger.error(f"Error cleaning up pubsub: {e}")
+        return streaming_pending
     
     async def _send_stream_event(self, websocket: WebSocket, task_id: str, payload: dict) -> None:
         event = payload.get("event")
@@ -192,7 +210,8 @@ class OutputHandler:
         except Exception as exc:
             logger.error(f"Failed to send streaming event for task {task_id}: {exc}")
 
-    async def _send_response(self, websocket: WebSocket, task_id: str, response_data: dict):
+    async def _send_response(self, websocket: WebSocket, task_id: str, response_data: dict) -> bool:
+        streaming_audio = False
         try:
             status = str(response_data.get("status") or "success").lower()
             if status != "success":
@@ -206,16 +225,18 @@ class OutputHandler:
                     error_payload["meta"] = response_data["meta"]
                 await websocket.send_text(json.dumps(error_payload))
                 logger.info(f"Sent error response for task {task_id}")
-                return
+                return streaming_audio
 
             content = response_data.get("text")
             if not isinstance(content, str):
                 content = response_data.get("reply", "")
+            audio_payload = response_data.get("audio") if isinstance(response_data.get("audio"), dict) else {}
+            streaming_audio = bool(audio_payload.get("stream"))
             text_response = {
                 "status": "success",
                 "task_id": task_id,
                 "content": content or "",
-                "audio_present": bool(response_data.get("audio_file") or response_data.get("audio")),
+                "audio_present": bool(response_data.get("audio_file") or audio_payload),
                 "transcript": response_data.get("transcript"),
                 "stats": response_data.get("stats"),
                 "source": response_data.get("source", "dialog-engine"),
@@ -229,6 +250,7 @@ class OutputHandler:
             audio_file = response_data.get("audio_file")
             if audio_file:
                 await self._send_audio_chunks(websocket, task_id, audio_file)
+                streaming_audio = False  # handled synchronously via file chunks
 
         except Exception as e:
             logger.error(f"Error sending response: {e}")
@@ -236,6 +258,8 @@ class OutputHandler:
                 "status": "error",
                 "error": str(e)
             }))
+            streaming_audio = False
+        return streaming_audio
     
     async def _send_audio_chunks(self, websocket: WebSocket, task_id: str, audio_file: str):
         try:
@@ -312,16 +336,20 @@ class OutputHandler:
             logger.error(f"Failed to relay chunk to client {session_id}: {e}")
 
     async def relay_control(self, session_id: str, action: str):
+        upper_action = action.upper()
         ws = active_connections.get(session_id)
-        if not ws:
-            return
-        try:
-            payload = {"type": "control", "action": action, "task_id": session_id}
-            await ws.send_text(json.dumps(payload))
-            if action.upper() == "END":
-                await ws.send_text(json.dumps({"type": "audio_complete", "task_id": session_id}))
-        except Exception:
-            pass
+        if ws:
+            try:
+                payload = {"type": "control", "action": action, "task_id": session_id}
+                await ws.send_text(json.dumps(payload))
+                if upper_action == "END":
+                    await ws.send_text(json.dumps({"type": "audio_complete", "task_id": session_id}))
+            except Exception:
+                pass
+        if upper_action in {"END", "STOP_ACK"}:
+            event = streaming_events.get(session_id)
+            if event:
+                event.set()
 
 # 初始化处理器
 output_handler = OutputHandler()
