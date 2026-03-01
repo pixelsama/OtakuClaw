@@ -143,6 +143,11 @@ function parseManualFiles(text, suffix, basePath) {
   });
 }
 
+function normalizeModelScale(scale) {
+  const rounded = Math.round(scale * 10) / 10;
+  return Math.max(0.1, Math.min(3, rounded));
+}
+
 export default function Live2DControls({
   live2dViewerRef,
   modelLoaded,
@@ -179,6 +184,7 @@ export default function Live2DControls({
 
   const [savedPresets, setSavedPresets] = useState([]);
   const [newPresetName, setNewPresetName] = useState('');
+  const [isHydrated, setIsHydrated] = useState(false);
 
   const [debugInfo, setDebugInfo] = useState('Live2D 模型调试信息将在这里显示...');
   const [isTestingLipSync, setIsTestingLipSync] = useState(false);
@@ -304,6 +310,10 @@ export default function Live2DControls({
   }, [saveExpressionConfig, saveMotionConfig, updateDebugInfo]);
 
   useEffect(() => {
+    if (isHydrated) {
+      return;
+    }
+
     try {
       const storedMotion = JSON.parse(localStorage.getItem(STORAGE_KEYS.motionConfig) || '{}');
       const mergedMotions = mergeById(DEFAULT_MOTIONS, storedMotion.motions);
@@ -318,6 +328,12 @@ export default function Live2DControls({
       onExpressionsUpdate?.(mergedExpressions);
 
       const storedModel = JSON.parse(localStorage.getItem(STORAGE_KEYS.modelConfig) || '{}');
+      if (typeof storedModel.selectedModel === 'string' && storedModel.selectedModel) {
+        setSelectedModel(storedModel.selectedModel);
+        if (storedModel.selectedModel !== DEFAULT_MODEL_PATH) {
+          onModelChange?.(storedModel.selectedModel);
+        }
+      }
       if (typeof storedModel.modelScale === 'number') {
         setModelScale(storedModel.modelScale);
       }
@@ -330,6 +346,9 @@ export default function Live2DControls({
       if (typeof storedModel.eyeTracking === 'boolean') {
         setEyeTracking(storedModel.eyeTracking);
       }
+      if (typeof storedModel.backgroundOpacity === 'number') {
+        setBackgroundOpacity(storedModel.backgroundOpacity);
+      }
 
       const storedCache = JSON.parse(
         localStorage.getItem(STORAGE_KEYS.cachedBackgrounds) || '[]',
@@ -341,11 +360,13 @@ export default function Live2DControls({
       loadSavedPresets();
     } catch (error) {
       console.error('Failed to restore state from localStorage:', error);
+    } finally {
+      setIsHydrated(true);
     }
-  }, [loadSavedPresets, onExpressionsUpdate, onMotionsUpdate]);
+  }, [isHydrated, loadSavedPresets, onExpressionsUpdate, onModelChange, onMotionsUpdate]);
 
   useEffect(() => {
-    if (!modelLoaded) return;
+    if (!isHydrated || !modelLoaded) return;
 
     const manager = getManager();
     if (!manager) return;
@@ -363,19 +384,35 @@ export default function Live2DControls({
     backgroundOpacity,
     eyeTracking,
     getManager,
+    isHydrated,
     modelLoaded,
     modelScale,
     updateAvailableClickAreas,
   ]);
 
   useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
     saveModelConfig({
+      selectedModel,
       modelScale,
       autoEyeBlink,
       autoBreath,
       eyeTracking,
+      backgroundOpacity,
     });
-  }, [autoBreath, autoEyeBlink, eyeTracking, modelScale, saveModelConfig]);
+  }, [
+    autoBreath,
+    autoEyeBlink,
+    backgroundOpacity,
+    eyeTracking,
+    isHydrated,
+    modelScale,
+    saveModelConfig,
+    selectedModel,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -783,12 +820,20 @@ export default function Live2DControls({
 
   const updateModelScale = useCallback(
     (scale) => {
-      setModelScale(scale);
-      getManager()?.setModelScale(scale);
-      onModelScaleChange?.(scale);
-      updateDebugInfo(`模型大小调整为: ${scale}`);
+      const normalizedScale = normalizeModelScale(scale);
+      setModelScale((prev) => (prev === normalizedScale ? prev : normalizedScale));
+      getManager()?.setModelScale(normalizedScale);
+      onModelScaleChange?.(normalizedScale);
     },
-    [getManager, onModelScaleChange, updateDebugInfo],
+    [getManager, onModelScaleChange],
+  );
+
+  const commitModelScale = useCallback(
+    (scale) => {
+      const normalizedScale = normalizeModelScale(scale);
+      updateDebugInfo(`模型大小调整为: ${normalizedScale.toFixed(1)}`);
+    },
+    [updateDebugInfo],
   );
 
   const resetModel = useCallback(() => {
@@ -1379,6 +1424,7 @@ export default function Live2DControls({
           onToggleEyeTracking={toggleEyeTracking}
           modelScale={modelScale}
           onChangeModelScale={updateModelScale}
+          onCommitModelScale={commitModelScale}
           onResetModel={resetModel}
         />
 

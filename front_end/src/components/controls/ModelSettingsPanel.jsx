@@ -31,6 +31,7 @@ export default function ModelSettingsPanel({
   onToggleEyeTracking,
   modelScale,
   onChangeModelScale,
+  onCommitModelScale,
   onResetModel,
 }) {
   return (
@@ -74,6 +75,7 @@ export default function ModelSettingsPanel({
               max={3}
               step={0.1}
               onChange={(_, value) => onChangeModelScale(Number(value))}
+              onChangeCommitted={(_, value) => onCommitModelScale?.(Number(value))}
             />
           </Box>
 

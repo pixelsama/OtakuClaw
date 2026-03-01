@@ -128,6 +128,11 @@ export default function App() {
     [],
   );
 
+  const handleControlModelChange = useCallback((modelPath) => {
+    setCurrentModelPath(modelPath);
+    setModelLoaded(false);
+  }, []);
+
   return (
     <Box sx={stageStyle}>
       <Box className="live2d-stage">
@@ -154,7 +159,13 @@ export default function App() {
         <SubtitleBar text={subtitleText} />
       </Box>
 
-      <Dialog open={showConfigPanel} onClose={() => setShowConfigPanel(false)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={showConfigPanel}
+        onClose={() => setShowConfigPanel(false)}
+        maxWidth="sm"
+        fullWidth
+        keepMounted
+      >
         <DialogTitle>
           <Stack direction="row" spacing={1} alignItems="center">
             <IconButton onClick={() => setShowConfigPanel(false)}>
@@ -168,10 +179,7 @@ export default function App() {
           <Live2DControls
             live2dViewerRef={live2dViewerRef}
             modelLoaded={modelLoaded}
-            onModelChange={(modelPath) => {
-              setCurrentModelPath(modelPath);
-              setModelLoaded(false);
-            }}
+            onModelChange={handleControlModelChange}
             onMotionsUpdate={setMotions}
             onExpressionsUpdate={setExpressions}
             onAutoEyeBlinkChange={(enabled) => {

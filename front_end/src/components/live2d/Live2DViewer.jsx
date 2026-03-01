@@ -62,6 +62,7 @@ const Live2DViewer = forwardRef(function Live2DViewer(
   const isPlayingAudioRef = useRef(false);
   const audioContextReadyRef = useRef(false);
   const userInteractedRef = useRef(false);
+  const initRequestIdRef = useRef(0);
 
   const animationFrameIdRef = useRef(null);
 
@@ -98,6 +99,9 @@ const Live2DViewer = forwardRef(function Live2DViewer(
   }, []);
 
   const cleanup = useCallback(() => {
+    // Invalidate any in-flight async initialization tasks.
+    initRequestIdRef.current += 1;
+
     if (animationFrameIdRef.current) {
       cancelAnimationFrame(animationFrameIdRef.current);
       animationFrameIdRef.current = null;
@@ -141,6 +145,8 @@ const Live2DViewer = forwardRef(function Live2DViewer(
   }, []);
 
   const initLive2D = useCallback(async () => {
+    const requestId = ++initRequestIdRef.current;
+
     try {
       setLoading(true);
       setError('');
@@ -168,13 +174,40 @@ const Live2DViewer = forwardRef(function Live2DViewer(
       managerRef.current = manager;
 
       await manager.initialize(canvas);
+      if (requestId !== initRequestIdRef.current || managerRef.current !== manager) {
+        if (managerRef.current === manager) {
+          managerRef.current = null;
+        }
+        manager.release();
+        return;
+      }
+
       const model = await manager.loadModel(modelPath);
+      if (requestId !== initRequestIdRef.current || managerRef.current !== manager) {
+        if (managerRef.current === manager) {
+          managerRef.current = null;
+        }
+        manager.release();
+        return;
+      }
+
       manager.startRendering();
+      if (requestId !== initRequestIdRef.current || managerRef.current !== manager) {
+        if (managerRef.current === manager) {
+          managerRef.current = null;
+        }
+        manager.release();
+        return;
+      }
 
       setLoading(false);
       updateModelHitAreas();
       onModelLoaded?.(model);
     } catch (err) {
+      if (requestId !== initRequestIdRef.current) {
+        // Ignore errors from stale/disposed initialization tasks.
+        return;
+      }
       console.error('Failed to initialize Live2D:', err);
       setError(`初始化失败: ${err?.message || '未知错误'}`);
       setLoading(false);
