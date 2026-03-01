@@ -9,10 +9,6 @@ export default [
       'dist/**',
       'node_modules/**',
       'src/live2d/**',
-      'src/composables/**',
-      'src/**/*.vue',
-      'src/main.js',
-      'src/App.vue',
     ],
   },
   js.configs.recommended,
@@ -44,6 +40,8 @@ export default [
       ...reactPlugin.configs.recommended.rules,
       ...reactHooks.configs.recommended.rules,
       'react/react-in-jsx-scope': 'off',
+      // We keep components in plain JS/JSX for now; prop-types are not required.
+      'react/prop-types': 'off',
     },
   },
 ];

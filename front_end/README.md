@@ -1,6 +1,7 @@
-# 前端本地开发（OpenClaw 文本版）
+# 前端本地开发（OpenClaw 文本版，React）
 
 该副本前端当前是文本链路：
+- React 18 + MUI + Vite
 - 使用 `POST /chat/stream` 获取流式字幕
 - 语音入口已禁用（Phase 1 不接 TTS/ASR）
 
