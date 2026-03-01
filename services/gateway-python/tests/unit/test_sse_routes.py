@@ -21,15 +21,13 @@ class FakeResponse:
     ) -> None:
         self.status_code = status_code
         self.headers = headers or {"content-type": "text/event-stream"}
-        self._chunks = list(chunks or ([] if detail_text else []))
-        if detail_text and not self._chunks:
-            self._chunks.append(detail_text.encode("utf-8"))
+        self._chunks = list(chunks or ([] if detail_text is None else [detail_text.encode("utf-8")]))
         self.reason_phrase = "OK"
         self.closed = False
 
-    async def aiter_raw(self):
+    async def aiter_text(self):
         for chunk in self._chunks:
-            yield chunk
+            yield chunk.decode("utf-8")
 
     async def aread(self) -> bytes:
         return b"".join(self._chunks)
@@ -45,8 +43,19 @@ class DummyAsyncClient:
         self.closed = False
         self._response: FakeResponse | None = None
 
-    def build_request(self, method: str, url: str, *, headers: Dict[str, str], content: bytes) -> httpx.Request:
-        self.last_request = httpx.Request(method, url, headers=headers, content=content)
+    def build_request(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: Dict[str, str] | None = None,
+        json: Dict[str, Any] | None = None,
+        content: bytes | None = None,
+    ) -> httpx.Request:
+        if json is not None:
+            self.last_request = httpx.Request(method, url, headers=headers, json=json)
+        else:
+            self.last_request = httpx.Request(method, url, headers=headers, content=content)
         return self.last_request
 
     async def send(self, request: httpx.Request, stream: bool = False) -> FakeResponse:
@@ -64,15 +73,12 @@ def client():
         yield test_client
 
 
-@pytest.mark.parametrize(
-    ("endpoint", "expected_path"),
-    [
-        ("/chat/stream", "/chat/stream"),
-        ("/chat/audio/stream", "/chat/audio/stream"),
-    ],
-)
-def test_sse_proxy_success(monkeypatch, client: TestClient, endpoint: str, expected_path: str) -> None:
-    chunks = [b"event: text-delta\n", b"data: hello\n\n"]
+def test_chat_stream_maps_openclaw_events(monkeypatch, client: TestClient) -> None:
+    chunks = [
+        b'data: {"id":"1","choices":[{"delta":{"content":"hello"}}]}\n\n',
+        b'data: {"id":"1","choices":[{"delta":{"content":" world"}}]}\n\n',
+        b"data: [DONE]\n\n",
+    ]
     captured: Dict[str, Any] = {}
 
     def factory(request: httpx.Request) -> FakeResponse:
@@ -92,20 +98,30 @@ def test_sse_proxy_success(monkeypatch, client: TestClient, endpoint: str, expec
         created_clients.append(client_instance)
         return client_instance
 
+    monkeypatch.setattr(main, "OPENCLAW_BASE_URL", "http://openclaw.local:18789")
+    monkeypatch.setattr(main, "OPENCLAW_TOKEN", "secret-token")
+    monkeypatch.setattr(main, "OPENCLAW_AGENT_ID", "main")
     monkeypatch.setattr(main, "httpx", main.httpx)
     monkeypatch.setattr(main.httpx, "AsyncClient", fake_async_client)
 
-    response = client.post(endpoint, json={"sessionId": "sess"}, headers={"X-Test": "1"})
+    response = client.post("/chat/stream", json={"session_id": "sess-1", "content": "你好"})
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
-    assert response.content == b"".join(chunks)
 
-    assert captured["url"] == f"{main.DIALOG_ENGINE_URL.rstrip('/')}{expected_path}"
-    assert captured["headers"]["x-test"] == "1"
-    assert captured["headers"]["content-type"] == "application/json"
-    parsed_body = json.loads(captured["content"].decode("utf-8"))
-    assert parsed_body == {"sessionId": "sess"}
+    body = response.content.decode("utf-8")
+    assert "event: text-delta" in body
+    assert '"content": "hello"' in body
+    assert '"content": " world"' in body
+    assert "event: done" in body
+
+    assert captured["url"] == "http://openclaw.local:18789/v1/chat/completions"
+    assert captured["headers"]["authorization"] == "Bearer secret-token"
+    payload = json.loads(captured["content"].decode("utf-8"))
+    assert payload["stream"] is True
+    assert payload["model"] == "openclaw:main"
+    assert payload["user"] == "sess-1"
+    assert payload["messages"] == [{"role": "user", "content": "你好"}]
 
     client_instance = created_clients[0]
     assert client_instance.closed is True
@@ -113,9 +129,15 @@ def test_sse_proxy_success(monkeypatch, client: TestClient, endpoint: str, expec
     assert client_instance._response.closed is True
 
 
-def test_sse_proxy_error(monkeypatch, client: TestClient) -> None:
+def test_chat_stream_requires_content(client: TestClient) -> None:
+    response = client.post("/chat/stream", json={"session_id": "sess-1"})
+    assert response.status_code == 400
+    assert response.json()["detail"] == "content is required"
+
+
+def test_chat_stream_upstream_error(monkeypatch, client: TestClient) -> None:
     def factory(request: httpx.Request) -> FakeResponse:
-        return FakeResponse(status_code=503, headers={"content-type": "text/event-stream"}, detail_text="fail")
+        return FakeResponse(status_code=401, headers={"content-type": "application/json"}, detail_text="unauthorized")
 
     created_clients: List[DummyAsyncClient] = []
 
@@ -127,12 +149,18 @@ def test_sse_proxy_error(monkeypatch, client: TestClient) -> None:
     monkeypatch.setattr(main, "httpx", main.httpx)
     monkeypatch.setattr(main.httpx, "AsyncClient", fake_async_client)
 
-    response = client.post("/chat/stream", json={"sessionId": "s"})
+    response = client.post("/chat/stream", json={"session_id": "s", "content": "hello"})
 
-    assert response.status_code == 503
-    assert response.json() == {"error": "dialog_engine_error", "detail": "fail"}
+    assert response.status_code == 401
+    assert response.json() == {"error": "openclaw_error", "detail": "unauthorized"}
 
     client_instance = created_clients[0]
     assert client_instance.closed is True
     assert client_instance._response is not None
     assert client_instance._response.closed is True
+
+
+def test_chat_audio_stream_removed(client: TestClient) -> None:
+    response = client.post("/chat/audio/stream", json={"sessionId": "x"})
+    assert response.status_code == 410
+    assert response.json()["error"] == "not_supported"

@@ -6,8 +6,7 @@ import os
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
-from urllib.parse import urlparse, urlunparse
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 import uvicorn
@@ -32,8 +31,18 @@ BACKEND_SERVICES = {
     "output": os.getenv("OUTPUT_HANDLER_URL", "ws://localhost:8002")
 }
 
-DIALOG_ENGINE_URL = os.getenv("DIALOG_ENGINE_URL", "http://dialog-engine:8100")
-SSE_TIMEOUT = httpx.Timeout(60.0, connect=5.0, read=None, write=10.0)
+OPENCLAW_BASE_URL = os.getenv("OPENCLAW_BASE_URL", "http://127.0.0.1:18789").rstrip("/")
+OPENCLAW_TOKEN = os.getenv("OPENCLAW_TOKEN", "").strip()
+OPENCLAW_AGENT_ID = os.getenv("OPENCLAW_AGENT_ID", "main").strip() or "main"
+OPENCLAW_HTTP_TIMEOUT = float(os.getenv("OPENCLAW_HTTP_TIMEOUT", "60.0"))
+OPENCLAW_CONNECT_TIMEOUT = float(os.getenv("OPENCLAW_CONNECT_TIMEOUT", "5.0"))
+OPENCLAW_WRITE_TIMEOUT = float(os.getenv("OPENCLAW_WRITE_TIMEOUT", "10.0"))
+SSE_TIMEOUT = httpx.Timeout(
+    OPENCLAW_HTTP_TIMEOUT,
+    connect=OPENCLAW_CONNECT_TIMEOUT,
+    read=None,
+    write=OPENCLAW_WRITE_TIMEOUT,
+)
 AUDIO_STREAM_IDLE_TIMEOUT = float(os.getenv("AUDIO_STREAM_IDLE_TIMEOUT", "20.0"))
 AUDIO_STREAM_MAX_CHUNK_BYTES = int(os.getenv("AUDIO_STREAM_MAX_CHUNK_BYTES", str(1 * 1024 * 1024)))
 
@@ -460,68 +469,135 @@ audio_proxy = StreamingInputProxy()
 
 @app.websocket("/ws/input")
 async def proxy_input(websocket: WebSocket):
-    """代理输入WebSocket连接到input-handler服务"""
-    backend_url = f"{BACKEND_SERVICES['input']}/ws/input"
-    await audio_proxy.handle(websocket, backend_url)
+    await websocket.accept()
+    await websocket.send_text(json.dumps({"error": "not_supported", "detail": "legacy ws/input is disabled"}))
+    await websocket.close(code=1008)
 
 @app.websocket("/ws/output/{task_id}")
 async def proxy_output(websocket: WebSocket, task_id: str):
-    """代理输出WebSocket连接到output-handler服务"""
-    backend_url = f"{BACKEND_SERVICES['output']}/ws/output/{task_id}"
-    await proxy.proxy_websocket(websocket, backend_url, "output")
+    await websocket.accept()
+    await websocket.send_text(json.dumps({"error": "not_supported", "detail": "legacy ws/output is disabled"}))
+    await websocket.close(code=1008)
 
 
-def _output_http_base() -> str:
-    """Derive HTTP base URL for output-handler from WS URL env.
-
-    Converts ws://host:port -> http://host:port, wss:// -> https://
-    """
-    ws_url = BACKEND_SERVICES.get("output", "ws://localhost:8002")
-    parsed = urlparse(ws_url)
-    scheme = "https" if parsed.scheme == "wss" else "http"
-    http_parsed = parsed._replace(scheme=scheme, path="", params="", query="", fragment="")
-    return urlunparse(http_parsed).rstrip("/")
+def _format_sse(event: str, payload: Dict[str, Any]) -> bytes:
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
 
 
-def _dialog_engine_http_base() -> str:
-    return DIALOG_ENGINE_URL.rstrip("/")
+def _parse_sse_events(buffer: str) -> Tuple[List[Tuple[str, str]], str]:
+    events: List[Tuple[str, str]] = []
+    cursor = 0
+
+    while True:
+        boundary = buffer.find("\n\n", cursor)
+        if boundary == -1:
+            break
+        raw_event = buffer[cursor:boundary]
+        cursor = boundary + 2
+        if not raw_event.strip():
+            continue
+
+        event_type = "message"
+        data_lines: List[str] = []
+        for line in raw_event.splitlines():
+            if line.startswith(":"):
+                continue
+            if line.startswith("event:"):
+                event_type = line[6:].strip() or "message"
+            elif line.startswith("data:"):
+                data_lines.append(line[5:].lstrip())
+
+        events.append((event_type, "\n".join(data_lines)))
+
+    return events, buffer[cursor:]
 
 
-def _build_forward_headers(request: Request) -> Dict[str, str]:
-    excluded = {"host", "content-length"}
-    headers: Dict[str, str] = {
-        key: value
-        for key, value in request.headers.items()
-        if key.lower() not in excluded
+def _extract_openclaw_delta(chunk_json: Dict[str, Any]) -> str:
+    choices = chunk_json.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return ""
+
+    first = choices[0]
+    if not isinstance(first, dict):
+        return ""
+
+    delta = first.get("delta")
+    if not isinstance(delta, dict):
+        return ""
+
+    content = delta.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: List[str] = []
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            text = item.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+        return "".join(parts)
+    return ""
+
+
+async def _build_openclaw_payload(request: Request) -> Dict[str, Any]:
+    try:
+        incoming = await request.json()
+    except Exception:
+        incoming = {}
+
+    if not isinstance(incoming, dict):
+        incoming = {}
+
+    content = incoming.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise HTTPException(status_code=400, detail="content is required")
+
+    session_id = incoming.get("session_id")
+    if not isinstance(session_id, str) or not session_id.strip():
+        session_id = incoming.get("sessionId")
+    if not isinstance(session_id, str) or not session_id.strip():
+        session_id = "default"
+
+    agent_id = incoming.get("agent_id")
+    if not isinstance(agent_id, str) or not agent_id.strip():
+        agent_id = OPENCLAW_AGENT_ID
+
+    payload: Dict[str, Any] = {
+        "model": f"openclaw:{agent_id}",
+        "stream": True,
+        "messages": [{"role": "user", "content": content}],
+        "user": session_id,
     }
-    headers.setdefault("accept", "text/event-stream")
-    headers.setdefault("content-type", "application/json")
-    return headers
+
+    for key in ("temperature", "max_tokens", "top_p", "frequency_penalty", "presence_penalty"):
+        if key in incoming:
+            payload[key] = incoming[key]
+
+    return payload
 
 
-async def _proxy_dialog_engine_stream(request: Request, path: str) -> StreamingResponse:
-    """Generic helper to proxy SSE POST endpoints to dialog-engine."""
-    target_url = f"{_dialog_engine_http_base()}{path}"
-    body = await request.body()
-    if not body:
-        body = b"{}"
-
-    headers = _build_forward_headers(request)
+@app.post("/chat/stream")
+async def proxy_chat_stream(request: Request):
+    """Map frontend stream contract to OpenClaw chat-completions SSE."""
+    upstream_payload = await _build_openclaw_payload(request)
+    target_url = f"{OPENCLAW_BASE_URL}/v1/chat/completions"
+    headers = {
+        "accept": "text/event-stream",
+        "content-type": "application/json",
+    }
+    if OPENCLAW_TOKEN:
+        headers["authorization"] = f"Bearer {OPENCLAW_TOKEN}"
 
     client = httpx.AsyncClient(timeout=SSE_TIMEOUT, follow_redirects=False)
     try:
         upstream_response = await client.send(
-            client.build_request(
-                "POST",
-                target_url,
-                content=body,
-                headers=headers,
-            ),
+            client.build_request("POST", target_url, json=upstream_payload, headers=headers),
             stream=True,
         )
     except httpx.RequestError as exc:
         await client.aclose()
-        raise HTTPException(status_code=502, detail=f"dialog-engine unreachable: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"openclaw unreachable: {exc}") from exc
 
     if upstream_response.status_code >= 400:
         detail_bytes = await upstream_response.aread()
@@ -529,93 +605,73 @@ async def _proxy_dialog_engine_stream(request: Request, path: str) -> StreamingR
         await client.aclose()
         detail = detail_bytes.decode("utf-8", errors="replace") or upstream_response.reason_phrase
         return JSONResponse(
-            {"error": "dialog_engine_error", "detail": detail},
+            {"error": "openclaw_error", "detail": detail},
             status_code=upstream_response.status_code,
         )
 
     async def event_stream():
+        done_sent = False
+        sse_buffer = ""
         try:
-            async for chunk in upstream_response.aiter_raw():
-                if chunk:
-                    yield chunk
+            async for chunk in upstream_response.aiter_text():
+                if not chunk:
+                    continue
+                sse_buffer += chunk
+                parsed_events, sse_buffer = _parse_sse_events(sse_buffer)
+                for _event_type, data in parsed_events:
+                    if not data:
+                        continue
+                    if data.strip() == "[DONE]":
+                        if not done_sent:
+                            done_sent = True
+                            yield _format_sse("done", {"source": "openclaw"})
+                        continue
+
+                    try:
+                        parsed = json.loads(data)
+                    except json.JSONDecodeError:
+                        logger.warning("Skipping malformed OpenClaw SSE chunk: %s", data)
+                        continue
+
+                    delta = _extract_openclaw_delta(parsed)
+                    if delta:
+                        yield _format_sse("text-delta", {"content": delta})
         finally:
+            if not done_sent:
+                yield _format_sse("done", {"source": "openclaw"})
             await upstream_response.aclose()
             await client.aclose()
 
-    response_headers = {}
-    for header_name in ("cache-control", "content-language"):
-        if header_name in upstream_response.headers:
-            response_headers[header_name] = upstream_response.headers[header_name]
-
-    media_type = upstream_response.headers.get("content-type", "text/event-stream")
     return StreamingResponse(
         event_stream(),
-        status_code=upstream_response.status_code,
-        media_type=media_type,
-        headers=response_headers,
+        media_type="text/event-stream",
+        headers={"cache-control": "no-cache"},
     )
 
 
-@app.post("/chat/stream")
-async def proxy_chat_stream(request: Request):
-    """Proxy SSE chat stream to dialog-engine."""
-    return await _proxy_dialog_engine_stream(request, "/chat/stream")
-
-
 @app.post("/chat/audio/stream")
-async def proxy_chat_audio_stream(request: Request):
-    """Proxy SSE audio stream to dialog-engine."""
-    return await _proxy_dialog_engine_stream(request, "/chat/audio/stream")
+async def proxy_chat_audio_stream():
+    """Audio stream is intentionally removed in OpenClaw text-only phase."""
+    return JSONResponse(
+        {"error": "not_supported", "detail": "audio stream is disabled in openclaw text-only phase"},
+        status_code=410,
+    )
 
 
 @app.post("/control/stop")
-async def control_stop_proxy(payload: Dict[str, str]):
-    """Proxy STOP control to output-handler's /control/stop.
-
-    Body: {"sessionId": "<uuid>"}
-    """
-    session_id = payload.get("sessionId") if isinstance(payload, dict) else None
-    if not session_id:
-        raise HTTPException(status_code=400, detail="sessionId required")
-
-    target = f"{_output_http_base()}/control/stop"
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        try:
-            resp = await client.post(target, json={"sessionId": session_id})
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            try:
-                detail = exc.response.json()
-            except ValueError:
-                detail = exc.response.text or "output handler error"
-            raise HTTPException(status_code=exc.response.status_code, detail=detail)
-        except httpx.RequestError as exc:
-            raise HTTPException(status_code=502, detail=f"proxy error: {exc}")
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"proxy error: {exc}")
-
-    try:
-        return resp.json()
-    except ValueError:
-        return JSONResponse(status_code=resp.status_code, content={"status_code": resp.status_code, "body": resp.text})
+async def control_stop_proxy():
+    return JSONResponse(
+        {"error": "not_supported", "detail": "control stop is disabled in openclaw text-only phase"},
+        status_code=410,
+    )
 
 
 @app.get("/internal/output/health")
 async def output_health_proxy():
-    """Proxy Output Handler's /health for diagnostics via the gateway."""
-    target = f"{_output_http_base()}/health"
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        try:
-            resp = await client.get(target)
-            # Try parse JSON; fallback to text
-            try:
-                data = resp.json()
-            except ValueError:
-                data = {"status_code": resp.status_code, "body": resp.text}
-            return JSONResponse(status_code=resp.status_code, content=data)
-        except Exception as e:
-            from fastapi import HTTPException
-            raise HTTPException(status_code=502, detail=f"proxy error: {e}")
+    return JSONResponse(
+        {"error": "not_supported", "detail": "output health proxy is disabled in openclaw text-only phase"},
+        status_code=410,
+    )
 
 @app.get("/")
 async def get():
@@ -623,7 +679,7 @@ async def get():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>AIVtuber API Gateway</title>
+        <title>AIVtuber OpenClaw Gateway</title>
         <style>
             body { font-family: Arial, sans-serif; margin: 40px; }
             .status { margin: 20px 0; }
@@ -631,28 +687,28 @@ async def get():
         </style>
     </head>
     <body>
-        <h1>AIVtuber API Gateway</h1>
-        <p>统一入口，路由到后端微服务</p>
+        <h1>AIVtuber OpenClaw Gateway</h1>
+        <p>文本链路已切换为 OpenClaw 适配（/chat/stream）。</p>
         
         <div class="status">
-            <h2>WebSocket端点</h2>
+            <h2>文本接口</h2>
             <div class="endpoint">
-                <strong>输入:</strong> /ws/input → input-handler:8001
+                <strong>POST /chat/stream</strong> → OpenClaw /v1/chat/completions
             </div>
             <div class="endpoint">
-                <strong>输出:</strong> /ws/output/{task_id} → output-handler:8002
+                <strong>WS /ws/input, /ws/output/*</strong> 已禁用（Phase 1 文本版）
             </div>
         </div>
         
         <div class="status">
             <h2>当前状态</h2>
             <p>活跃连接数: """ + str(len(active_connections)) + """</p>
-            <p>后端服务: input-handler(8001), output-handler(8002)</p>
+            <p>OpenClaw: """ + OPENCLAW_BASE_URL + """</p>
         </div>
         
         <div class="status">
             <h2>使用说明</h2>
-            <p>前端只需连接8000端口，网关会自动路由到相应的后端服务。</p>
+            <p>前端只需调用 /chat/stream，网关会做 SSE 事件映射。</p>
         </div>
     </body>
     </html>
@@ -665,7 +721,8 @@ async def health_check():
         "status": "ok",
         "gateway": "running",
         "active_connections": len(active_connections),
-        "backend_services": BACKEND_SERVICES
+        "openclaw_base_url": OPENCLAW_BASE_URL,
+        "openclaw_agent_id": OPENCLAW_AGENT_ID,
     }
 
 @app.get("/connections")

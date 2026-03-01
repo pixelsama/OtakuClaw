@@ -1,173 +1,53 @@
-# AIVtuber API Gateway
+# AIVtuber Gateway (OpenClaw Text-Only)
 
-WebSocket API网关服务，为前端提供统一的8000端口入口，自动路由到后端的input和output微服务。
+该副本网关已改造成 OpenClaw 文本适配层：
+- 前端入口保持 `POST /chat/stream`
+- 上游改为 OpenClaw `POST /v1/chat/completions`
+- 将 OpenAI SSE chunk 映射为前端既有事件：`text-delta` / `done`
 
-## 功能特性
+## 当前接口
 
-- **统一入口**: 前端只需连接8000端口
-- **智能路由**: 根据路径自动路由到相应的后端服务
-- **双向代理**: 完整的WebSocket双向消息转发
-- **连接管理**: 实时跟踪和管理客户端连接
-- **健康检查**: 提供服务状态监控
-- **错误处理**: 完善的错误处理和日志记录
-
-## 架构设计
-
+### 文本流（启用）
+- `POST /chat/stream`
+- 请求体示例：
+```json
+{
+  "session_id": "demo",
+  "content": "你好"
+}
 ```
-前端 (WebSocket) → Gateway:8000 → Backend Services
-                     ├── /ws/input → input-handler:8001
-                     └── /ws/output/{task_id} → output-handler:8002
-```
+- 返回：`text/event-stream`
+  - `event: text-delta` + `{"content":"..."}`
+  - `event: done` + `{"source":"openclaw"}`
 
-## 路由规则
+### 语音流（已下线）
+- `POST /chat/audio/stream` -> `410 not_supported`
 
-### WebSocket端点
-- `ws://localhost:8000/ws/input` → `ws://localhost:8001/ws/input`
-- `ws://localhost:8000/ws/output/{task_id}` → `ws://localhost:8002/ws/output/{task_id}`
+### 保留诊断接口
+- `GET /health`
+- `GET /connections`
 
-### HTTP端点  
-- `GET /` - 网关状态页面
-- `GET /health` - 健康检查
-- `GET /connections` - 当前连接状态
+## 环境变量
 
-## 安装和运行
+- `OPENCLAW_BASE_URL`：OpenClaw 网关地址（例：`http://127.0.0.1:18789`）
+- `OPENCLAW_TOKEN`：OpenClaw Bearer Token
+- `OPENCLAW_AGENT_ID`：默认 Agent（映射为 `model=openclaw:<agent>`）
+- `OPENCLAW_HTTP_TIMEOUT`
+- `OPENCLAW_CONNECT_TIMEOUT`
+- `OPENCLAW_WRITE_TIMEOUT`
 
-1. **安装依赖**
+## 本地运行
+
 ```bash
 cd services/gateway-python
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
+python main.py
 ```
 
-2. **安装测试依赖（可选）**
-```bash
-# 如果需要运行测试，安装测试依赖
-pip install -r requirements-test.txt
-```
+## 测试
 
-3. **启动后端服务**
 ```bash
-# 终端1: 启动input-handler
-cd services/input-handler-python
-python main.py  # 运行在8001端口
-
-# 终端2: 启动output-handler  
-cd services/output-handler-python
-python main.py  # 运行在8002端口
-```
-
-4. **启动网关**
-```bash
-# 终端3: 启动gateway
 cd services/gateway-python
-python main.py  # 运行在8000端口
-```
-
-## 工作流程
-
-1. **前端连接** → WebSocket连接到8000端口
-2. **路由识别** → 根据路径确定目标后端服务
-3. **后端连接** → 网关连接到相应的后端服务
-4. **双向代理** → 透明转发所有WebSocket消息
-5. **连接管理** → 跟踪连接状态，处理断开
-
-## 代理特性
-
-### 消息转发
-- **文本消息**: 完整转发JSON格式消息
-- **二进制消息**: 透明转发音频等二进制数据
-- **元数据保持**: 保持消息的完整性和顺序
-
-### 错误处理
-- **连接超时**: 自动检测和处理连接超时
-- **后端不可用**: 优雅处理后端服务离线
-- **客户端断开**: 及时清理资源和连接
-
-### 日志记录
-- **连接跟踪**: 记录每个连接的建立和断开
-- **消息转发**: 记录消息转发的方向和状态
-- **错误诊断**: 详细的错误信息和调试日志
-
-## 配置
-
-主要配置在 `config.json` 中：
-
-- 网关服务器设置
-- 后端服务URL配置
-- 代理连接参数
-- 超时和限制设置
-
-## 监控和调试
-
-### 健康检查
-```bash
-curl http://localhost:8000/health
-```
-
-### 连接状态
-```bash  
-curl http://localhost:8000/connections
-```
-
-### 网关状态页面
-浏览器访问: `http://localhost:8000`
-
-## 部署建议
-
-### 开发环境
-按照上述步骤依次启动三个服务即可。
-
-### 生产环境
-- 使用进程管理器(如PM2、systemd)管理服务
-- 配置负载均衡和健康检查
-- 启用日志轮转和监控告警
-
-## 故障排除
-
-### 常见问题
-1. **后端服务不可用**: 检查input-handler和output-handler是否正常运行
-2. **端口冲突**: 确保8000、8001、8002端口未被占用
-3. **连接超时**: 检查网络连接和防火墙设置
-
-### 调试模式
-启动时添加详细日志：
-```bash
-python main.py --log-level debug
-```
-
-## 文件结构
-
-```
-gateway-python/
-├── main.py              # 主程序
-├── requirements.txt     # 运行时依赖
-├── requirements-test.txt # 测试依赖
-├── config.json         # 配置文件
-├── tests/              # 测试目录
-│   ├── unit/           # 单元测试
-│   └── integration/    # 集成测试
-└── README.md           # 说明文档
-```
-
-## 运行测试
-
-1. **安装测试依赖**
-```bash
 pip install -r requirements-test.txt
-```
-
-2. **运行单元测试**
-```bash
-pytest tests/unit
-```
-
-3. **运行集成测试**
-```bash
-pytest tests/integration
-```
-
-4. **运行所有测试**
-```bash
-pytest
+pytest tests/unit/test_sse_routes.py -q
 ```
