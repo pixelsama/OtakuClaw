@@ -434,9 +434,17 @@ export default function App() {
     setShowTextInputDialog(false);
   }, [isPetMode]);
 
+  const stageClassName = [
+    'live2d-stage',
+    isPetMode ? 'pet-mode' : 'window-mode',
+    desktopMode ? `platform-${platform}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
     <Box sx={stageStyle}>
-      <Box className={`live2d-stage ${isPetMode ? 'pet-mode' : 'window-mode'}`}>
+      <Box className={stageClassName}>
         {desktopMode && !isPetMode && (
           <WindowTitleBar
             platform={platform}

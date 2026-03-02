@@ -68,6 +68,10 @@ body,
   background: rgba(255, 255, 255, 0.85) !important;
 }
 
+.live2d-stage.window-mode.platform-darwin .config-toggle {
+  top: 20px;
+}
+
 .window-bottom-controls {
   position: absolute;
   right: 24px;
