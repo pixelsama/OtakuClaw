@@ -80,14 +80,15 @@ class SettingsStore {
 
     this.hasSecureStorage = this.secretStore.isAvailable();
 
-    const keychainToken = sanitizeTokenValue(await this.secretStore.getToken());
+    const keychainToken = this.hasSecureStorage ? await this.safeGetToken() : '';
     const legacyToken = sanitizeTokenValue(parsed?.token);
 
     if (keychainToken) {
       this.token = keychainToken;
     } else if (legacyToken) {
-      const stored = await this.secretStore.setToken(legacyToken);
-      this.hasSecureStorage = this.hasSecureStorage && stored;
+      if (this.hasSecureStorage) {
+        await this.safeSetToken(legacyToken);
+      }
       this.token = legacyToken;
     } else {
       this.token = '';
@@ -127,13 +128,12 @@ class SettingsStore {
     if (patch.clearToken === true) {
       this.token = '';
       if (this.hasSecureStorage) {
-        await this.secretStore.deleteToken();
+        await this.safeDeleteToken();
       }
     } else if (Object.prototype.hasOwnProperty.call(patch, 'token') && patch.token) {
       this.token = patch.token;
       if (this.hasSecureStorage) {
-        const stored = await this.secretStore.setToken(patch.token);
-        this.hasSecureStorage = this.hasSecureStorage && stored;
+        await this.safeSetToken(patch.token);
       }
     }
 
@@ -176,6 +176,44 @@ class SettingsStore {
     }
 
     await fs.writeFile(this.filePath, JSON.stringify(filePayload, null, 2), 'utf-8');
+  }
+
+  async safeGetToken() {
+    try {
+      return sanitizeTokenValue(await this.secretStore.getToken());
+    } catch (error) {
+      console.warn('Failed to read token from secure storage, falling back to local file:', error);
+      this.hasSecureStorage = false;
+      return '';
+    }
+  }
+
+  async safeSetToken(token) {
+    try {
+      const stored = await this.secretStore.setToken(token);
+      if (!stored) {
+        this.hasSecureStorage = false;
+      }
+      return stored;
+    } catch (error) {
+      console.warn('Failed to write token into secure storage, falling back to local file:', error);
+      this.hasSecureStorage = false;
+      return false;
+    }
+  }
+
+  async safeDeleteToken() {
+    try {
+      const deleted = await this.secretStore.deleteToken();
+      if (!deleted) {
+        this.hasSecureStorage = false;
+      }
+      return deleted;
+    } catch (error) {
+      console.warn('Failed to delete token from secure storage:', error);
+      this.hasSecureStorage = false;
+      return false;
+    }
   }
 }
 

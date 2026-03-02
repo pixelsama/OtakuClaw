@@ -7,9 +7,12 @@ const test = require('node:test');
 const { SettingsStore } = require('../services/settingsStore');
 
 class FakeSecretStore {
-  constructor({ available = true, token = null } = {}) {
+  constructor({ available = true, token = null, throwOnGet = false, throwOnSet = false, throwOnDelete = false } = {}) {
     this.available = available;
     this.token = token;
+    this.throwOnGet = throwOnGet;
+    this.throwOnSet = throwOnSet;
+    this.throwOnDelete = throwOnDelete;
   }
 
   isAvailable() {
@@ -17,10 +20,16 @@ class FakeSecretStore {
   }
 
   async getToken() {
+    if (this.throwOnGet) {
+      throw new Error('secure_get_failed');
+    }
     return this.token;
   }
 
   async setToken(token) {
+    if (this.throwOnSet) {
+      throw new Error('secure_set_failed');
+    }
     if (!this.available) {
       return false;
     }
@@ -30,6 +39,9 @@ class FakeSecretStore {
   }
 
   async deleteToken() {
+    if (this.throwOnDelete) {
+      throw new Error('secure_delete_failed');
+    }
     if (!this.available) {
       return false;
     }
@@ -126,4 +138,23 @@ test('clears stored token explicitly', async () => {
   assert.equal(store.getPublic().hasToken, false);
   assert.equal(store.getForMain().token, '');
   assert.equal(secretStore.token, null);
+});
+
+test('falls back when secure storage throws at runtime', async () => {
+  const secretStore = new FakeSecretStore({
+    available: true,
+    token: null,
+    throwOnGet: true,
+    throwOnSet: true,
+  });
+  const { store, tmpDir } = await setupTempStore({ secretStore });
+
+  await store.save({ token: 'fallback-token' });
+
+  assert.equal(store.getPublic().hasSecureStorage, false);
+  assert.equal(store.getForMain().token, 'fallback-token');
+
+  const fileRaw = await fs.readFile(path.join(tmpDir, 'openclaw-settings.json'), 'utf-8');
+  const persisted = JSON.parse(fileRaw);
+  assert.equal(persisted.token, 'fallback-token');
 });

@@ -8,11 +8,15 @@ const errorHandlers = new Set();
 const statusHandlers = new Set();
 
 const desktopPendingMap = new Map();
+const desktopBufferedEvents = new Map();
+const desktopBufferTimers = new Map();
 let desktopEventCleanup = null;
 let activeDesktopStreamId = null;
 
 let isStreamingState = false;
 let abortController = null;
+
+const DESKTOP_EVENT_BUFFER_TTL_MS = 30_000;
 
 const stripTrailingSlash = (value) => (value.endsWith('/') ? value.slice(0, -1) : value);
 const ensurePrefixedSlash = (value) => (value.startsWith('/') ? value : `/${value}`);
@@ -49,6 +53,64 @@ const notifyHandlers = (handlers, payload) => {
       console.error('Streaming handler error:', error);
     }
   });
+};
+
+const clearDesktopBufferTimer = (streamId) => {
+  const timer = desktopBufferTimers.get(streamId);
+  if (timer) {
+    clearTimeout(timer);
+    desktopBufferTimers.delete(streamId);
+  }
+};
+
+const bufferDesktopEvent = (streamId, event) => {
+  const buffered = desktopBufferedEvents.get(streamId) || [];
+  buffered.push(event);
+  desktopBufferedEvents.set(streamId, buffered);
+
+  clearDesktopBufferTimer(streamId);
+  const timer = setTimeout(() => {
+    desktopBufferedEvents.delete(streamId);
+    desktopBufferTimers.delete(streamId);
+  }, DESKTOP_EVENT_BUFFER_TTL_MS);
+  desktopBufferTimers.set(streamId, timer);
+};
+
+const consumeBufferedDesktopEvents = (streamId) => {
+  clearDesktopBufferTimer(streamId);
+  const buffered = desktopBufferedEvents.get(streamId) || [];
+  desktopBufferedEvents.delete(streamId);
+  return buffered;
+};
+
+const resolveDesktopPending = (streamId, pending, endedBy, payload = null) => {
+  if (endedBy === 'done') {
+    pending.emitDone(payload);
+  }
+  pending.resolve({ endedBy });
+  desktopPendingMap.delete(streamId);
+  if (activeDesktopStreamId === streamId) {
+    activeDesktopStreamId = null;
+  }
+};
+
+const handleDesktopEvent = (streamId, type, payload, pending) => {
+  if (type === 'text-delta') {
+    if (payload?.content) {
+      notifyHandlers(deltaHandlers, payload.content);
+    }
+    return;
+  }
+
+  if (type === 'error') {
+    notifyHandlers(errorHandlers, payload);
+    resolveDesktopPending(streamId, pending, 'error');
+    return;
+  }
+
+  if (type === 'done') {
+    resolveDesktopPending(streamId, pending, 'done', payload || null);
+  }
 };
 
 const processSseEvent = (eventType, data, emitDone) => {
@@ -97,34 +159,11 @@ const ensureDesktopEventListener = () => {
 
     const pending = desktopPendingMap.get(streamId);
     if (!pending) {
+      bufferDesktopEvent(streamId, { type, payload });
       return;
     }
 
-    if (type === 'text-delta') {
-      if (payload?.content) {
-        notifyHandlers(deltaHandlers, payload.content);
-      }
-      return;
-    }
-
-    if (type === 'error') {
-      notifyHandlers(errorHandlers, payload);
-      pending.resolve({ endedBy: 'error' });
-      desktopPendingMap.delete(streamId);
-      if (activeDesktopStreamId === streamId) {
-        activeDesktopStreamId = null;
-      }
-      return;
-    }
-
-    if (type === 'done') {
-      pending.emitDone(payload || null);
-      pending.resolve({ endedBy: 'done' });
-      desktopPendingMap.delete(streamId);
-      if (activeDesktopStreamId === streamId) {
-        activeDesktopStreamId = null;
-      }
-    }
+    handleDesktopEvent(streamId, type, payload, pending);
   });
 };
 
@@ -153,10 +192,19 @@ const startDesktopStreaming = async (sessionId, content, extras, emitDone) => {
   activeDesktopStreamId = streamId;
 
   await new Promise((resolve) => {
-    desktopPendingMap.set(streamId, {
+    const pending = {
       emitDone,
       resolve,
-    });
+    };
+    desktopPendingMap.set(streamId, pending);
+
+    const bufferedEvents = consumeBufferedDesktopEvents(streamId);
+    for (const bufferedEvent of bufferedEvents) {
+      handleDesktopEvent(streamId, bufferedEvent.type, bufferedEvent.payload, pending);
+      if (!desktopPendingMap.has(streamId)) {
+        break;
+      }
+    }
   });
 };
 
@@ -200,10 +248,18 @@ const startWebStreaming = async (sessionId, content, extras, emitDone) => {
   }
 
   const remaining = textDecoder.decode();
-  if (remaining) {
-    parseSseChunk(buffer + remaining, (eventType, data) => {
+  const finalBuffer = buffer + remaining;
+  if (finalBuffer) {
+    const tail = parseSseChunk(finalBuffer, (eventType, data) => {
       processSseEvent(eventType, data, emitDone);
     });
+
+    // Treat a trailing unterminated event as complete when upstream closes.
+    if (tail.trim()) {
+      parseSseChunk(`${tail}\n\n`, (eventType, data) => {
+        processSseEvent(eventType, data, emitDone);
+      });
+    }
   }
 };
 
