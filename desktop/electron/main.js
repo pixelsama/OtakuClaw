@@ -16,7 +16,7 @@ function getRendererDevUrl() {
 function isAllowedExternalUrl(targetUrl) {
   try {
     const parsedTarget = new URL(targetUrl);
-    const parsedBase = new URL(settingsStore.get().baseUrl);
+    const parsedBase = new URL(settingsStore.getPublic().baseUrl);
     return parsedTarget.origin === parsedBase.origin;
   } catch {
     return false;
@@ -34,7 +34,7 @@ async function createMainWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       webSecurity: true,
     },
   });
@@ -75,7 +75,7 @@ async function bootstrap() {
 
   disposeChatStreamHandlers = registerChatStreamIpc({
     ipcMain,
-    getSettings: () => settingsStore.get(),
+    getSettings: () => settingsStore.getForMain(),
     emitEvent: (payload) => {
       if (!mainWindow || mainWindow.isDestroyed()) {
         return;

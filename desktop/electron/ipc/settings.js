@@ -1,7 +1,7 @@
 const { testOpenClawConnection, toClientError } = require('../services/openclawClient');
 
 function registerSettingsIpc({ ipcMain, settingsStore }) {
-  ipcMain.handle('settings:get', async () => settingsStore.get());
+  ipcMain.handle('settings:get', async () => settingsStore.getPublic());
 
   ipcMain.handle('settings:save', async (_event, partialSettings = {}) => {
     return settingsStore.save(partialSettings);

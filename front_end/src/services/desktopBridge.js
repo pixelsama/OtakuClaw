@@ -13,66 +13,99 @@ function getDesktopApi() {
   return api;
 }
 
-function normalizeSettings(settings = {}) {
+function normalizeSettingsResponse(settings = {}) {
   return {
     baseUrl: typeof settings.baseUrl === 'string' ? settings.baseUrl.trim() : '',
     token: typeof settings.token === 'string' ? settings.token.trim() : '',
     agentId: typeof settings.agentId === 'string' ? settings.agentId.trim() : 'main',
+    hasToken: Boolean(settings.hasToken || (typeof settings.token === 'string' && settings.token.trim())),
+    hasSecureStorage: settings.hasSecureStorage !== false,
   };
+}
+
+function normalizeSettingsPatch(settings = {}) {
+  const next = {};
+
+  if (Object.prototype.hasOwnProperty.call(settings, 'baseUrl')) {
+    next.baseUrl = typeof settings.baseUrl === 'string' ? settings.baseUrl.trim() : '';
+  }
+
+  if (Object.prototype.hasOwnProperty.call(settings, 'agentId')) {
+    next.agentId = typeof settings.agentId === 'string' ? settings.agentId.trim() : '';
+  }
+
+  if (Object.prototype.hasOwnProperty.call(settings, 'token')) {
+    next.token = typeof settings.token === 'string' ? settings.token.trim() : '';
+  }
+
+  if (Object.prototype.hasOwnProperty.call(settings, 'clearToken')) {
+    next.clearToken = Boolean(settings.clearToken);
+  }
+
+  return next;
 }
 
 function loadWebSettings() {
   if (typeof window === 'undefined') {
-    return {
-      baseUrl: '',
-      token: '',
-      agentId: 'main',
-    };
+    return normalizeSettingsResponse({});
   }
 
   try {
     const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!raw) {
-      return {
-        baseUrl: '',
-        token: '',
-        agentId: 'main',
-      };
+      return normalizeSettingsResponse({ hasSecureStorage: false });
     }
 
-    return {
-      baseUrl: '',
-      token: '',
-      agentId: 'main',
-      ...normalizeSettings(JSON.parse(raw)),
-    };
+    return normalizeSettingsResponse({
+      hasSecureStorage: false,
+      ...JSON.parse(raw),
+    });
   } catch {
-    return {
-      baseUrl: '',
-      token: '',
-      agentId: 'main',
-    };
+    return normalizeSettingsResponse({ hasSecureStorage: false });
   }
 }
 
 function saveWebSettings(partialSettings = {}) {
+  const current = loadWebSettings();
+  const patch = normalizeSettingsPatch(partialSettings);
+
   const merged = {
-    ...loadWebSettings(),
-    ...normalizeSettings(partialSettings),
+    ...current,
+    ...patch,
+    hasSecureStorage: false,
   };
 
+  if (patch.clearToken === true) {
+    merged.token = '';
+  }
+
+  merged.hasToken = Boolean(merged.token);
+
   if (typeof window !== 'undefined') {
-    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(merged));
+    window.localStorage.setItem(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        baseUrl: merged.baseUrl,
+        token: merged.token,
+        agentId: merged.agentId,
+      }),
+    );
   }
 
   return merged;
 }
 
 async function testWebConnection(inputSettings = {}) {
+  const patch = normalizeSettingsPatch(inputSettings);
+  const current = loadWebSettings();
   const settings = {
-    ...loadWebSettings(),
-    ...normalizeSettings(inputSettings),
+    ...current,
+    ...patch,
   };
+
+  if (settings.clearToken === true) {
+    settings.token = '';
+  }
 
   if (!settings.baseUrl || !settings.token || !settings.agentId) {
     return {
@@ -160,24 +193,26 @@ export const desktopBridge = {
     async get() {
       const api = getDesktopApi();
       if (api?.settings?.get) {
-        return normalizeSettings(await api.settings.get());
+        return normalizeSettingsResponse(await api.settings.get());
       }
       return loadWebSettings();
     },
     async save(partialSettings = {}) {
+      const patch = normalizeSettingsPatch(partialSettings);
       const api = getDesktopApi();
       if (api?.settings?.save) {
-        const saved = await api.settings.save(partialSettings);
-        return normalizeSettings(saved);
+        const saved = await api.settings.save(patch);
+        return normalizeSettingsResponse(saved);
       }
-      return saveWebSettings(partialSettings);
+      return saveWebSettings(patch);
     },
     async testConnection(overrideSettings = {}) {
+      const patch = normalizeSettingsPatch(overrideSettings);
       const api = getDesktopApi();
       if (api?.settings?.testConnection) {
-        return api.settings.testConnection(overrideSettings);
+        return api.settings.testConnection(patch);
       }
-      return testWebConnection(overrideSettings);
+      return testWebConnection(patch);
     },
   },
 };

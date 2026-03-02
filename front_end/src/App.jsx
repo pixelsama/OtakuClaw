@@ -30,6 +30,8 @@ const defaultOpenClawSettings = {
   baseUrl: '',
   token: '',
   agentId: 'main',
+  hasToken: false,
+  hasSecureStorage: true,
 };
 
 function normalizeErrorMessage(error) {
@@ -212,7 +214,16 @@ export default function App() {
     setSettingsFeedback('');
 
     try {
-      const saved = await desktopBridge.settings.save(openClawSettings);
+      const payload = {
+        baseUrl: openClawSettings.baseUrl,
+        agentId: openClawSettings.agentId,
+      };
+      const token = openClawSettings.token.trim();
+      if (token) {
+        payload.token = token;
+      }
+
+      const saved = await desktopBridge.settings.save(payload);
       setOpenClawSettings({
         ...defaultOpenClawSettings,
         ...saved,
@@ -224,7 +235,7 @@ export default function App() {
     } finally {
       setSettingsSaving(false);
     }
-  }, [openClawSettings]);
+  }, [openClawSettings.agentId, openClawSettings.baseUrl, openClawSettings.token]);
 
   const testOpenClawSettings = useCallback(async () => {
     setSettingsTesting(true);
@@ -232,7 +243,16 @@ export default function App() {
     setSettingsFeedback('');
 
     try {
-      const result = await desktopBridge.settings.testConnection(openClawSettings);
+      const payload = {
+        baseUrl: openClawSettings.baseUrl,
+        agentId: openClawSettings.agentId,
+      };
+      const token = openClawSettings.token.trim();
+      if (token) {
+        payload.token = token;
+      }
+
+      const result = await desktopBridge.settings.testConnection(payload);
       if (!result?.ok) {
         setSettingsError(normalizeErrorMessage(result?.error));
       } else {
@@ -245,7 +265,28 @@ export default function App() {
     } finally {
       setSettingsTesting(false);
     }
-  }, [openClawSettings]);
+  }, [openClawSettings.agentId, openClawSettings.baseUrl, openClawSettings.token]);
+
+  const clearSavedToken = useCallback(async () => {
+    setSettingsSaving(true);
+    setSettingsError('');
+    setSettingsFeedback('');
+
+    try {
+      const saved = await desktopBridge.settings.save({ clearToken: true });
+      setOpenClawSettings((prev) => ({
+        ...prev,
+        ...saved,
+        token: '',
+      }));
+      setSettingsFeedback('已清除保存的 Token。');
+    } catch (error) {
+      console.error('Clear token failed:', error);
+      setSettingsError(normalizeErrorMessage(error));
+    } finally {
+      setSettingsSaving(false);
+    }
+  }, []);
 
   const desktopMode = desktopBridge.isDesktop();
 
@@ -328,7 +369,13 @@ export default function App() {
               <Typography variant="h6">OpenClaw 设置</Typography>
 
               {!desktopMode && (
-                <Alert severity="info">当前为 Web 模式，配置会保存在浏览器本地存储。</Alert>
+                <Alert severity="warning">
+                  当前为 Web 模式，Token 会存入浏览器本地存储，仅建议用于开发测试。
+                </Alert>
+              )}
+
+              {desktopMode && !openClawSettings.hasSecureStorage && (
+                <Alert severity="warning">系统密钥链不可用，Token 将回退为本地明文存储。</Alert>
               )}
 
               <TextField
@@ -345,6 +392,7 @@ export default function App() {
                 onChange={(event) => handleOpenClawSettingChange('token', event.target.value)}
                 type="password"
                 autoComplete="off"
+                placeholder={openClawSettings.hasToken ? '已保存（留空表示不修改）' : ''}
                 fullWidth
               />
 
@@ -362,6 +410,14 @@ export default function App() {
                 </Button>
                 <Button variant="outlined" onClick={testOpenClawSettings} disabled={settingsSaving || settingsTesting}>
                   {settingsTesting ? '测试中...' : '连接测试'}
+                </Button>
+                <Button
+                  variant="text"
+                  color="warning"
+                  onClick={clearSavedToken}
+                  disabled={settingsSaving || settingsTesting || !openClawSettings.hasToken}
+                >
+                  清除 Token
                 </Button>
               </Stack>
 

@@ -1,7 +1,7 @@
 const { randomUUID } = require('node:crypto');
 const { startOpenClawStream, toClientError } = require('../services/openclawClient');
 
-function registerChatStreamIpc({ ipcMain, emitEvent, getSettings }) {
+function registerChatStreamIpc({ ipcMain, emitEvent, getSettings, startStream = startOpenClawStream }) {
   const streamMap = new Map();
 
   const sendEvent = (streamId, type, payload = {}) => {
@@ -34,7 +34,7 @@ function registerChatStreamIpc({ ipcMain, emitEvent, getSettings }) {
 
   const runStream = async (streamId, request, state) => {
     try {
-      await startOpenClawStream({
+      await startStream({
         settings: getSettings(),
         sessionId: request.sessionId,
         content: request.content,

@@ -10,13 +10,17 @@
     "desktop:dev:electron": "cross-env ELECTRON_DEV_SERVER_URL=http://127.0.0.1:3000 electron .",
     "desktop:dev": "concurrently -k \"npm:desktop:dev:renderer\" \"npm:desktop:dev:electron\"",
     "desktop:build": "npm run frontend:build && electron-builder",
-    "test:frontend": "npm --prefix front_end run test -- --run"
+    "test:frontend": "npm --prefix front_end run test -- --run",
+    "test:desktop": "node --test desktop/electron/tests/*.test.js"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
     "cross-env": "^7.0.3",
     "electron": "^36.2.1",
     "electron-builder": "^26.0.12"
+  },
+  "optionalDependencies": {
+    "keytar": "^8.0.0"
   },
   "build": {
     "appId": "com.freeagent.vtuber.openclaw",

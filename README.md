@@ -38,6 +38,15 @@ npm run desktop:build
 
 默认会先构建前端，再用 `electron-builder` 生成安装包（Win/macOS/Linux）。
 
+## 测试
+
+```bash
+npm run test:desktop
+npm run test:frontend
+```
+
+`desktop` 测试覆盖设置存储、IPC 流式映射与中断行为。
+
 ## 目录说明
 
 - `desktop/electron/`：Electron 主进程、preload、IPC、OpenClaw 适配
@@ -47,5 +56,6 @@ npm run desktop:build
 ## 关键特性
 
 - Renderer 通过 IPC 请求流式聊天，不直接持有 OpenClaw token
+- 桌面端优先使用系统密钥链存储 OpenClaw token（`keytar`）
 - 主进程把 OpenClaw SSE 映射为 `text-delta / done / error`
 - 支持 `chat:stream:abort` 中断流式请求

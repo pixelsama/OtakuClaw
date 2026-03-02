@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { desktopBridge } from '../services/desktopBridge.js';
+import { parseSseChunk } from '../services/sseClient.js';
 
 const deltaHandlers = new Set();
 const doneHandlers = new Set();
@@ -38,32 +39,6 @@ const setStreamingState = (next) => {
       console.error('Streaming status handler failed:', error);
     }
   });
-};
-
-const parseSseChunk = (buffer, onEvent) => {
-  let startIndex = 0;
-  while (true) {
-    const endIndex = buffer.indexOf('\n\n', startIndex);
-    if (endIndex === -1) break;
-    const rawEvent = buffer.slice(startIndex, endIndex).trim();
-    startIndex = endIndex + 2;
-    if (!rawEvent) continue;
-
-    let eventType = 'message';
-    const dataLines = [];
-
-    rawEvent.split(/\n/).forEach((line) => {
-      if (line.startsWith('event:')) {
-        eventType = line.slice(6).trim();
-      } else if (line.startsWith('data:')) {
-        dataLines.push(line.slice(5).trim());
-      }
-    });
-
-    onEvent(eventType, dataLines.join('\n'));
-  }
-
-  return buffer.slice(startIndex);
 };
 
 const notifyHandlers = (handlers, payload) => {

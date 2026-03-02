@@ -35,3 +35,4 @@ npm run desktop:dev
 - `VITE_STREAM_PATH`
 
 在 Electron 模式下，OpenClaw 配置来自应用设置页，不依赖上述变量。
+Web fallback 模式会使用浏览器本地存储保存配置，包含 token，仅建议开发联调使用。
