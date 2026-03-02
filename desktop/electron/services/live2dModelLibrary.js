@@ -122,8 +122,14 @@ class Live2DModelLibrary {
       throw new Error('unsupported_protocol');
     }
 
-    const decodedPath = decodeURIComponent(parsed.pathname || '');
-    const relativePath = decodedPath.replace(/^\/+/, '');
+    // Chromium may normalize custom URLs into two forms:
+    // - openclaw-model:///folder/file.model3.json
+    // - openclaw-model://folder/file.model3.json
+    // For the second form, the first path segment is placed in `host`.
+    const hostPart = parsed.host ? parsed.host.replace(/^\/+/, '') : '';
+    const pathnamePart = parsed.pathname ? parsed.pathname.replace(/^\/+/, '') : '';
+    const encodedRelativePath = [hostPart, pathnamePart].filter(Boolean).join('/');
+    const relativePath = decodeURIComponent(encodedRelativePath).replace(/^\/+/, '');
     if (!relativePath) {
       throw new Error('empty_model_path');
     }
