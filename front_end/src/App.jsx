@@ -404,6 +404,21 @@ export default function App() {
             onModelError={handleModelError}
             className="live2d-viewer"
           />
+
+          {desktopMode && isPetMode && (
+            <Box className="pet-mode-toggle-wrap" {...bindPetHover('pet-mode-toggle-wrap')}>
+              <IconButton
+                className="pet-mode-toggle"
+                color="primary"
+                onClick={() => {
+                  void setDesktopWindowMode(MODE_WINDOW);
+                }}
+                title="切换到主窗口模式"
+              >
+                <SwapHorizIcon />
+              </IconButton>
+            </Box>
+          )}
         </Box>
 
         {!isPetMode && (
@@ -429,21 +444,6 @@ export default function App() {
           >
             <SwapHorizIcon />
           </IconButton>
-        )}
-
-        {desktopMode && isPetMode && (
-          <Box className="pet-mode-toggle-wrap" {...bindPetHover('pet-mode-toggle-wrap')}>
-            <IconButton
-              className="pet-mode-toggle"
-              color="primary"
-              onClick={() => {
-                void setDesktopWindowMode(MODE_WINDOW);
-              }}
-              title="切换到主窗口模式"
-            >
-              <SwapHorizIcon />
-            </IconButton>
-          </Box>
         )}
 
         <SubtitleBar text={subtitleText} />
