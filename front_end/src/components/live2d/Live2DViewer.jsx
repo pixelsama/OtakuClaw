@@ -29,7 +29,7 @@ function getPointerPosition(event, rect) {
 
 const Live2DViewer = forwardRef(function Live2DViewer(
   {
-    modelPath = '/live2d/models/Haru/Haru.model3.json',
+    modelPath = '',
     width = 400,
     height = 600,
     motions = [],
@@ -148,6 +148,12 @@ const Live2DViewer = forwardRef(function Live2DViewer(
     const requestId = ++initRequestIdRef.current;
 
     try {
+      if (!modelPath) {
+        setLoading(false);
+        setError('');
+        return;
+      }
+
       setLoading(true);
       setError('');
 
@@ -561,13 +567,22 @@ const Live2DViewer = forwardRef(function Live2DViewer(
   }, []);
 
   useEffect(() => {
+    if (!modelPath) {
+      cleanup();
+      setLoading(false);
+      setError('');
+      return () => {
+        cleanup();
+      };
+    }
+
     initLive2D();
     window.addEventListener('resize', handleResize);
     return () => {
       window.removeEventListener('resize', handleResize);
       cleanup();
     };
-  }, [cleanup, handleResize, initLive2D]);
+  }, [cleanup, handleResize, initLive2D, modelPath]);
 
   const speak = useCallback(
     async (text) => {
@@ -649,6 +664,12 @@ const Live2DViewer = forwardRef(function Live2DViewer(
         <div className="error-overlay">
           <ErrorOutlineIcon color="error" sx={{ fontSize: 48 }} />
           <p>{error}</p>
+        </div>
+      )}
+
+      {!modelPath && !loading && !error && (
+        <div className="empty-overlay">
+          <p>请先在控制面板导入并选择模型 ZIP</p>
         </div>
       )}
     </div>

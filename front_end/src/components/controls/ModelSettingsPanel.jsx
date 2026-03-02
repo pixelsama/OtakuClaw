@@ -23,6 +23,9 @@ export default function ModelSettingsPanel({
   availableModels,
   selectedModel,
   onChangeModel,
+  isImportingModel,
+  onImportModelZip,
+  modelLibraryError,
   autoEyeBlink,
   onToggleAutoEyeBlink,
   autoBreath,
@@ -34,6 +37,11 @@ export default function ModelSettingsPanel({
   onCommitModelScale,
   onResetModel,
 }) {
+  const hasModels = availableModels.length > 0;
+  const selectValue = hasModels ? selectedModel || availableModels[0].path : '';
+  const statusLabel = selectedModel ? (modelLoaded ? '模型已加载' : '加载中') : '未加载模型';
+  const statusColor = selectedModel ? (modelLoaded ? 'success' : 'warning') : 'default';
+
   return (
     <Accordion defaultExpanded>
       <AccordionSummary expandIcon={<ExpandMoreIcon />}>
@@ -42,21 +50,35 @@ export default function ModelSettingsPanel({
           <Typography sx={{ fontWeight: 600 }}>模型设置</Typography>
           <Chip
             size="small"
-            color={modelLoaded ? 'success' : 'warning'}
-            label={modelLoaded ? '模型已加载' : '加载中'}
+            color={statusColor}
+            label={statusLabel}
           />
         </Stack>
       </AccordionSummary>
       <AccordionDetails>
         <Stack spacing={2}>
+          <Button
+            variant="outlined"
+            onClick={onImportModelZip}
+            disabled={isImportingModel}
+          >
+            {isImportingModel ? '导入中...' : '导入模型 ZIP'}
+          </Button>
+
           <FormControl fullWidth size="small">
             <InputLabel id="model-select-label">模型</InputLabel>
             <Select
               labelId="model-select-label"
-              value={selectedModel}
+              value={selectValue}
               label="模型"
+              disabled={!hasModels}
               onChange={(event) => onChangeModel(event.target.value)}
             >
+              {!hasModels && (
+                <MenuItem value="" disabled>
+                  暂无可用模型，请先导入 ZIP
+                </MenuItem>
+              )}
               {availableModels.map((model) => (
                 <MenuItem key={model.path} value={model.path}>
                   {model.name}
@@ -64,6 +86,18 @@ export default function ModelSettingsPanel({
               ))}
             </Select>
           </FormControl>
+
+          {!hasModels && (
+            <Typography variant="caption" color="text.secondary">
+              支持包含 `.model3.json` 的 Live2D 模型压缩包。
+            </Typography>
+          )}
+
+          {modelLibraryError && (
+            <Typography variant="caption" color="error">
+              {modelLibraryError}
+            </Typography>
+          )}
 
           <Box>
             <Typography variant="body2" sx={{ mb: 1 }}>

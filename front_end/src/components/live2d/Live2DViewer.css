@@ -23,7 +23,8 @@
 }
 
 .loading-overlay,
-.error-overlay {
+.error-overlay,
+.empty-overlay {
   position: absolute;
   inset: 0;
   display: flex;
@@ -37,7 +38,8 @@
 }
 
 .loading-overlay p,
-.error-overlay p {
+.error-overlay p,
+.empty-overlay p {
   margin: 8px 0 0;
   font-size: 14px;
   color: #666;

@@ -18,14 +18,13 @@ import BackgroundPanel from './BackgroundPanel.jsx';
 import PresetPanel from './PresetPanel.jsx';
 import DebugPanel from './DebugPanel.jsx';
 import {
-  AVAILABLE_MODELS,
   CLICK_AREA_COLORS,
   DEFAULT_CLICK_AREAS,
   DEFAULT_EXPRESSIONS,
-  DEFAULT_MODEL_PATH,
   DEFAULT_MOTIONS,
   STORAGE_KEYS,
 } from './constants.js';
+import { desktopBridge } from '../../services/desktopBridge.js';
 import './Live2DControls.css';
 
 const serializeMotion = (motion) => ({
@@ -151,6 +150,15 @@ function normalizeAssetPath(baseDir, filePath) {
   const trimmedPath = filePath.trim();
   if (/^(https?:)?\/\//.test(trimmedPath) || trimmedPath.startsWith('/')) {
     return trimmedPath;
+  }
+
+  if (/^[a-z][a-z0-9+.-]*:\/\/?/i.test(baseDir)) {
+    try {
+      const normalizedBase = baseDir.endsWith('/') ? baseDir : `${baseDir}/`;
+      return new URL(trimmedPath, normalizedBase).toString();
+    } catch {
+      // fallback below
+    }
   }
 
   return `${baseDir}/${trimmedPath}`.replace(/\/+/g, '/');
@@ -288,7 +296,12 @@ export default function Live2DControls({
   onModelScaleChange,
   onBackgroundChange,
 }) {
-  const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL_PATH);
+  const desktopMode = desktopBridge.isDesktop();
+
+  const [availableModels, setAvailableModels] = useState([]);
+  const [selectedModel, setSelectedModel] = useState('');
+  const [modelLibraryError, setModelLibraryError] = useState('');
+  const [isImportingModel, setIsImportingModel] = useState(false);
   const [autoEyeBlink, setAutoEyeBlink] = useState(true);
   const [autoBreath, setAutoBreath] = useState(true);
   const [eyeTracking, setEyeTracking] = useState(true);
@@ -377,6 +390,27 @@ export default function Live2DControls({
   const saveModelConfig = useCallback((config) => {
     localStorage.setItem(STORAGE_KEYS.modelConfig, JSON.stringify(config));
   }, []);
+
+  const loadAvailableModels = useCallback(async () => {
+    if (!desktopMode) {
+      setAvailableModels([]);
+      setModelLibraryError('当前环境不支持模型库导入。');
+      return [];
+    }
+
+    try {
+      const result = await desktopBridge.models.list();
+      const models = Array.isArray(result?.models) ? result.models : [];
+      setAvailableModels(models);
+      setModelLibraryError('');
+      return models;
+    } catch (error) {
+      console.error('Failed to load model library:', error);
+      setAvailableModels([]);
+      setModelLibraryError('读取模型库失败，请重启后重试。');
+      return [];
+    }
+  }, [desktopMode]);
 
   const loadSavedPresets = useCallback(() => {
     try {
@@ -477,65 +511,91 @@ export default function Live2DControls({
       return;
     }
 
-    try {
-      const storedMotion = JSON.parse(localStorage.getItem(STORAGE_KEYS.motionConfig) || '{}');
-      const mergedMotions = mergeById(DEFAULT_MOTIONS, storedMotion.motions);
-      setMotions(mergedMotions);
-      onMotionsUpdate?.(mergedMotions);
+    let active = true;
 
-      const storedExpressions = JSON.parse(
-        localStorage.getItem(STORAGE_KEYS.expressionConfig) || '[]',
-      );
-      const mergedExpressions = mergeById(DEFAULT_EXPRESSIONS, storedExpressions);
-      setExpressions(mergedExpressions);
-      onExpressionsUpdate?.(mergedExpressions);
+    const hydrate = async () => {
+      try {
+        const storedMotion = JSON.parse(localStorage.getItem(STORAGE_KEYS.motionConfig) || '{}');
+        const mergedMotions = mergeById(DEFAULT_MOTIONS, storedMotion.motions);
+        setMotions(mergedMotions);
+        onMotionsUpdate?.(mergedMotions);
 
-      const storedModel = JSON.parse(localStorage.getItem(STORAGE_KEYS.modelConfig) || '{}');
-      let initialModelPath = DEFAULT_MODEL_PATH;
-      if (typeof storedModel.selectedModel === 'string' && storedModel.selectedModel) {
-        initialModelPath = storedModel.selectedModel;
+        const storedExpressions = JSON.parse(
+          localStorage.getItem(STORAGE_KEYS.expressionConfig) || '[]',
+        );
+        const mergedExpressions = mergeById(DEFAULT_EXPRESSIONS, storedExpressions);
+        setExpressions(mergedExpressions);
+        onExpressionsUpdate?.(mergedExpressions);
+
+        const storedModel = JSON.parse(localStorage.getItem(STORAGE_KEYS.modelConfig) || '{}');
+        let initialModelPath =
+          typeof storedModel.selectedModel === 'string' ? storedModel.selectedModel : '';
+
+        if (typeof storedModel.modelScale === 'number') {
+          setModelScale(storedModel.modelScale);
+        }
+        if (typeof storedModel.autoEyeBlink === 'boolean') {
+          setAutoEyeBlink(storedModel.autoEyeBlink);
+        }
+        if (typeof storedModel.autoBreath === 'boolean') {
+          setAutoBreath(storedModel.autoBreath);
+        }
+        if (typeof storedModel.eyeTracking === 'boolean') {
+          setEyeTracking(storedModel.eyeTracking);
+        }
+        if (typeof storedModel.backgroundOpacity === 'number') {
+          setBackgroundOpacity(storedModel.backgroundOpacity);
+        }
+
+        const storedCache = JSON.parse(localStorage.getItem(STORAGE_KEYS.cachedBackgrounds) || '[]');
+        if (Array.isArray(storedCache)) {
+          setCachedBackgrounds(storedCache);
+        }
+
+        loadSavedPresets();
+
+        const models = await loadAvailableModels();
+        if (!active) {
+          return;
+        }
+
+        if (!models.some((model) => model.path === initialModelPath)) {
+          initialModelPath = models[0]?.path || '';
+        }
+
         setSelectedModel(initialModelPath);
-        if (storedModel.selectedModel !== DEFAULT_MODEL_PATH) {
-          onModelChange?.(storedModel.selectedModel);
+        onModelChange?.(initialModelPath);
+
+        if (initialModelPath) {
+          void autoParseModelFiles(initialModelPath);
+        } else {
+          setAvailableMotionFiles([]);
+          setAvailableExpressionFiles([]);
+          updateDebugInfo('尚未导入模型，请先导入 Live2D 模型 ZIP。');
+        }
+      } catch (error) {
+        console.error('Failed to restore state from localStorage:', error);
+      } finally {
+        if (active) {
+          setIsHydrated(true);
         }
       }
-      if (typeof storedModel.modelScale === 'number') {
-        setModelScale(storedModel.modelScale);
-      }
-      if (typeof storedModel.autoEyeBlink === 'boolean') {
-        setAutoEyeBlink(storedModel.autoEyeBlink);
-      }
-      if (typeof storedModel.autoBreath === 'boolean') {
-        setAutoBreath(storedModel.autoBreath);
-      }
-      if (typeof storedModel.eyeTracking === 'boolean') {
-        setEyeTracking(storedModel.eyeTracking);
-      }
-      if (typeof storedModel.backgroundOpacity === 'number') {
-        setBackgroundOpacity(storedModel.backgroundOpacity);
-      }
+    };
 
-      const storedCache = JSON.parse(
-        localStorage.getItem(STORAGE_KEYS.cachedBackgrounds) || '[]',
-      );
-      if (Array.isArray(storedCache)) {
-        setCachedBackgrounds(storedCache);
-      }
+    void hydrate();
 
-      loadSavedPresets();
-      void autoParseModelFiles(initialModelPath);
-    } catch (error) {
-      console.error('Failed to restore state from localStorage:', error);
-    } finally {
-      setIsHydrated(true);
-    }
+    return () => {
+      active = false;
+    };
   }, [
     autoParseModelFiles,
     isHydrated,
+    loadAvailableModels,
     loadSavedPresets,
     onExpressionsUpdate,
     onModelChange,
     onMotionsUpdate,
+    updateDebugInfo,
   ]);
 
   useEffect(() => {
@@ -954,14 +1014,69 @@ export default function Live2DControls({
   const changeModel = useCallback(
     (modelPath) => {
       setSelectedModel(modelPath);
-      onModelChange?.(modelPath);
+      onModelChange?.(modelPath || '');
       setManualMotionFiles('');
       setManualExpressionFiles('');
+      if (!modelPath) {
+        setAvailableMotionFiles([]);
+        setAvailableExpressionFiles([]);
+        updateDebugInfo('未选择模型');
+        return;
+      }
+
       updateDebugInfo(`切换模型: ${modelPath}`);
       void autoParseModelFiles(modelPath);
     },
     [autoParseModelFiles, onModelChange, updateDebugInfo],
   );
+
+  const importModelZip = useCallback(async () => {
+    if (!desktopMode) {
+      setModelLibraryError('当前环境不支持模型库导入。');
+      return;
+    }
+
+    setIsImportingModel(true);
+    setModelLibraryError('');
+
+    try {
+      const result = await desktopBridge.models.importZip();
+      if (result?.canceled) {
+        return;
+      }
+
+      if (!result?.ok) {
+        const message = result?.error?.message || '导入模型失败。';
+        setModelLibraryError(message);
+        updateDebugInfo(`导入失败: ${message}`);
+        return;
+      }
+
+      const models = Array.isArray(result?.models) ? result.models : await loadAvailableModels();
+      setAvailableModels(models);
+      const importedCount = Array.isArray(result?.imported?.models) ? result.imported.models.length : 0;
+      updateDebugInfo(`导入完成：新增 ${importedCount} 个可用模型`);
+
+      if (models.length === 0) {
+        onModelChange?.('');
+        setSelectedModel('');
+        return;
+      }
+
+      const importedPath = result?.imported?.models?.[0]?.path;
+      const nextModelPath =
+        (importedPath && models.some((model) => model.path === importedPath) && importedPath) ||
+        (selectedModel && models.some((model) => model.path === selectedModel) && selectedModel) ||
+        models[0].path;
+      changeModel(nextModelPath);
+    } catch (error) {
+      const message = error?.message || '导入模型失败。';
+      setModelLibraryError(message);
+      updateDebugInfo(`导入失败: ${message}`);
+    } finally {
+      setIsImportingModel(false);
+    }
+  }, [changeModel, desktopMode, loadAvailableModels, onModelChange, selectedModel, updateDebugInfo]);
 
   const toggleAutoEyeBlink = useCallback(
     (enabled) => {
@@ -1566,7 +1681,7 @@ export default function Live2DControls({
     updateDebugInfo('🎪 播放随机动作');
   }, [live2dViewerRef, modelLoaded, updateDebugInfo]);
 
-  const statusChip = modelLoaded ? '模型已加载' : '加载中';
+  const statusChip = selectedModel ? (modelLoaded ? '模型已加载' : '加载中') : '未加载模型';
 
   return (
     <Box className="live2d-controls-root">
@@ -1588,9 +1703,12 @@ export default function Live2DControls({
 
         <ModelSettingsPanel
           modelLoaded={modelLoaded}
-          availableModels={AVAILABLE_MODELS}
+          availableModels={availableModels}
           selectedModel={selectedModel}
           onChangeModel={changeModel}
+          isImportingModel={isImportingModel}
+          onImportModelZip={importModelZip}
+          modelLibraryError={modelLibraryError}
           autoEyeBlink={autoEyeBlink}
           onToggleAutoEyeBlink={toggleAutoEyeBlink}
           autoBreath={autoBreath}

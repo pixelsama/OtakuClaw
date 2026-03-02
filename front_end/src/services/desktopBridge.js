@@ -341,4 +341,26 @@ export const desktopBridge = {
       return api.windowControls.control(action);
     },
   },
+  models: {
+    async list() {
+      const api = getDesktopApi();
+      if (!api?.live2dModels?.list) {
+        return { models: [] };
+      }
+      return api.live2dModels.list();
+    },
+    async importZip() {
+      const api = getDesktopApi();
+      if (!api?.live2dModels?.importZip) {
+        return {
+          ok: false,
+          error: {
+            code: 'desktop_model_library_unavailable',
+            message: '当前环境不支持导入模型。',
+          },
+        };
+      }
+      return api.live2dModels.importZip();
+    },
+  },
 };

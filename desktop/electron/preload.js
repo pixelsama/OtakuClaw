@@ -94,6 +94,15 @@ const windowControls = {
   },
 };
 
+const live2dModels = {
+  list() {
+    return ipcRenderer.invoke('live2d-models:list');
+  },
+  importZip() {
+    return ipcRenderer.invoke('live2d-models:import-zip');
+  },
+};
+
 contextBridge.exposeInMainWorld('desktop', {
   isElectron: true,
   platform: process.platform,
@@ -101,4 +110,5 @@ contextBridge.exposeInMainWorld('desktop', {
   settings,
   windowMode,
   windowControls,
+  live2dModels,
 });

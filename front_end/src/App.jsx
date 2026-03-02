@@ -26,7 +26,7 @@ import { useStreamingChat } from './hooks/useStreamingChat.js';
 import { useSubtitleFeed } from './hooks/useSubtitleFeed.js';
 import { desktopBridge } from './services/desktopBridge.js';
 
-const DEFAULT_MODEL = '/live2d/models/Haru/Haru.model3.json';
+const DEFAULT_MODEL = '';
 const MODE_WINDOW = 'window';
 const MODE_PET = 'pet';
 
@@ -332,7 +332,7 @@ export default function App() {
   );
 
   const handleControlModelChange = useCallback((modelPath) => {
-    setCurrentModelPath(modelPath);
+    setCurrentModelPath(modelPath || '');
     setModelLoaded(false);
   }, []);
 

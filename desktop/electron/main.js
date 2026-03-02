@@ -1,19 +1,36 @@
 const path = require('node:path');
-const { app, BrowserWindow, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, protocol } = require('electron');
 
 const { registerChatStreamIpc } = require('./ipc/chatStream');
+const { registerLive2DModelsIpc } = require('./ipc/live2dModels');
 const { registerSettingsIpc } = require('./ipc/settings');
+const { Live2DModelLibrary, MODEL_PROTOCOL } = require('./services/live2dModelLibrary');
 const { SettingsStore } = require('./services/settingsStore');
 const { WindowModeManager } = require('./window/windowModeManager');
 const { TrayManager } = require('./window/trayManager');
 const { registerModeIpc } = require('./window/modeIpc');
 
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: MODEL_PROTOCOL,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
+]);
+
 let mainWindow = null;
 let disposeChatStreamHandlers = null;
 let disposeModeHandlers = null;
+let disposeLive2DModelsHandlers = null;
 let settingsStore = null;
 let windowModeManager = null;
 let trayManager = null;
+let live2dModelLibrary = null;
 let isQuitting = false;
 
 function registerWindowControlIpc() {
@@ -90,6 +107,23 @@ function createWindowOptions() {
   };
 }
 
+function registerModelProtocol() {
+  protocol.handle(MODEL_PROTOCOL, async (request) => {
+    try {
+      const { buffer, mimeType } = await live2dModelLibrary.readAssetFromProtocolUrl(request.url);
+      return new Response(buffer, {
+        status: 200,
+        headers: {
+          'content-type': mimeType,
+          'cache-control': 'no-store',
+        },
+      });
+    } catch (error) {
+      return new Response('Not Found', { status: 404 });
+    }
+  });
+}
+
 async function createMainWindow() {
   mainWindow = new BrowserWindow(createWindowOptions());
   windowModeManager.attachWindow(mainWindow);
@@ -139,6 +173,9 @@ async function createMainWindow() {
 async function bootstrap() {
   settingsStore = new SettingsStore(app);
   await settingsStore.init();
+  live2dModelLibrary = new Live2DModelLibrary(app);
+  await live2dModelLibrary.init();
+  registerModelProtocol();
 
   registerSettingsIpc({ ipcMain, settingsStore });
 
@@ -170,6 +207,11 @@ async function bootstrap() {
   });
 
   registerWindowControlIpc();
+  disposeLive2DModelsHandlers = registerLive2DModelsIpc({
+    ipcMain,
+    getWindow: () => mainWindow,
+    modelLibrary: live2dModelLibrary,
+  });
 
   disposeChatStreamHandlers = registerChatStreamIpc({
     ipcMain,
@@ -219,9 +261,17 @@ app.on('before-quit', () => {
   if (disposeModeHandlers) {
     disposeModeHandlers();
   }
+  if (disposeLive2DModelsHandlers) {
+    disposeLive2DModelsHandlers();
+  }
 
   ipcMain.removeHandler('window:get-platform');
   ipcMain.removeHandler('window:control');
+  try {
+    protocol.unhandle(MODEL_PROTOCOL);
+  } catch {
+    // noop
+  }
 
   trayManager?.destroy();
 });
