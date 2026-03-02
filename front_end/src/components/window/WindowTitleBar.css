@@ -10,9 +10,19 @@
   top: 0;
   left: 0;
   right: 0;
-  height: 26px;
+  height: 44px;
   -webkit-app-region: drag;
   pointer-events: auto;
+}
+
+.window-titlebar-drag-strip::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: rgba(148, 163, 184, 0.28);
 }
 
 .window-titlebar-mac-controls,
@@ -28,12 +38,12 @@
 
 .window-titlebar-mac-controls {
   left: 20px;
-  top: 20px;
+  top: 16px;
 }
 
 .window-titlebar-win-controls {
   right: 20px;
-  top: 20px;
+  top: 16px;
   gap: 6px;
 }
 
