@@ -2,6 +2,8 @@
 
 ## Project Structure & Modules
 - `desktop/electron/` — Electron main/preload, IPC handlers, OpenClaw stream adapter.
+  - `services/live2dModelLibrary.js` — Live2D ZIP import, model discovery, and custom protocol path resolution.
+  - `ipc/live2dModels.js` — model library IPC (`live2d-models:list`, `live2d-models:import-zip`).
 - `front_end/` — React + Vite renderer (`src/`, `tests/`, `package.json`).
 - `docs/` — current plans and architecture notes (historical docs are in `docs/archive/`).
 - Root `package.json` — desktop scripts and packaging (`electron-builder`).
@@ -33,6 +35,11 @@
   - stream abort behavior
   - settings persistence and token handling
   - SSE parsing robustness
+  - Live2D custom protocol URL resolution compatibility:
+    - `openclaw-model:///folder/file`
+    - `openclaw-model://folder/file`
+  - path traversal rejection for custom protocol resolution
+- When changing model import/protocol logic, run `npm run test:desktop`.
 
 ## Commit & PR Guidelines
 - Conventional commit style: `feat:`, `fix:`, `test:`, `chore:`.
@@ -45,3 +52,4 @@
 - OpenClaw token should be managed in Electron main process and stored via system keychain when available.
 - Do not expose token to renderer over preload APIs.
 - Keep `contextIsolation: true` and `sandbox: true` for BrowserWindow.
+- For `openclaw-model://` asset serving, keep strict root-directory confinement and reject traversal attempts.
