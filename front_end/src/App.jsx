@@ -17,6 +17,7 @@ import {
 import TuneIcon from '@mui/icons-material/Tune';
 import EditIcon from '@mui/icons-material/Edit';
 import CloseIcon from '@mui/icons-material/Close';
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import Live2DViewer from './components/live2d/Live2DViewer.jsx';
 import Live2DControls from './components/controls/Live2DControls.jsx';
 import SubtitleBar from './components/subtitle/SubtitleBar.jsx';
@@ -25,6 +26,8 @@ import { useSubtitleFeed } from './hooks/useSubtitleFeed.js';
 import { desktopBridge } from './services/desktopBridge.js';
 
 const DEFAULT_MODEL = '/live2d/models/Haru/Haru.model3.json';
+const MODE_WINDOW = 'window';
+const MODE_PET = 'pet';
 
 const defaultOpenClawSettings = {
   baseUrl: '',
@@ -57,11 +60,13 @@ function normalizeErrorMessage(error) {
 export default function App() {
   const live2dViewerRef = useRef(null);
   const subtitleTextRef = useRef('');
+  const desktopMode = desktopBridge.isDesktop();
 
   const [modelLoaded, setModelLoaded] = useState(false);
   const [currentModelPath, setCurrentModelPath] = useState(DEFAULT_MODEL);
   const [motions, setMotions] = useState([]);
   const [expressions, setExpressions] = useState([]);
+  const [windowMode, setWindowMode] = useState(MODE_WINDOW);
 
   const [showConfigPanel, setShowConfigPanel] = useState(false);
   const [showTextInputDialog, setShowTextInputDialog] = useState(false);
@@ -139,6 +144,56 @@ export default function App() {
     };
   }, [cancelStreaming]);
 
+  useEffect(() => {
+    if (!desktopMode) {
+      return undefined;
+    }
+
+    let mounted = true;
+
+    const loadCurrentMode = async () => {
+      try {
+        const result = await desktopBridge.mode.getCurrent();
+        if (!mounted) {
+          return;
+        }
+
+        const nextMode = result?.mode === MODE_PET ? MODE_PET : MODE_WINDOW;
+        setWindowMode(nextMode);
+      } catch (error) {
+        console.error('Failed to load current window mode:', error);
+      }
+    };
+
+    const detachPreChanged = desktopBridge.mode.onPreChanged((nextMode) => {
+      const targetMode = nextMode === MODE_PET ? MODE_PET : MODE_WINDOW;
+      setWindowMode(targetMode);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          desktopBridge.mode.notifyRendererReady(targetMode);
+        });
+      });
+    });
+
+    const detachModeChanged = desktopBridge.mode.onChanged((nextMode) => {
+      const targetMode = nextMode === MODE_PET ? MODE_PET : MODE_WINDOW;
+      setWindowMode(targetMode);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          desktopBridge.mode.notifyModeRendered(targetMode);
+        });
+      });
+    });
+
+    void loadCurrentMode();
+
+    return () => {
+      mounted = false;
+      detachPreChanged?.();
+      detachModeChanged?.();
+    };
+  }, [desktopMode]);
+
   const sendUserText = useCallback(
     async (content, options = {}) => {
       if (!content) return;
@@ -151,6 +206,41 @@ export default function App() {
   const stopStreaming = useCallback(() => {
     void cancelStreaming();
   }, [cancelStreaming]);
+
+  const isPetMode = windowMode === MODE_PET;
+
+  const setDesktopWindowMode = useCallback(
+    async (nextMode) => {
+      if (nextMode !== MODE_WINDOW && nextMode !== MODE_PET) {
+        return;
+      }
+
+      if (!desktopMode) {
+        return;
+      }
+
+      try {
+        await desktopBridge.mode.set(nextMode);
+      } catch (error) {
+        console.error('Failed to switch window mode:', error);
+      }
+    },
+    [desktopMode],
+  );
+
+  const bindPetHover = useCallback(
+    (componentId) => {
+      if (!desktopMode || !isPetMode) {
+        return {};
+      }
+
+      return {
+        onMouseEnter: () => desktopBridge.mode.updateHover(componentId, true),
+        onMouseLeave: () => desktopBridge.mode.updateHover(componentId, false),
+      };
+    },
+    [desktopMode, isPetMode],
+  );
 
   const openTextInputDialog = useCallback(() => {
     setTextInputContent('');
@@ -189,9 +279,11 @@ export default function App() {
       height: '100dvh',
       minHeight: '100dvh',
       background:
-        'radial-gradient(circle at top, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.06)), linear-gradient(180deg, #e5eeff 0%, #f9fbff 100%)',
+        isPetMode
+          ? 'transparent'
+          : 'radial-gradient(circle at top, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.06)), linear-gradient(180deg, #e5eeff 0%, #f9fbff 100%)',
     }),
-    [],
+    [isPetMode],
   );
 
   const handleControlModelChange = useCallback((modelPath) => {
@@ -288,36 +380,63 @@ export default function App() {
     }
   }, []);
 
-  const desktopMode = desktopBridge.isDesktop();
+  useEffect(() => {
+    if (!isPetMode) {
+      return;
+    }
+
+    setShowConfigPanel(false);
+    setShowTextInputDialog(false);
+  }, [isPetMode]);
 
   return (
     <Box sx={stageStyle}>
-      <Box className="live2d-stage">
-        <Live2DViewer
-          ref={live2dViewerRef}
-          modelPath={currentModelPath}
-          motions={motions}
-          expressions={expressions}
-          width={400}
-          height={600}
-          onModelLoaded={handleModelLoaded}
-          onModelError={handleModelError}
-          className="live2d-canvas"
-        />
+      <Box className={`live2d-stage ${isPetMode ? 'pet-mode' : 'window-mode'}`}>
+        <Box className="live2d-hitbox" {...bindPetHover('live2d-hitbox')}>
+          <Live2DViewer
+            ref={live2dViewerRef}
+            modelPath={currentModelPath}
+            motions={motions}
+            expressions={expressions}
+            width={400}
+            height={600}
+            onModelLoaded={handleModelLoaded}
+            onModelError={handleModelError}
+            className="live2d-viewer"
+          />
+        </Box>
 
-        <IconButton className="config-toggle" color="primary" onClick={() => setShowConfigPanel(true)}>
-          <TuneIcon />
-        </IconButton>
+        {!isPetMode && (
+          <IconButton className="config-toggle" color="primary" onClick={() => setShowConfigPanel(true)}>
+            <TuneIcon />
+          </IconButton>
+        )}
 
-        <IconButton className="text-toggle" color="primary" onClick={openTextInputDialog}>
-          <EditIcon />
-        </IconButton>
+        {!isPetMode && (
+          <IconButton className="text-toggle" color="primary" onClick={openTextInputDialog}>
+            <EditIcon />
+          </IconButton>
+        )}
+
+        {desktopMode && (
+          <IconButton
+            className={`mode-toggle ${isPetMode ? 'mode-toggle-pet' : ''}`}
+            color="primary"
+            onClick={() => {
+              void setDesktopWindowMode(isPetMode ? MODE_WINDOW : MODE_PET);
+            }}
+            {...bindPetHover('mode-toggle')}
+            title={isPetMode ? '切换到主窗口模式' : '切换到桌宠模式'}
+          >
+            <SwapHorizIcon />
+          </IconButton>
+        )}
 
         <SubtitleBar text={subtitleText} />
       </Box>
 
       <Dialog
-        open={showConfigPanel}
+        open={showConfigPanel && !isPetMode}
         onClose={() => setShowConfigPanel(false)}
         maxWidth="sm"
         fullWidth
@@ -428,7 +547,7 @@ export default function App() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showTextInputDialog} onClose={closeTextInputDialog} maxWidth="sm" fullWidth>
+      <Dialog open={showTextInputDialog && !isPetMode} onClose={closeTextInputDialog} maxWidth="sm" fullWidth>
         <DialogTitle>发送文字消息</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>

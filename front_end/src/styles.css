@@ -10,6 +10,7 @@ body,
   margin: 0;
   padding: 0;
   overflow: hidden;
+  background: transparent;
 }
 
 .live2d-stage {
@@ -17,17 +18,41 @@ body,
   width: 100%;
   height: 100dvh;
   min-height: 100dvh;
-  display: flex;
-  align-items: stretch;
-  justify-content: center;
   overflow: hidden;
 }
 
-.live2d-stage > .live2d-container {
+.live2d-hitbox {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+}
+
+.live2d-hitbox > .live2d-container {
+  position: absolute;
+  inset: 0;
+}
+
+.live2d-stage.pet-mode {
+  background: transparent;
+  pointer-events: none;
+}
+
+.live2d-stage.pet-mode .live2d-hitbox {
+  inset: auto;
+  right: 24px;
+  bottom: 0;
+  width: min(420px, 42vw);
+  height: min(640px, 74vh);
+  pointer-events: auto;
+}
+
+.live2d-stage.pet-mode .subtitle-container {
+  bottom: 20px;
+}
+
+.live2d-stage.window-mode .live2d-hitbox {
+  pointer-events: auto;
 }
 
 .live2d-canvas {
@@ -49,4 +74,18 @@ body,
   bottom: 24px;
   z-index: 6;
   background: rgba(255, 255, 255, 0.85) !important;
+}
+
+.mode-toggle {
+  position: absolute !important;
+  top: 20px;
+  left: 20px;
+  z-index: 6;
+  background: rgba(255, 255, 255, 0.85) !important;
+  pointer-events: auto;
+}
+
+.mode-toggle-pet {
+  top: 16px;
+  left: 16px;
 }

@@ -215,4 +215,73 @@ export const desktopBridge = {
       return testWebConnection(patch);
     },
   },
+  mode: {
+    async getCurrent() {
+      const api = getDesktopApi();
+      if (!api?.windowMode?.getMode) {
+        return { mode: 'window' };
+      }
+
+      const result = await api.windowMode.getMode();
+      if (result?.mode === 'pet' || result?.mode === 'window') {
+        return result;
+      }
+
+      return { mode: 'window' };
+    },
+    async set(mode) {
+      const api = getDesktopApi();
+      if (!api?.windowMode?.setMode) {
+        return { ok: false, mode: 'window' };
+      }
+
+      return api.windowMode.setMode(mode);
+    },
+    notifyRendererReady(mode) {
+      const api = getDesktopApi();
+      api?.windowMode?.notifyRendererReady?.(mode);
+    },
+    notifyModeRendered(mode) {
+      const api = getDesktopApi();
+      api?.windowMode?.notifyModeRendered?.(mode);
+    },
+    updateHover(componentId, isHovering) {
+      const api = getDesktopApi();
+      api?.windowMode?.updateComponentHover?.(componentId, isHovering);
+    },
+    toggleForceIgnoreMouse() {
+      const api = getDesktopApi();
+      api?.windowMode?.toggleForceIgnoreMouse?.();
+    },
+    onPreChanged(handler) {
+      const api = getDesktopApi();
+      if (!api?.windowMode?.onPreModeChanged || typeof handler !== 'function') {
+        return () => {};
+      }
+
+      return api.windowMode.onPreModeChanged((payload = {}) => {
+        handler(payload.mode || 'window');
+      });
+    },
+    onChanged(handler) {
+      const api = getDesktopApi();
+      if (!api?.windowMode?.onModeChanged || typeof handler !== 'function') {
+        return () => {};
+      }
+
+      return api.windowMode.onModeChanged((payload = {}) => {
+        handler(payload.mode || 'window');
+      });
+    },
+    onForceIgnoreMouseChanged(handler) {
+      const api = getDesktopApi();
+      if (!api?.windowMode?.onForceIgnoreMouseChanged || typeof handler !== 'function') {
+        return () => {};
+      }
+
+      return api.windowMode.onForceIgnoreMouseChanged((payload = {}) => {
+        handler(Boolean(payload.forceIgnoreMouse));
+      });
+    },
+  },
 };

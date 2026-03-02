@@ -4,10 +4,17 @@ const { app, BrowserWindow, shell, ipcMain } = require('electron');
 const { registerChatStreamIpc } = require('./ipc/chatStream');
 const { registerSettingsIpc } = require('./ipc/settings');
 const { SettingsStore } = require('./services/settingsStore');
+const { WindowModeManager } = require('./window/windowModeManager');
+const { TrayManager } = require('./window/trayManager');
+const { registerModeIpc } = require('./window/modeIpc');
 
 let mainWindow = null;
 let disposeChatStreamHandlers = null;
+let disposeModeHandlers = null;
 let settingsStore = null;
+let windowModeManager = null;
+let trayManager = null;
+let isQuitting = false;
 
 function getRendererDevUrl() {
   return process.env.ELECTRON_DEV_SERVER_URL || 'http://127.0.0.1:3000';
@@ -23,12 +30,16 @@ function isAllowedExternalUrl(targetUrl) {
   }
 }
 
-async function createMainWindow() {
-  mainWindow = new BrowserWindow({
+function createWindowOptions() {
+  return {
     width: 1280,
     height: 860,
     minWidth: 960,
     minHeight: 680,
+    show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -37,7 +48,12 @@ async function createMainWindow() {
       sandbox: true,
       webSecurity: true,
     },
-  });
+  };
+}
+
+async function createMainWindow() {
+  mainWindow = new BrowserWindow(createWindowOptions());
+  windowModeManager.attachWindow(mainWindow);
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (isAllowedExternalUrl(url)) {
@@ -62,7 +78,21 @@ async function createMainWindow() {
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
 
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
+  });
+
+  mainWindow.on('close', (event) => {
+    if (isQuitting) {
+      return;
+    }
+
+    event.preventDefault();
+    mainWindow?.hide();
+  });
+
   mainWindow.on('closed', () => {
+    windowModeManager.detachWindow();
     mainWindow = null;
   });
 }
@@ -72,6 +102,33 @@ async function bootstrap() {
   await settingsStore.init();
 
   registerSettingsIpc({ ipcMain, settingsStore });
+
+  windowModeManager = new WindowModeManager();
+
+  trayManager = new TrayManager({
+    onSetMode: (mode) => {
+      trayManager?.setMode(mode);
+      windowModeManager.requestModeChange(mode);
+    },
+    onToggleMousePassthrough: () => {
+      windowModeManager.toggleForceIgnoreMouse();
+    },
+    onShow: () => {
+      mainWindow?.show();
+    },
+    onHide: () => {
+      mainWindow?.hide();
+    },
+  });
+  trayManager.create();
+
+  disposeModeHandlers = registerModeIpc({
+    ipcMain,
+    windowModeManager,
+    onModeChanged: (mode) => {
+      trayManager?.setMode(mode);
+    },
+  });
 
   disposeChatStreamHandlers = registerChatStreamIpc({
     ipcMain,
@@ -88,16 +145,22 @@ async function bootstrap() {
   await createMainWindow();
 
   app.on('activate', async () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (!mainWindow || mainWindow.isDestroyed()) {
       await createMainWindow();
+      return;
     }
+
+    mainWindow.show();
   });
 }
 
-app.whenReady().then(bootstrap).catch((error) => {
-  console.error('Electron bootstrap failed:', error);
-  app.quit();
-});
+app
+  .whenReady()
+  .then(bootstrap)
+  .catch((error) => {
+    console.error('Electron bootstrap failed:', error);
+    app.quit();
+  });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -106,7 +169,15 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  isQuitting = true;
+
   if (disposeChatStreamHandlers) {
     disposeChatStreamHandlers();
   }
+
+  if (disposeModeHandlers) {
+    disposeModeHandlers();
+  }
+
+  trayManager?.destroy();
 });
