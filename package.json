@@ -4,10 +4,10 @@
   "private": true,
   "main": "desktop/electron/main.js",
   "scripts": {
-    "frontend:dev": "npm --prefix front_end run dev",
+    "frontend:dev": "npm --prefix front_end run dev -- --host 127.0.0.1 --port 3000 --strictPort",
     "frontend:build": "npm --prefix front_end run build",
     "desktop:dev:renderer": "npm run frontend:dev",
-    "desktop:dev:electron": "cross-env ELECTRON_DEV_SERVER_URL=http://127.0.0.1:3000 electron .",
+    "desktop:dev:electron": "node desktop/electron/scripts/waitForDevServer.js && cross-env ELECTRON_DEV_SERVER_URL=http://127.0.0.1:3000 electron .",
     "desktop:dev": "concurrently -k \"npm:desktop:dev:renderer\" \"npm:desktop:dev:electron\"",
     "desktop:build": "npm run frontend:build && electron-builder",
     "test:frontend": "npm --prefix front_end run test -- --run",
