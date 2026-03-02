@@ -1,75 +1,52 @@
-.window-titlebar {
+.window-titlebar-floating {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.window-titlebar-drag-strip {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 44px;
+  height: 26px;
+  -webkit-app-region: drag;
+  pointer-events: auto;
+}
+
+.window-titlebar-mac-controls,
+.window-titlebar-win-controls {
+  position: absolute;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 10px;
-  z-index: 20;
-  color: #111827;
-  -webkit-app-region: drag;
-  user-select: none;
-}
-
-.window-titlebar-drag-region {
-  position: absolute;
-  inset: 0;
-  -webkit-app-region: drag;
-}
-
-.window-titlebar-title {
-  position: relative;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+  pointer-events: auto;
   z-index: 1;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  opacity: 0.82;
-  pointer-events: none;
 }
 
-.window-titlebar-win {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.62) 100%);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+.window-titlebar-mac-controls {
+  left: 20px;
+  top: 20px;
 }
 
 .window-titlebar-win-controls {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
+  right: 20px;
+  top: 20px;
   gap: 6px;
-  -webkit-app-region: no-drag;
 }
 
 .window-titlebar-win-btn {
   width: 26px;
   height: 26px;
   border-radius: 6px !important;
-  background: rgba(255, 255, 255, 0.78) !important;
+  background: rgba(255, 255, 255, 0.82) !important;
   color: #1f2937 !important;
 }
 
 .window-titlebar-win-btn.close {
   color: #b91c1c !important;
-}
-
-.window-titlebar-mac {
-  justify-content: center;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.74) 0%, rgba(255, 255, 255, 0.54) 100%);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
-}
-
-.window-titlebar-mac-controls {
-  position: absolute;
-  left: 12px;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  -webkit-app-region: no-drag;
 }
 
 .window-titlebar-mac-btn {

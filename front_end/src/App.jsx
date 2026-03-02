@@ -488,22 +488,23 @@ export default function App() {
         )}
 
         {!isPetMode && (
-          <IconButton className="text-toggle" color="primary" onClick={openTextInputDialog}>
-            <EditIcon />
-          </IconButton>
-        )}
-
-        {desktopMode && !isPetMode && (
-          <IconButton
-            className="mode-toggle"
-            color="primary"
-            onClick={() => {
-              void setDesktopWindowMode(MODE_PET);
-            }}
-            title="切换到桌宠模式"
-          >
-            <SwapHorizIcon />
-          </IconButton>
+          <Box className="window-bottom-controls">
+            {desktopMode && (
+              <IconButton
+                className="mode-toggle"
+                color="primary"
+                onClick={() => {
+                  void setDesktopWindowMode(MODE_PET);
+                }}
+                title="切换到桌宠模式"
+              >
+                <SwapHorizIcon />
+              </IconButton>
+            )}
+            <IconButton className="text-toggle" color="primary" onClick={openTextInputDialog}>
+              <EditIcon />
+            </IconButton>
+          </Box>
         )}
 
         <SubtitleBar text={subtitleText} />

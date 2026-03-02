@@ -52,8 +52,6 @@ body,
 }
 
 .live2d-stage.window-mode .live2d-hitbox {
-  top: 44px;
-  height: calc(100% - 44px);
   pointer-events: auto;
 }
 
@@ -70,21 +68,25 @@ body,
   background: rgba(255, 255, 255, 0.85) !important;
 }
 
-.text-toggle {
-  position: absolute !important;
+.window-bottom-controls {
+  position: absolute;
   right: 24px;
   bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   z-index: 6;
+  pointer-events: auto;
+}
+
+.text-toggle {
+  position: relative !important;
   background: rgba(255, 255, 255, 0.85) !important;
 }
 
 .mode-toggle {
-  position: absolute !important;
-  top: 60px;
-  left: 20px;
-  z-index: 6;
+  position: relative !important;
   background: rgba(255, 255, 255, 0.85) !important;
-  pointer-events: auto;
 }
 
 .pet-mode-toggle-wrap {
