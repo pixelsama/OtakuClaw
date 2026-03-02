@@ -62,15 +62,11 @@ body,
 
 .config-toggle {
   position: absolute !important;
-  top: 60px;
+  top: 56px;
   right: 20px;
   z-index: 24;
   background: rgba(255, 255, 255, 0.85) !important;
   -webkit-app-region: no-drag;
-}
-
-.live2d-stage.window-mode.platform-darwin .config-toggle {
-  top: 16px;
 }
 
 .window-bottom-controls {
