@@ -1,52 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Divider,
-  Drawer,
-  IconButton,
-  Stack,
-  Tab,
-  Tabs,
-  TextField,
-  useMediaQuery,
-} from '@mui/material';
+import { Box, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
-import CloseIcon from '@mui/icons-material/Close';
-import Live2DControls from './components/controls/Live2DControls.jsx';
+import ConfigDrawer from './components/config/ConfigDrawer.jsx';
+import { useStreamingSubtitleBridge } from './hooks/chat/useStreamingSubtitleBridge.js';
+import { useTextComposerController } from './hooks/chat/useTextComposerController.js';
+import { useConfigPanelController } from './hooks/config/useConfigPanelController.js';
 import { useStreamingChat } from './hooks/useStreamingChat.js';
 import { useSubtitleFeed } from './hooks/useSubtitleFeed.js';
 import { usePetHoverPassthrough } from './hooks/pet/usePetHoverPassthrough.js';
+import { usePetCursorTracking } from './hooks/pet/usePetCursorTracking.js';
+import { useOpenClawSettings } from './hooks/settings/useOpenClawSettings.js';
+import { usePlatformInfo } from './hooks/window/usePlatformInfo.js';
 import { ModeProvider, MODE_PET, MODE_WINDOW, useModeContext } from './mode/ModeContext.jsx';
 import MainShell from './shells/MainShell.jsx';
 import PetShell from './shells/PetShell.jsx';
 import { desktopBridge } from './services/desktopBridge.js';
-import {
-  I18nProvider,
-  LANGUAGE_EN_US,
-  LANGUAGE_ZH_CN,
-  useI18n,
-} from './i18n/I18nContext.jsx';
-import {
-  THEME_MODE_DARK,
-  THEME_MODE_LIGHT,
-  THEME_MODE_SYSTEM,
-  useThemeMode,
-} from './theme/ThemeModeContext.jsx';
+import { I18nProvider, useI18n } from './i18n/I18nContext.jsx';
 
 const DEFAULT_MODEL = '';
 const CONFIG_DRAWER_WIDTH = 420;
-const PET_CURSOR_TRACK_INTERVAL_MS = 33;
-
-const defaultOpenClawSettings = {
-  baseUrl: '',
-  token: '',
-  agentId: 'main',
-  hasToken: false,
-  hasSecureStorage: true,
-};
 
 function normalizeErrorMessage(error, t) {
   const fallbackMessage = t('common.requestFailed');
@@ -88,35 +60,48 @@ function normalizeErrorMessage(error, t) {
 
 function AppContent({ desktopMode }) {
   const live2dViewerRef = useRef(null);
-  const subtitleTextRef = useRef('');
-  const configPanelWindowResizedRef = useRef(false);
-  const closePanelSyncTimeoutRef = useRef(null);
   const { isPetMode, setMode } = useModeContext();
   const muiTheme = useTheme();
   const isNarrowViewport = useMediaQuery('(max-width:900px)');
-  const { language, setLanguage, t } = useI18n();
-  const { themeMode, setThemeMode } = useThemeMode();
+  const { t } = useI18n();
 
   const [modelLoaded, setModelLoaded] = useState(false);
   const [currentModelPath, setCurrentModelPath] = useState(DEFAULT_MODEL);
   const [motions, setMotions] = useState([]);
   const [expressions, setExpressions] = useState([]);
-  const [platform, setPlatform] = useState(() =>
-    desktopMode ? desktopBridge.window.getPlatformSync() : 'unknown',
-  );
-
-  const [showConfigPanel, setShowConfigPanel] = useState(false);
-  const [activeConfigTab, setActiveConfigTab] = useState(0);
-  const [composerExternalError, setComposerExternalError] = useState('');
-
-  const [openClawSettings, setOpenClawSettings] = useState(defaultOpenClawSettings);
-  const [settingsSaving, setSettingsSaving] = useState(false);
-  const [settingsTesting, setSettingsTesting] = useState(false);
-  const [settingsFeedback, setSettingsFeedback] = useState('');
-  const [settingsError, setSettingsError] = useState('');
+  const platform = usePlatformInfo({ desktopMode });
 
   const { subtitleText, appendDelta, replaceText, clearSubtitle, beginStream } = useSubtitleFeed();
   const { startStreaming, cancelStreaming, onDelta, onDone, onError, isStreaming } = useStreamingChat();
+
+  const normalizeError = useCallback((error) => normalizeErrorMessage(error, t), [t]);
+
+  const {
+    openClawSettings,
+    settingsSaving,
+    settingsTesting,
+    settingsFeedback,
+    settingsError,
+    onOpenClawSettingChange,
+    onSaveOpenClawSettings,
+    onTestOpenClawSettings,
+    onClearSavedToken,
+  } = useOpenClawSettings({
+    t,
+    normalizeError,
+  });
+
+  const { showConfigPanel, openConfigPanel, closeConfigPanel } = useConfigPanelController({
+    isPetMode,
+    live2dViewerRef,
+  });
+
+  const { setComposerExternalError, textComposerProps } = useTextComposerController({
+    beginStream,
+    startStreaming,
+    cancelStreaming,
+    isStreaming,
+  });
 
   const handleModelLoaded = useCallback(() => {
     setModelLoaded(true);
@@ -128,96 +113,17 @@ function AppContent({ desktopMode }) {
     console.error('Model error in App:', error);
   }, []);
 
-  useEffect(() => {
-    let mounted = true;
-
-    const loadSettings = async () => {
-      try {
-        const settings = await desktopBridge.settings.get();
-        if (!mounted) {
-          return;
-        }
-
-        setOpenClawSettings({
-          ...defaultOpenClawSettings,
-          ...settings,
-        });
-      } catch (error) {
-        console.error('Failed to load OpenClaw settings:', error);
-      }
-    };
-
-    void loadSettings();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    subtitleTextRef.current = subtitleText;
-  }, [subtitleText]);
-
-  useEffect(() => {
-    const detachDelta = onDelta((delta) => appendDelta(delta));
-    const detachDone = onDone(() => replaceText(subtitleTextRef.current));
-    const detachError = onError((error) => {
-      console.error('字幕流式输出发生错误:', error);
-      clearSubtitle();
-      setComposerExternalError(normalizeErrorMessage(error, t));
-    });
-
-    return () => {
-      detachDelta?.();
-      detachDone?.();
-      detachError?.();
-    };
-  }, [appendDelta, clearSubtitle, onDelta, onDone, onError, replaceText, t]);
-
-  useEffect(() => {
-    return () => {
-      void cancelStreaming();
-    };
-  }, [cancelStreaming]);
-
-  useEffect(() => {
-    if (!desktopMode) {
-      return;
-    }
-
-    let mounted = true;
-    const loadPlatform = async () => {
-      try {
-        const result = await desktopBridge.window.getPlatform();
-        if (!mounted) {
-          return;
-        }
-
-        setPlatform(result?.platform || 'unknown');
-      } catch (error) {
-        console.error('Failed to load platform info:', error);
-      }
-    };
-
-    void loadPlatform();
-
-    return () => {
-      mounted = false;
-    };
-  }, [desktopMode]);
-
-  const sendUserText = useCallback(
-    async (content, options = {}) => {
-      if (!content) return;
-      beginStream();
-      await startStreaming(options.sessionId || 'default', content, options.payload);
-    },
-    [beginStream, startStreaming],
-  );
-
-  const stopStreaming = useCallback(() => {
-    void cancelStreaming();
-  }, [cancelStreaming]);
+  useStreamingSubtitleBridge({
+    subtitleText,
+    appendDelta,
+    replaceText,
+    clearSubtitle,
+    onDelta,
+    onDone,
+    onError,
+    normalizeError,
+    onComposerError: setComposerExternalError,
+  });
 
   const setDesktopWindowMode = useCallback(
     async (nextMode) => {
@@ -266,42 +172,6 @@ function AppContent({ desktopMode }) {
     [desktopMode, isPetMode],
   );
 
-  const submitTextComposer = useCallback(
-    async (content) => {
-      setComposerExternalError('');
-      await sendUserText(content, { sessionId: 'text-composer' });
-    },
-    [sendUserText],
-  );
-
-  const dismissComposerExternalError = useCallback(() => {
-    setComposerExternalError('');
-  }, []);
-
-  const handleOpenConfigPanel = useCallback(() => {
-    configPanelWindowResizedRef.current = false;
-    setShowConfigPanel(true);
-  }, []);
-
-  const handleCloseConfigPanel = useCallback(() => {
-    const shouldSyncCanvas = configPanelWindowResizedRef.current;
-    configPanelWindowResizedRef.current = false;
-    setShowConfigPanel(false);
-
-    if (!shouldSyncCanvas) {
-      return;
-    }
-
-    if (closePanelSyncTimeoutRef.current) {
-      window.clearTimeout(closePanelSyncTimeoutRef.current);
-    }
-
-    closePanelSyncTimeoutRef.current = window.setTimeout(() => {
-      closePanelSyncTimeoutRef.current = null;
-      live2dViewerRef.current?.syncCanvasSize?.();
-    }, 260);
-  }, []);
-
   const stageStyle = useMemo(
     () => ({
       height: '100dvh',
@@ -322,206 +192,15 @@ function AppContent({ desktopMode }) {
     setModelLoaded(false);
   }, []);
 
-  const handleOpenClawSettingChange = useCallback((field, value) => {
-    setOpenClawSettings((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-    setSettingsFeedback('');
-    setSettingsError('');
-  }, []);
-
-  const saveOpenClawSettings = useCallback(async () => {
-    setSettingsSaving(true);
-    setSettingsError('');
-    setSettingsFeedback('');
-
-    try {
-      const payload = {
-        baseUrl: openClawSettings.baseUrl,
-        agentId: openClawSettings.agentId,
-      };
-      const token = openClawSettings.token.trim();
-      if (token) {
-        payload.token = token;
-      }
-
-      const saved = await desktopBridge.settings.save(payload);
-      setOpenClawSettings({
-        ...defaultOpenClawSettings,
-        ...saved,
-      });
-      setSettingsFeedback(t('app.settingsSaved'));
-    } catch (error) {
-      console.error('Save OpenClaw settings failed:', error);
-      setSettingsError(normalizeErrorMessage(error, t));
-    } finally {
-      setSettingsSaving(false);
-    }
-  }, [openClawSettings.agentId, openClawSettings.baseUrl, openClawSettings.token, t]);
-
-  const testOpenClawSettings = useCallback(async () => {
-    setSettingsTesting(true);
-    setSettingsError('');
-    setSettingsFeedback('');
-
-    try {
-      const payload = {
-        baseUrl: openClawSettings.baseUrl,
-        agentId: openClawSettings.agentId,
-      };
-      const token = openClawSettings.token.trim();
-      if (token) {
-        payload.token = token;
-      }
-
-      const result = await desktopBridge.settings.testConnection(payload);
-      if (!result?.ok) {
-        setSettingsError(normalizeErrorMessage(result?.error, t));
-      } else {
-        const latency =
-          typeof result.latencyMs === 'number'
-            ? t('app.latency', { latency: result.latencyMs })
-            : '';
-        setSettingsFeedback(t('app.settingsConnected', { latency }));
-      }
-    } catch (error) {
-      console.error('Test OpenClaw settings failed:', error);
-      setSettingsError(normalizeErrorMessage(error, t));
-    } finally {
-      setSettingsTesting(false);
-    }
-  }, [openClawSettings.agentId, openClawSettings.baseUrl, openClawSettings.token, t]);
-
-  const clearSavedToken = useCallback(async () => {
-    setSettingsSaving(true);
-    setSettingsError('');
-    setSettingsFeedback('');
-
-    try {
-      const saved = await desktopBridge.settings.save({ clearToken: true });
-      setOpenClawSettings((prev) => ({
-        ...prev,
-        ...saved,
-        token: '',
-      }));
-      setSettingsFeedback(t('app.tokenCleared'));
-    } catch (error) {
-      console.error('Clear token failed:', error);
-      setSettingsError(normalizeErrorMessage(error, t));
-    } finally {
-      setSettingsSaving(false);
-    }
-  }, [t]);
-
-  useEffect(() => {
-    if (!isPetMode) {
-      return;
-    }
-
-    configPanelWindowResizedRef.current = false;
-    if (closePanelSyncTimeoutRef.current) {
-      window.clearTimeout(closePanelSyncTimeoutRef.current);
-      closePanelSyncTimeoutRef.current = null;
-    }
-    setShowConfigPanel(false);
-  }, [isPetMode]);
-
   useEffect(() => {
     setModelLoaded(false);
   }, [isPetMode]);
 
-  useEffect(() => {
-    if (!showConfigPanel || isPetMode) {
-      return undefined;
-    }
-
-    const markWindowResized = () => {
-      configPanelWindowResizedRef.current = true;
-    };
-
-    window.addEventListener('resize', markWindowResized);
-    return () => {
-      window.removeEventListener('resize', markWindowResized);
-    };
-  }, [isPetMode, showConfigPanel]);
-
-  useEffect(() => {
-    return () => {
-      if (closePanelSyncTimeoutRef.current) {
-        window.clearTimeout(closePanelSyncTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!showConfigPanel) {
-      setActiveConfigTab(0);
-    }
-  }, [showConfigPanel]);
-
-  useEffect(() => {
-    if (!desktopMode || !isPetMode) {
-      return undefined;
-    }
-
-    let disposed = false;
-    let timerId = null;
-
-    const pollGlobalCursor = async () => {
-      try {
-        const context = await desktopBridge.window.getCursorContext();
-        if (disposed || !context?.ok || context.mode !== MODE_PET) {
-          return;
-        }
-
-        const { cursor, desktopBounds } = context;
-        const width = desktopBounds?.width ?? 0;
-        const height = desktopBounds?.height ?? 0;
-        if (!cursor || width <= 0 || height <= 0) {
-          return;
-        }
-
-        const normalizedX = ((cursor.x - desktopBounds.x) / width) * 2.0 - 1.0;
-        const normalizedY = -(((cursor.y - desktopBounds.y) / height) * 2.0 - 1.0);
-        live2dViewerRef.current?.setPointerNormalized?.(normalizedX, normalizedY);
-      } catch {
-        // noop
-      } finally {
-        if (!disposed) {
-          timerId = window.setTimeout(() => {
-            void pollGlobalCursor();
-          }, PET_CURSOR_TRACK_INTERVAL_MS);
-        }
-      }
-    };
-
-    void pollGlobalCursor();
-
-    return () => {
-      disposed = true;
-      if (timerId) {
-        window.clearTimeout(timerId);
-      }
-    };
-  }, [desktopMode, isPetMode]);
-
-  const textComposerProps = useMemo(
-    () => ({
-      isStreaming,
-      onSubmit: submitTextComposer,
-      onStop: stopStreaming,
-      externalError: composerExternalError,
-      onDismissExternalError: dismissComposerExternalError,
-    }),
-    [
-      composerExternalError,
-      dismissComposerExternalError,
-      isStreaming,
-      stopStreaming,
-      submitTextComposer,
-    ],
-  );
+  usePetCursorTracking({
+    desktopMode,
+    isPetMode,
+    live2dViewerRef,
+  });
 
   return (
     <Box sx={stageStyle}>
@@ -552,195 +231,34 @@ function AppContent({ desktopMode }) {
           onModelLoaded={handleModelLoaded}
           onModelError={handleModelError}
           subtitleText={subtitleText}
-          onOpenConfigPanel={handleOpenConfigPanel}
+          onOpenConfigPanel={openConfigPanel}
           onSwitchToPetMode={() => setDesktopWindowMode(MODE_PET)}
           onWindowControl={controlWindow}
           textComposerProps={textComposerProps}
         />
       )}
 
-      <Drawer
-        anchor="right"
-        open={showConfigPanel && !isPetMode}
-        onClose={handleCloseConfigPanel}
-        variant={isNarrowViewport ? 'temporary' : 'persistent'}
-        ModalProps={{ keepMounted: true }}
-        PaperProps={{
-          sx: {
-            width: {
-              xs: '100%',
-              sm: CONFIG_DRAWER_WIDTH,
-            },
-            maxWidth: '100vw',
-          },
-        }}
-      >
-        <Stack sx={{ height: '100%' }}>
-          <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }}>
-            <Stack direction="row" spacing={1} alignItems="center">
-              <IconButton onClick={handleCloseConfigPanel}>
-                <CloseIcon />
-              </IconButton>
-              <span>{t('app.settingsPanel')}</span>
-              {modelLoaded && <Chip color="success" size="small" label={t('app.modelLoaded')} />}
-            </Stack>
-          </Box>
-
-          <Box sx={{ flex: 1, overflowY: 'auto', px: 2, py: 2 }}>
-            <Stack spacing={2}>
-              <Tabs value={activeConfigTab} onChange={(_, tab) => setActiveConfigTab(tab)} variant="fullWidth">
-                <Tab label={t('app.tab.live2d')} />
-                <Tab label={t('app.tab.openclaw')} />
-                <Tab label={t('app.tab.preferences')} />
-              </Tabs>
-              <Divider />
-
-              {activeConfigTab === 0 && (
-                <Live2DControls
-                  live2dViewerRef={live2dViewerRef}
-                  modelLoaded={modelLoaded}
-                  isPetMode={isPetMode}
-                  onModelChange={handleControlModelChange}
-                  onMotionsUpdate={setMotions}
-                  onExpressionsUpdate={setExpressions}
-                  onAutoEyeBlinkChange={(enabled) => {
-                    live2dViewerRef.current?.getManager?.()?.setAutoEyeBlinkEnable(enabled);
-                  }}
-                  onAutoBreathChange={(enabled) => {
-                    live2dViewerRef.current?.getManager?.()?.setAutoBreathEnable(enabled);
-                  }}
-                  onEyeTrackingChange={(enabled) => {
-                    live2dViewerRef.current?.getManager?.()?.setEyeTracking(enabled);
-                  }}
-                  onModelScaleChange={(scale) => {
-                    live2dViewerRef.current?.getManager?.()?.setModelScale(scale);
-                  }}
-                  onBackgroundChange={(backgroundConfig) => {
-                    const manager = live2dViewerRef.current?.getManager?.();
-                    if (!manager) return;
-                    if (!backgroundConfig.hasBackground) {
-                      manager.clearBackground();
-                      return;
-                    }
-                    manager.setBackgroundOpacity(backgroundConfig.opacity ?? 1);
-                  }}
-                />
-              )}
-
-              {activeConfigTab === 1 && (
-                <Stack spacing={2}>
-                  {!desktopMode && (
-                    <Alert severity="warning">
-                      {t('app.webModeWarning')}
-                    </Alert>
-                  )}
-
-                  {desktopMode && !openClawSettings.hasSecureStorage && (
-                    <Alert severity="warning">{t('app.keychainWarning')}</Alert>
-                  )}
-
-                  <TextField
-                    label="OpenClaw Base URL"
-                    value={openClawSettings.baseUrl}
-                    onChange={(event) => handleOpenClawSettingChange('baseUrl', event.target.value)}
-                    placeholder="http://127.0.0.1:18789"
-                    fullWidth
-                  />
-
-                  <TextField
-                    label="OpenClaw Token"
-                    value={openClawSettings.token}
-                    onChange={(event) => handleOpenClawSettingChange('token', event.target.value)}
-                    type="password"
-                    autoComplete="off"
-                    placeholder={openClawSettings.hasToken ? t('app.tokenSavedPlaceholder') : ''}
-                    fullWidth
-                  />
-
-                  <TextField
-                    label="OpenClaw Agent ID"
-                    value={openClawSettings.agentId}
-                    onChange={(event) => handleOpenClawSettingChange('agentId', event.target.value)}
-                    placeholder="main"
-                    fullWidth
-                  />
-
-                  <Stack direction="row" spacing={1}>
-                    <Button variant="contained" onClick={saveOpenClawSettings} disabled={settingsSaving || settingsTesting}>
-                      {settingsSaving ? t('app.savingSettings') : t('app.saveSettings')}
-                    </Button>
-                    <Button variant="outlined" onClick={testOpenClawSettings} disabled={settingsSaving || settingsTesting}>
-                      {settingsTesting ? t('app.testingConnection') : t('app.connectionTest')}
-                    </Button>
-                    <Button
-                      variant="text"
-                      color="warning"
-                      onClick={clearSavedToken}
-                      disabled={settingsSaving || settingsTesting || !openClawSettings.hasToken}
-                    >
-                      {t('app.clearToken')}
-                    </Button>
-                  </Stack>
-
-                  {settingsError && <Alert severity="error">{settingsError}</Alert>}
-                  {settingsFeedback && <Alert severity="success">{settingsFeedback}</Alert>}
-                </Stack>
-              )}
-
-              {activeConfigTab === 2 && (
-                <Stack spacing={2}>
-                  <Box sx={{ fontWeight: 600 }}>{t('preferences.title')}</Box>
-                  <Stack spacing={1}>
-                    <Box sx={{ color: 'text.secondary', fontSize: 14 }}>{t('preferences.language')}</Box>
-                    <Stack direction="row" spacing={1}>
-                      <Button
-                        size="small"
-                        variant={language === LANGUAGE_ZH_CN ? 'contained' : 'outlined'}
-                        onClick={() => setLanguage(LANGUAGE_ZH_CN)}
-                      >
-                        {t('language.zh')}
-                      </Button>
-                      <Button
-                        size="small"
-                        variant={language === LANGUAGE_EN_US ? 'contained' : 'outlined'}
-                        onClick={() => setLanguage(LANGUAGE_EN_US)}
-                      >
-                        {t('language.en')}
-                      </Button>
-                    </Stack>
-                  </Stack>
-                  <Stack spacing={1}>
-                    <Box sx={{ color: 'text.secondary', fontSize: 14 }}>{t('preferences.theme')}</Box>
-                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                      <Button
-                        size="small"
-                        variant={themeMode === THEME_MODE_LIGHT ? 'contained' : 'outlined'}
-                        onClick={() => setThemeMode(THEME_MODE_LIGHT)}
-                      >
-                        {t('preferences.theme.light')}
-                      </Button>
-                      <Button
-                        size="small"
-                        variant={themeMode === THEME_MODE_DARK ? 'contained' : 'outlined'}
-                        onClick={() => setThemeMode(THEME_MODE_DARK)}
-                      >
-                        {t('preferences.theme.dark')}
-                      </Button>
-                      <Button
-                        size="small"
-                        variant={themeMode === THEME_MODE_SYSTEM ? 'contained' : 'outlined'}
-                        onClick={() => setThemeMode(THEME_MODE_SYSTEM)}
-                      >
-                        {t('preferences.theme.system')}
-                      </Button>
-                    </Stack>
-                  </Stack>
-                </Stack>
-              )}
-            </Stack>
-          </Box>
-        </Stack>
-      </Drawer>
+      <ConfigDrawer
+        open={showConfigPanel}
+        isPetMode={isPetMode}
+        isNarrowViewport={isNarrowViewport}
+        onClose={closeConfigPanel}
+        modelLoaded={modelLoaded}
+        desktopMode={desktopMode}
+        live2dViewerRef={live2dViewerRef}
+        onModelChange={handleControlModelChange}
+        onMotionsUpdate={setMotions}
+        onExpressionsUpdate={setExpressions}
+        openClawSettings={openClawSettings}
+        settingsSaving={settingsSaving}
+        settingsTesting={settingsTesting}
+        settingsFeedback={settingsFeedback}
+        settingsError={settingsError}
+        onOpenClawSettingChange={onOpenClawSettingChange}
+        onSaveOpenClawSettings={onSaveOpenClawSettings}
+        onTestOpenClawSettings={onTestOpenClawSettings}
+        onClearSavedToken={onClearSavedToken}
+      />
     </Box>
   );
 }
