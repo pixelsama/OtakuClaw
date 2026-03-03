@@ -94,6 +94,15 @@ function dataUrlToFile(dataUrl, filename, mimeType) {
   return new File([u8arr], filename, { type: mimeType });
 }
 
+function parseDataUrlMimeType(dataUrl) {
+  if (typeof dataUrl !== 'string') {
+    return 'image/png';
+  }
+
+  const match = /^data:([^;,]+)[;,]/i.exec(dataUrl);
+  return match?.[1] || 'image/png';
+}
+
 function makeNewMotionId(motions) {
   return `m${String(motions.length + 1).padStart(2, '0')}`;
 }
@@ -608,18 +617,69 @@ export default function Live2DControls({
     manager.setAutoBreathEnable(autoBreath);
     manager.setEyeTracking(eyeTracking);
     manager.setModelScale(modelScale);
-    manager.setBackgroundOpacity(backgroundOpacity);
-
     updateAvailableClickAreas();
+
+    let cancelled = false;
+    const restoreBackground = async () => {
+      if (!hasBackground) {
+        manager.clearBackground();
+        manager.setBackgroundOpacity(backgroundOpacity);
+        return;
+      }
+
+      const source = Array.isArray(backgroundImage) ? backgroundImage[0] : null;
+      if (!source) {
+        manager.setBackgroundOpacity(backgroundOpacity);
+        return;
+      }
+
+      let file = null;
+      if (source instanceof File) {
+        file = source;
+      } else if (source instanceof Blob) {
+        file = new File([source], `background-${Date.now()}.png`, {
+          type: source.type || 'image/png',
+        });
+      } else if (typeof source === 'string' && source.startsWith('data:')) {
+        file = dataUrlToFile(
+          source,
+          `background-${Date.now()}.${parseDataUrlMimeType(source).split('/')[1] || 'png'}`,
+          parseDataUrlMimeType(source),
+        );
+      }
+
+      if (!file) {
+        manager.setBackgroundOpacity(backgroundOpacity);
+        return;
+      }
+
+      const success = await manager.loadBackgroundImage(file);
+      if (!cancelled && !success) {
+        updateDebugInfo('背景恢复失败，请重新应用背景。');
+      }
+
+      if (!cancelled) {
+        manager.setBackgroundOpacity(backgroundOpacity);
+      }
+    };
+
+    void restoreBackground();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     autoBreath,
     autoEyeBlink,
+    backgroundImage,
     backgroundOpacity,
     eyeTracking,
     getManager,
+    hasBackground,
     isHydrated,
     modelLoaded,
     modelScale,
+    updateDebugInfo,
     updateAvailableClickAreas,
   ]);
 
@@ -635,12 +695,14 @@ export default function Live2DControls({
       autoBreath,
       eyeTracking,
       backgroundOpacity,
+      hasBackground,
     });
   }, [
     autoBreath,
     autoEyeBlink,
     backgroundOpacity,
     eyeTracking,
+    hasBackground,
     isHydrated,
     modelScale,
     saveModelConfig,
