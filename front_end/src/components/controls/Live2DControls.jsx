@@ -296,6 +296,7 @@ function normalizeModelScale(scale) {
 export default function Live2DControls({
   live2dViewerRef,
   modelLoaded,
+  isPetMode = false,
   onModelChange,
   onMotionsUpdate,
   onExpressionsUpdate,
@@ -619,6 +620,12 @@ export default function Live2DControls({
     manager.setModelScale(modelScale);
     updateAvailableClickAreas();
 
+    if (isPetMode) {
+      manager.clearBackground();
+      manager.setBackgroundOpacity(backgroundOpacity);
+      return;
+    }
+
     let cancelled = false;
     const restoreBackground = async () => {
       if (!hasBackground) {
@@ -676,6 +683,7 @@ export default function Live2DControls({
     eyeTracking,
     getManager,
     hasBackground,
+    isPetMode,
     isHydrated,
     modelLoaded,
     modelScale,

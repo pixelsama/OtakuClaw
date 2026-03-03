@@ -429,6 +429,7 @@ function AppContent({ desktopMode }) {
             <Live2DControls
               live2dViewerRef={live2dViewerRef}
               modelLoaded={modelLoaded}
+              isPetMode={isPetMode}
               onModelChange={handleControlModelChange}
               onMotionsUpdate={setMotions}
               onExpressionsUpdate={setExpressions}
