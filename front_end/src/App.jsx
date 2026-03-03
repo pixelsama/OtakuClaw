@@ -57,6 +57,8 @@ function normalizeErrorMessage(error) {
 function AppContent({ desktopMode }) {
   const live2dViewerRef = useRef(null);
   const subtitleTextRef = useRef('');
+  const configPanelWindowResizedRef = useRef(false);
+  const closePanelSyncTimeoutRef = useRef(null);
   const { isPetMode, setMode } = useModeContext();
   const isNarrowViewport = useMediaQuery('(max-width:900px)');
 
@@ -241,6 +243,30 @@ function AppContent({ desktopMode }) {
     setComposerExternalError('');
   }, []);
 
+  const handleOpenConfigPanel = useCallback(() => {
+    configPanelWindowResizedRef.current = false;
+    setShowConfigPanel(true);
+  }, []);
+
+  const handleCloseConfigPanel = useCallback(() => {
+    const shouldSyncCanvas = configPanelWindowResizedRef.current;
+    configPanelWindowResizedRef.current = false;
+    setShowConfigPanel(false);
+
+    if (!shouldSyncCanvas) {
+      return;
+    }
+
+    if (closePanelSyncTimeoutRef.current) {
+      window.clearTimeout(closePanelSyncTimeoutRef.current);
+    }
+
+    closePanelSyncTimeoutRef.current = window.setTimeout(() => {
+      closePanelSyncTimeoutRef.current = null;
+      live2dViewerRef.current?.syncCanvasSize?.();
+    }, 260);
+  }, []);
+
   const stageStyle = useMemo(
     () => ({
       height: '100dvh',
@@ -353,12 +379,40 @@ function AppContent({ desktopMode }) {
       return;
     }
 
+    configPanelWindowResizedRef.current = false;
+    if (closePanelSyncTimeoutRef.current) {
+      window.clearTimeout(closePanelSyncTimeoutRef.current);
+      closePanelSyncTimeoutRef.current = null;
+    }
     setShowConfigPanel(false);
   }, [isPetMode]);
 
   useEffect(() => {
     setModelLoaded(false);
   }, [isPetMode]);
+
+  useEffect(() => {
+    if (!showConfigPanel || isPetMode) {
+      return undefined;
+    }
+
+    const markWindowResized = () => {
+      configPanelWindowResizedRef.current = true;
+    };
+
+    window.addEventListener('resize', markWindowResized);
+    return () => {
+      window.removeEventListener('resize', markWindowResized);
+    };
+  }, [isPetMode, showConfigPanel]);
+
+  useEffect(() => {
+    return () => {
+      if (closePanelSyncTimeoutRef.current) {
+        window.clearTimeout(closePanelSyncTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!showConfigPanel) {
@@ -412,7 +466,7 @@ function AppContent({ desktopMode }) {
           onModelLoaded={handleModelLoaded}
           onModelError={handleModelError}
           subtitleText={subtitleText}
-          onOpenConfigPanel={() => setShowConfigPanel(true)}
+          onOpenConfigPanel={handleOpenConfigPanel}
           onSwitchToPetMode={() => setDesktopWindowMode(MODE_PET)}
           onWindowControl={controlWindow}
           textComposerProps={textComposerProps}
@@ -422,7 +476,7 @@ function AppContent({ desktopMode }) {
       <Drawer
         anchor="right"
         open={showConfigPanel && !isPetMode}
-        onClose={() => setShowConfigPanel(false)}
+        onClose={handleCloseConfigPanel}
         variant={isNarrowViewport ? 'temporary' : 'persistent'}
         ModalProps={{ keepMounted: true }}
         PaperProps={{
@@ -438,7 +492,7 @@ function AppContent({ desktopMode }) {
         <Stack sx={{ height: '100%' }}>
           <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }}>
             <Stack direction="row" spacing={1} alignItems="center">
-              <IconButton onClick={() => setShowConfigPanel(false)}>
+              <IconButton onClick={handleCloseConfigPanel}>
                 <CloseIcon />
               </IconButton>
               <span>设置面板</span>
