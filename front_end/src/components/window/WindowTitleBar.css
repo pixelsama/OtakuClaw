@@ -13,6 +13,7 @@
   height: 44px;
   background: rgba(248, 250, 252, 0.92);
   backdrop-filter: blur(6px);
+  transition: background-color 140ms ease;
   -webkit-app-region: drag;
   pointer-events: auto;
 }
@@ -25,6 +26,7 @@
   bottom: 0;
   height: 1px;
   background: rgba(148, 163, 184, 0.28);
+  transition: background-color 140ms ease;
 }
 
 .window-titlebar-mac-controls,
@@ -80,4 +82,22 @@
 
 .window-titlebar-mac-btn.zoom {
   background: #28c840;
+}
+
+:root[data-theme-mode='dark'] .window-titlebar-drag-strip {
+  background: rgba(11, 19, 33, 0.9);
+}
+
+:root[data-theme-mode='dark'] .window-titlebar-drag-strip::after {
+  background: rgba(104, 129, 173, 0.3);
+}
+
+:root[data-theme-mode='dark'] .window-titlebar-win-btn {
+  background: rgba(22, 34, 54, 0.9) !important;
+  color: #d7e6ff !important;
+  border: 1px solid rgba(130, 166, 230, 0.35);
+}
+
+:root[data-theme-mode='dark'] .window-titlebar-win-btn.close {
+  color: #ff8d8d !important;
 }
