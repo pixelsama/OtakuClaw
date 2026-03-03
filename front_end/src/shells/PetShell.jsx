@@ -73,7 +73,6 @@ export default function PetShell({
       <Box
         className={`live2d-hitbox pet-draggable-hitbox ${isDragging ? 'pet-dragging' : ''}`.trim()}
         style={dragStyle}
-        {...bindPetHover?.('live2d-hitbox')}
         onMouseEnter={(event) => {
           if (isDragging) {
             setModelHover(true);

@@ -900,8 +900,16 @@ class Live2DManager {
     try {
       this.canvas = canvas
       
-      // 获取WebGL上下文
-      this.gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl')
+      // 获取WebGL上下文（显式开启透明与保留绘制缓冲，便于桌宠透明渲染与像素命中检测）
+      const contextOptions = {
+        alpha: true,
+        premultipliedAlpha: true,
+        preserveDrawingBuffer: true,
+        antialias: true,
+      }
+      this.gl =
+        canvas.getContext('webgl', contextOptions) ||
+        canvas.getContext('experimental-webgl', contextOptions)
       if (!this.gl) {
         throw new Error('WebGL not supported')
       }
@@ -1029,6 +1037,7 @@ class Live2DManager {
         
         // 清除画布
         this.gl.viewport(0, 0, this.canvas.width, this.canvas.height)
+        this.gl.clearColor(0.0, 0.0, 0.0, 0.0)
         this.gl.clear(this.gl.COLOR_BUFFER_BIT)
         
         // 绘制背景（如果有）

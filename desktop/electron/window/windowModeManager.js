@@ -139,12 +139,12 @@ class WindowModeManager {
       return;
     }
 
-    if (this.isMac) {
-      this.window.setIgnoreMouseEvents(ignore);
+    if (ignore) {
+      this.window.setIgnoreMouseEvents(true, { forward: true });
       return;
     }
 
-    this.window.setIgnoreMouseEvents(ignore, { forward: true });
+    this.window.setIgnoreMouseEvents(false);
   }
 
   applyWindowMode() {

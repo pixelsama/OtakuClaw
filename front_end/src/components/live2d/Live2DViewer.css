@@ -24,6 +24,7 @@
 
 .live2d-stage.pet-mode .live2d-container,
 .live2d-stage.pet-mode .live2d-canvas {
+  background: transparent !important;
   border-radius: 0;
   box-shadow: none;
 }
