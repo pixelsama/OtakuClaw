@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Box, IconButton } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
@@ -21,15 +21,44 @@ export default function PetShell({
   bindPetHover,
   setPetHover,
 }) {
+  const modelHoverRef = useRef(false);
+
+  const setModelHover = useCallback(
+    (nextHovering) => {
+      const normalized = Boolean(nextHovering);
+      if (modelHoverRef.current === normalized) {
+        return;
+      }
+
+      modelHoverRef.current = normalized;
+      setPetHover?.('live2d-hitbox', normalized);
+    },
+    [setPetHover],
+  );
+
+  const detectModelPixelHover = useCallback(
+    (event) => {
+      if (!desktopMode || !event) {
+        return false;
+      }
+
+      return Boolean(live2dViewerRef.current?.isPointOnModel?.(event.clientX, event.clientY, 12));
+    },
+    [desktopMode, live2dViewerRef],
+  );
+
   const { isDragging, dragStyle, dragBindings } = usePetDraggable({
     enabled: desktopMode,
+    canStartDrag: (event) => detectModelPixelHover(event),
     onDragStateChange: (dragging) => {
       setPetHover?.('pet-dragging', dragging);
+      setModelHover(dragging);
     },
   });
 
   useEffect(
     () => () => {
+      setPetHover?.('live2d-hitbox', false);
       setPetHover?.('pet-dragging', false);
     },
     [setPetHover],
@@ -45,6 +74,27 @@ export default function PetShell({
         className={`live2d-hitbox pet-draggable-hitbox ${isDragging ? 'pet-dragging' : ''}`.trim()}
         style={dragStyle}
         {...bindPetHover?.('live2d-hitbox')}
+        onMouseEnter={(event) => {
+          if (isDragging) {
+            setModelHover(true);
+            return;
+          }
+
+          setModelHover(detectModelPixelHover(event));
+        }}
+        onMouseMove={(event) => {
+          if (isDragging) {
+            setModelHover(true);
+            return;
+          }
+
+          setModelHover(detectModelPixelHover(event));
+        }}
+        onMouseLeave={() => {
+          if (!isDragging) {
+            setModelHover(false);
+          }
+        }}
         {...dragBindings}
       >
         <Live2DViewer

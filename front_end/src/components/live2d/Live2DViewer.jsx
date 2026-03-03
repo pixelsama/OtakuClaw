@@ -591,6 +591,29 @@ const Live2DViewer = forwardRef(function Live2DViewer(
     [playAudioWithLipSync],
   );
 
+  const isPointOnModel = useCallback((clientX, clientY, alphaThreshold = 10) => {
+    const manager = managerRef.current;
+    const canvas = live2dCanvasRef.current;
+
+    if (!manager || !canvas || !manager.isModelLoaded) {
+      return false;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+
+    if (x < 0 || y < 0 || x > rect.width || y > rect.height) {
+      return false;
+    }
+
+    if (typeof manager.isOpaqueAtScreenCoordinate === 'function') {
+      return manager.isOpaqueAtScreenCoordinate(x, y, alphaThreshold);
+    }
+
+    return Boolean(manager.hitTestAtScreenCoordinate?.(x, y));
+  }, []);
+
   const stopSpeaking = useCallback(() => {
     stopAudioAndLipSync();
   }, [stopAudioAndLipSync]);
@@ -622,11 +645,13 @@ const Live2DViewer = forwardRef(function Live2DViewer(
       setMotionFromFile: async (fileUrl) => {
         await managerRef.current?.setMotionFromFile(fileUrl);
       },
+      isPointOnModel,
     }),
     [
       audioContextReady,
       ensureAudioContextReady,
       initAudioContext,
+      isPointOnModel,
       isPlayingAudio,
       playAudioWithLipSync,
       speak,

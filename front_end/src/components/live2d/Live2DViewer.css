@@ -22,6 +22,19 @@
   image-rendering: crisp-edges;
 }
 
+.live2d-stage.pet-mode .live2d-container,
+.live2d-stage.pet-mode .live2d-canvas {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.live2d-stage.pet-mode .loading-overlay,
+.live2d-stage.pet-mode .error-overlay,
+.live2d-stage.pet-mode .empty-overlay {
+  background: transparent;
+  backdrop-filter: none;
+}
+
 .loading-overlay,
 .error-overlay,
 .empty-overlay {

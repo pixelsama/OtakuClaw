@@ -27,7 +27,7 @@ function clampOffset(nextOffset, containerElement) {
   };
 }
 
-export function usePetDraggable({ enabled, onDragStateChange }) {
+export function usePetDraggable({ enabled, onDragStateChange, canStartDrag }) {
   const containerRef = useRef(null);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -105,6 +105,10 @@ export function usePetDraggable({ enabled, onDragStateChange }) {
         return;
       }
 
+      if (typeof canStartDrag === 'function' && !canStartDrag(event)) {
+        return;
+      }
+
       const pointer = getPointerCoordinates(event);
       dragStateRef.current = {
         active: true,
@@ -125,7 +129,7 @@ export function usePetDraggable({ enabled, onDragStateChange }) {
 
       event.preventDefault();
     },
-    [enabled, onDragStateChange],
+    [canStartDrag, enabled, onDragStateChange],
   );
 
   const dragStyle = useMemo(

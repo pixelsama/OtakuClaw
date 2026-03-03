@@ -917,8 +917,8 @@ class Live2DManager {
       // 设置WebGL基本配置
       this.gl.enable(this.gl.BLEND)
       this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
-      // 设置背景色为渐变色的起始色，确保占满整个显示区域
-      this.gl.clearColor(0.4, 0.494, 0.918, 1.0) // #667eea 转换为 RGB
+      // 使用透明清屏，便于桌宠模式实现“仅模型可见”
+      this.gl.clearColor(0.0, 0.0, 0.0, 0.0)
       
       // 设置视口以支持高DPI
       this.gl.viewport(0, 0, canvas.width, canvas.height)
@@ -1454,6 +1454,44 @@ class Live2DManager {
     }
     
     return this.currentModel.hitTest(deviceX, deviceY)
+  }
+
+  /**
+   * 判断屏幕坐标是否落在当前模型可见像素上
+   * @param {number} x - 相对canvas左上角的X坐标（CSS像素）
+   * @param {number} y - 相对canvas左上角的Y坐标（CSS像素）
+   * @param {number} alphaThreshold - alpha阈值（0-255）
+   * @returns {boolean}
+   */
+  isOpaqueAtScreenCoordinate(x, y, alphaThreshold = 10) {
+    if (!this.gl || !this.canvas || !this.isModelLoaded) {
+      return false
+    }
+
+    const canvasWidth = this.canvas.clientWidth
+    const canvasHeight = this.canvas.clientHeight
+    if (!canvasWidth || !canvasHeight) {
+      return false
+    }
+
+    if (x < 0 || y < 0 || x > canvasWidth || y > canvasHeight) {
+      return false
+    }
+
+    const pixelX = Math.floor((x / canvasWidth) * this.canvas.width)
+    const pixelY = Math.floor(((canvasHeight - y) / canvasHeight) * this.canvas.height)
+
+    const clampedX = Math.max(0, Math.min(this.canvas.width - 1, pixelX))
+    const clampedY = Math.max(0, Math.min(this.canvas.height - 1, pixelY))
+    const pixel = new Uint8Array(4)
+
+    try {
+      this.gl.readPixels(clampedX, clampedY, 1, 1, this.gl.RGBA, this.gl.UNSIGNED_BYTE, pixel)
+      return pixel[3] > alphaThreshold
+    } catch (error) {
+      console.warn('Failed to sample model pixel alpha:', error)
+      return false
+    }
   }
 
   /**
