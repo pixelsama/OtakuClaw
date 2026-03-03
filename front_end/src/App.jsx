@@ -14,21 +14,17 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import TuneIcon from '@mui/icons-material/Tune';
-import EditIcon from '@mui/icons-material/Edit';
 import CloseIcon from '@mui/icons-material/Close';
-import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
-import Live2DViewer from './components/live2d/Live2DViewer.jsx';
 import Live2DControls from './components/controls/Live2DControls.jsx';
-import SubtitleBar from './components/subtitle/SubtitleBar.jsx';
-import WindowTitleBar from './components/window/WindowTitleBar.jsx';
 import { useStreamingChat } from './hooks/useStreamingChat.js';
 import { useSubtitleFeed } from './hooks/useSubtitleFeed.js';
+import { usePetHoverPassthrough } from './hooks/pet/usePetHoverPassthrough.js';
+import { ModeProvider, MODE_PET, MODE_WINDOW, useModeContext } from './mode/ModeContext.jsx';
+import MainShell from './shells/MainShell.jsx';
+import PetShell from './shells/PetShell.jsx';
 import { desktopBridge } from './services/desktopBridge.js';
 
 const DEFAULT_MODEL = '';
-const MODE_WINDOW = 'window';
-const MODE_PET = 'pet';
 
 const defaultOpenClawSettings = {
   baseUrl: '',
@@ -58,16 +54,15 @@ function normalizeErrorMessage(error) {
   return '请求失败，请稍后重试。';
 }
 
-export default function App() {
+function AppContent({ desktopMode }) {
   const live2dViewerRef = useRef(null);
   const subtitleTextRef = useRef('');
-  const desktopMode = desktopBridge.isDesktop();
+  const { isPetMode, setMode } = useModeContext();
 
   const [modelLoaded, setModelLoaded] = useState(false);
   const [currentModelPath, setCurrentModelPath] = useState(DEFAULT_MODEL);
   const [motions, setMotions] = useState([]);
   const [expressions, setExpressions] = useState([]);
-  const [windowMode, setWindowMode] = useState(MODE_WINDOW);
   const [platform, setPlatform] = useState(() =>
     desktopMode ? desktopBridge.window.getPlatformSync() : 'unknown',
   );
@@ -150,56 +145,6 @@ export default function App() {
 
   useEffect(() => {
     if (!desktopMode) {
-      return undefined;
-    }
-
-    let mounted = true;
-
-    const loadCurrentMode = async () => {
-      try {
-        const result = await desktopBridge.mode.getCurrent();
-        if (!mounted) {
-          return;
-        }
-
-        const nextMode = result?.mode === MODE_PET ? MODE_PET : MODE_WINDOW;
-        setWindowMode(nextMode);
-      } catch (error) {
-        console.error('Failed to load current window mode:', error);
-      }
-    };
-
-    const detachPreChanged = desktopBridge.mode.onPreChanged((nextMode) => {
-      const targetMode = nextMode === MODE_PET ? MODE_PET : MODE_WINDOW;
-      setWindowMode(targetMode);
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          desktopBridge.mode.notifyRendererReady(targetMode);
-        });
-      });
-    });
-
-    const detachModeChanged = desktopBridge.mode.onChanged((nextMode) => {
-      const targetMode = nextMode === MODE_PET ? MODE_PET : MODE_WINDOW;
-      setWindowMode(targetMode);
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          desktopBridge.mode.notifyModeRendered(targetMode);
-        });
-      });
-    });
-
-    void loadCurrentMode();
-
-    return () => {
-      mounted = false;
-      detachPreChanged?.();
-      detachModeChanged?.();
-    };
-  }, [desktopMode]);
-
-  useEffect(() => {
-    if (!desktopMode) {
       return;
     }
 
@@ -237,8 +182,6 @@ export default function App() {
     void cancelStreaming();
   }, [cancelStreaming]);
 
-  const isPetMode = windowMode === MODE_PET;
-
   const setDesktopWindowMode = useCallback(
     async (nextMode) => {
       if (nextMode !== MODE_WINDOW && nextMode !== MODE_PET) {
@@ -249,28 +192,27 @@ export default function App() {
         return;
       }
 
-      try {
-        await desktopBridge.mode.set(nextMode);
-      } catch (error) {
-        console.error('Failed to switch window mode:', error);
+      await setMode(nextMode);
+    },
+    [desktopMode, setMode],
+  );
+
+  const updatePetHover = useCallback(
+    (componentId, isHovering) => {
+      if (!desktopMode) {
+        return;
       }
+
+      desktopBridge.mode.updateHover(componentId, isHovering);
     },
     [desktopMode],
   );
 
-  const bindPetHover = useCallback(
-    (componentId) => {
-      if (!desktopMode || !isPetMode) {
-        return {};
-      }
-
-      return {
-        onMouseEnter: () => desktopBridge.mode.updateHover(componentId, true),
-        onMouseLeave: () => desktopBridge.mode.updateHover(componentId, false),
-      };
-    },
-    [desktopMode, isPetMode],
-  );
+  const { bindHover: bindPetHover, setHover: setPetHover } = usePetHoverPassthrough({
+    desktopMode,
+    isPetMode,
+    updateHover: updatePetHover,
+  });
 
   const controlWindow = useCallback(
     async (action) => {
@@ -323,10 +265,9 @@ export default function App() {
     () => ({
       height: '100dvh',
       minHeight: '100dvh',
-      background:
-        isPetMode
-          ? 'transparent'
-          : 'radial-gradient(circle at top, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.06)), linear-gradient(180deg, #e5eeff 0%, #f9fbff 100%)',
+      background: isPetMode
+        ? 'transparent'
+        : 'radial-gradient(circle at top, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.06)), linear-gradient(180deg, #e5eeff 0%, #f9fbff 100%)',
     }),
     [isPetMode],
   );
@@ -434,89 +375,41 @@ export default function App() {
     setShowTextInputDialog(false);
   }, [isPetMode]);
 
-  const stageClassName = [
-    'live2d-stage',
-    isPetMode ? 'pet-mode' : 'window-mode',
-    desktopMode ? `platform-${platform}` : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
-
   return (
     <Box sx={stageStyle}>
-      <Box className={stageClassName}>
-        {desktopMode && !isPetMode && (
-          <WindowTitleBar
-            platform={platform}
-            onMinimize={() => {
-              void controlWindow('minimize');
-            }}
-            onToggleMaximize={() => {
-              void controlWindow('toggle-maximize');
-            }}
-            onClose={() => {
-              void controlWindow('close');
-            }}
-          />
-        )}
-
-        <Box className="live2d-hitbox" {...bindPetHover('live2d-hitbox')}>
-          <Live2DViewer
-            ref={live2dViewerRef}
-            modelPath={currentModelPath}
-            motions={motions}
-            expressions={expressions}
-            width={400}
-            height={600}
-            onModelLoaded={handleModelLoaded}
-            onModelError={handleModelError}
-            className="live2d-viewer"
-          />
-
-          {desktopMode && isPetMode && (
-            <Box className="pet-mode-toggle-wrap" {...bindPetHover('pet-mode-toggle-wrap')}>
-              <IconButton
-                className="pet-mode-toggle"
-                color="primary"
-                onClick={() => {
-                  void setDesktopWindowMode(MODE_WINDOW);
-                }}
-                title="切换到主窗口模式"
-              >
-                <SwapHorizIcon />
-              </IconButton>
-            </Box>
-          )}
-        </Box>
-
-        {!isPetMode && (
-          <IconButton className="config-toggle" color="primary" onClick={() => setShowConfigPanel(true)}>
-            <TuneIcon />
-          </IconButton>
-        )}
-
-        {!isPetMode && (
-          <Box className="window-bottom-controls">
-            {desktopMode && (
-              <IconButton
-                className="mode-toggle"
-                color="primary"
-                onClick={() => {
-                  void setDesktopWindowMode(MODE_PET);
-                }}
-                title="切换到桌宠模式"
-              >
-                <SwapHorizIcon />
-              </IconButton>
-            )}
-            <IconButton className="text-toggle" color="primary" onClick={openTextInputDialog}>
-              <EditIcon />
-            </IconButton>
-          </Box>
-        )}
-
-        <SubtitleBar text={subtitleText} />
-      </Box>
+      {isPetMode ? (
+        <PetShell
+          desktopMode={desktopMode}
+          platform={platform}
+          live2dViewerRef={live2dViewerRef}
+          currentModelPath={currentModelPath}
+          motions={motions}
+          expressions={expressions}
+          onModelLoaded={handleModelLoaded}
+          onModelError={handleModelError}
+          subtitleText={subtitleText}
+          onSwitchToWindowMode={() => setDesktopWindowMode(MODE_WINDOW)}
+          onOpenTextInputDialog={openTextInputDialog}
+          bindPetHover={bindPetHover}
+          setPetHover={setPetHover}
+        />
+      ) : (
+        <MainShell
+          desktopMode={desktopMode}
+          platform={platform}
+          live2dViewerRef={live2dViewerRef}
+          currentModelPath={currentModelPath}
+          motions={motions}
+          expressions={expressions}
+          onModelLoaded={handleModelLoaded}
+          onModelError={handleModelError}
+          subtitleText={subtitleText}
+          onOpenConfigPanel={() => setShowConfigPanel(true)}
+          onOpenTextInputDialog={openTextInputDialog}
+          onSwitchToPetMode={() => setDesktopWindowMode(MODE_PET)}
+          onWindowControl={controlWindow}
+        />
+      )}
 
       <Dialog
         open={showConfigPanel && !isPetMode}
@@ -630,7 +523,7 @@ export default function App() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showTextInputDialog && !isPetMode} onClose={closeTextInputDialog} maxWidth="sm" fullWidth>
+      <Dialog open={showTextInputDialog} onClose={closeTextInputDialog} maxWidth="sm" fullWidth>
         <DialogTitle>发送文字消息</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
@@ -668,5 +561,15 @@ export default function App() {
         </DialogActions>
       </Dialog>
     </Box>
+  );
+}
+
+export default function App() {
+  const desktopMode = desktopBridge.isDesktop();
+
+  return (
+    <ModeProvider desktopMode={desktopMode}>
+      <AppContent desktopMode={desktopMode} />
+    </ModeProvider>
   );
 }

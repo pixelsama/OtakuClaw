@@ -11,6 +11,8 @@
   left: 0;
   right: 0;
   height: 44px;
+  background: rgba(248, 250, 252, 0.92);
+  backdrop-filter: blur(6px);
   -webkit-app-region: drag;
   pointer-events: auto;
 }

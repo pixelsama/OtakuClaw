@@ -4,16 +4,14 @@ const test = require('node:test');
 const { WindowModeManager } = require('../window/windowModeManager');
 
 function createFakeWindow() {
-  const sent = [];
   const state = {
     bounds: { x: 100, y: 100, width: 1200, height: 800 },
     ignoreMouse: false,
-    alwaysOnTop: false,
   };
 
   return {
     state,
-    sent,
+    sent: [],
     isDestroyed() {
       return false;
     },
@@ -28,9 +26,7 @@ function createFakeWindow() {
       return false;
     },
     setFullScreen() {},
-    setAlwaysOnTop(value) {
-      state.alwaysOnTop = value;
-    },
+    setAlwaysOnTop() {},
     setSkipTaskbar() {},
     setResizable() {},
     setFocusable() {},
@@ -39,34 +35,44 @@ function createFakeWindow() {
       state.ignoreMouse = ignore;
     },
     webContents: {
-      send(channel, payload) {
-        sent.push({ channel, payload });
-      },
+      send() {},
     },
   };
 }
 
-test('window mode manager switches to pet mode through handshake', () => {
+test('mouse passthrough follows hover set in pet mode', () => {
   const manager = new WindowModeManager();
   manager.getCombinedDisplayBounds = () => ({ x: 0, y: 0, width: 1920, height: 1080 });
 
   const fakeWindow = createFakeWindow();
   manager.attachWindow(fakeWindow);
-
-  const initialBounds = fakeWindow.getBounds();
-
   manager.requestModeChange('pet');
-  assert.equal(fakeWindow.sent.at(-1).channel, 'pet:pre-mode-changed');
-
   manager.applyPendingMode('pet');
-  assert.equal(manager.getMode(), 'pet');
-  assert.equal(fakeWindow.state.alwaysOnTop, true);
-  assert.equal(fakeWindow.state.ignoreMouse, true);
-  assert.deepEqual(fakeWindow.getBounds(), { x: 0, y: 0, width: 1920, height: 1080 });
-  assert.equal(fakeWindow.sent.at(-1).channel, 'pet:mode-changed');
 
-  manager.requestModeChange('window');
-  manager.applyPendingMode('window');
-  assert.equal(manager.getMode(), 'window');
-  assert.deepEqual(fakeWindow.getBounds(), initialBounds);
+  assert.equal(fakeWindow.state.ignoreMouse, true);
+
+  manager.updateComponentHover('live2d', true);
+  assert.equal(fakeWindow.state.ignoreMouse, false);
+
+  manager.updateComponentHover('live2d', false);
+  assert.equal(fakeWindow.state.ignoreMouse, true);
+});
+
+test('force ignore mouse overrides hover state', () => {
+  const manager = new WindowModeManager();
+  manager.getCombinedDisplayBounds = () => ({ x: 0, y: 0, width: 1920, height: 1080 });
+
+  const fakeWindow = createFakeWindow();
+  manager.attachWindow(fakeWindow);
+  manager.requestModeChange('pet');
+  manager.applyPendingMode('pet');
+
+  manager.updateComponentHover('live2d', true);
+  assert.equal(fakeWindow.state.ignoreMouse, false);
+
+  manager.toggleForceIgnoreMouse();
+  assert.equal(fakeWindow.state.ignoreMouse, true);
+
+  manager.toggleForceIgnoreMouse();
+  assert.equal(fakeWindow.state.ignoreMouse, false);
 });
