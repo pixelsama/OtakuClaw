@@ -3,7 +3,6 @@ export const STORAGE_KEYS = {
   expressionConfig: 'live2d_expression_config',
   modelConfig: 'live2d-model-config',
   cachedBackgrounds: 'live2d_cached_backgrounds',
-  presetConfigs: 'live2d-preset-configs',
 };
 
 export const DEFAULT_MOTIONS = [

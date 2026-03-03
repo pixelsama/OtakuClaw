@@ -15,7 +15,6 @@ import ModelSettingsPanel from './ModelSettingsPanel.jsx';
 import MotionPanel from './MotionPanel.jsx';
 import ExpressionPanel from './ExpressionPanel.jsx';
 import BackgroundPanel from './BackgroundPanel.jsx';
-import PresetPanel from './PresetPanel.jsx';
 import {
   CLICK_AREA_COLORS,
   DEFAULT_CLICK_AREAS,
@@ -24,7 +23,7 @@ import {
   STORAGE_KEYS,
 } from './constants.js';
 import { desktopBridge } from '../../services/desktopBridge.js';
-import { toLocaleTag, useI18n } from '../../i18n/I18nContext.jsx';
+import { useI18n } from '../../i18n/I18nContext.jsx';
 import './Live2DControls.css';
 
 const serializeMotion = (motion) => ({
@@ -109,23 +108,6 @@ function makeNewMotionId(motions) {
 
 function makeNewExpressionId(expressions) {
   return `f${String(expressions.length + 1).padStart(2, '0')}`;
-}
-
-function generateDefaultPresetName(selectedModel, localeTag = 'zh-CN', unknownModelName = 'Unknown') {
-  const modelName = selectedModel
-    ? selectedModel.split('/').pop()?.replace('.model3.json', '')
-    : unknownModelName;
-  const now = new Date();
-  const timestamp = now
-    .toLocaleString(localeTag, {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-    .replace(/[/:]/g, '-');
-  return `${modelName}_${timestamp}`;
 }
 
 function parseModelDir(modelPath) {
@@ -306,8 +288,7 @@ export default function Live2DControls({
   onModelScaleChange,
   onBackgroundChange,
 }) {
-  const { language, t } = useI18n();
-  const localeTag = toLocaleTag(language);
+  const { t } = useI18n();
   const desktopMode = desktopBridge.isDesktop();
 
   const [availableModels, setAvailableModels] = useState([]);
@@ -336,8 +317,6 @@ export default function Live2DControls({
   const [hasBackground, setHasBackground] = useState(false);
   const [cachedBackgrounds, setCachedBackgrounds] = useState([]);
 
-  const [savedPresets, setSavedPresets] = useState([]);
-  const [newPresetName, setNewPresetName] = useState('');
   const [isHydrated, setIsHydrated] = useState(false);
 
   const [showClickAreaDialog, setShowClickAreaDialog] = useState(false);
@@ -346,7 +325,6 @@ export default function Live2DControls({
   const [selectedClickAreas, setSelectedClickAreas] = useState([]);
   const [availableClickAreas, setAvailableClickAreas] = useState(DEFAULT_CLICK_AREAS);
 
-  const presetFileInputRef = useRef(null);
   const motionsRef = useRef(motions);
   const expressionsRef = useRef(expressions);
   const parseRequestRef = useRef(0);
@@ -417,16 +395,6 @@ export default function Live2DControls({
       return [];
     }
   }, [desktopMode, t]);
-
-  const loadSavedPresets = useCallback(() => {
-    try {
-      const presets = JSON.parse(localStorage.getItem(STORAGE_KEYS.presetConfigs) || '[]');
-      presets.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-      setSavedPresets(presets);
-    } catch (error) {
-      console.error('Failed to load presets:', error);
-    }
-  }, []);
 
   const updateAvailableClickAreas = useCallback(() => {
     const manager = getManager();
@@ -558,8 +526,6 @@ export default function Live2DControls({
           setCachedBackgrounds(storedCache);
         }
 
-        loadSavedPresets();
-
         const models = await loadAvailableModels();
         if (!active) {
           return;
@@ -597,7 +563,6 @@ export default function Live2DControls({
     autoParseModelFiles,
     isHydrated,
     loadAvailableModels,
-    loadSavedPresets,
     onExpressionsUpdate,
     onModelChange,
     onMotionsUpdate,
@@ -1435,301 +1400,6 @@ export default function Live2DControls({
     setSelectedClickAreas([]);
   }, []);
 
-  const savePreset = useCallback(async () => {
-    const presetName =
-      newPresetName.trim() ||
-      generateDefaultPresetName(selectedModel, localeTag, t('controls.defaultPresetModel'));
-    updateDebugInfo(`开始保存预设: ${presetName}`);
-
-    const motionsWithFiles = await Promise.all(
-      motions.map(async (motion) => {
-        const data = serializeMotion(motion);
-        if (motion.fileObject) {
-          data.fileContent = await motion.fileObject.text();
-          data.fileType = motion.fileObject.type;
-          data.fileName = motion.fileObject.name;
-        }
-        return data;
-      }),
-    );
-
-    const expressionsWithFiles = await Promise.all(
-      expressions.map(async (expression) => {
-        const data = serializeExpression(expression);
-        if (expression.fileObject) {
-          data.fileContent = await expression.fileObject.text();
-          data.fileType = expression.fileObject.type;
-          data.fileName = expression.fileObject.name;
-        }
-        return data;
-      }),
-    );
-
-    const presetData = {
-      name: presetName,
-      modelName: selectedModel || t('controls.defaultPresetModel'),
-      timestamp: new Date().toISOString(),
-      createdAt: new Date().toLocaleString(localeTag),
-      config: {
-        selectedModel,
-        autoEyeBlink,
-        autoBreath,
-        eyeTracking,
-        modelScale,
-        backgroundImage,
-        backgroundOpacity,
-        hasBackground,
-        motions: motionsWithFiles,
-        expressions: expressionsWithFiles,
-      },
-    };
-
-    const existing = JSON.parse(localStorage.getItem(STORAGE_KEYS.presetConfigs) || '[]');
-    const index = existing.findIndex((preset) => preset.name === presetName);
-
-    if (index >= 0) {
-      existing[index] = presetData;
-    } else {
-      existing.push(presetData);
-    }
-
-    localStorage.setItem(STORAGE_KEYS.presetConfigs, JSON.stringify(existing));
-    loadSavedPresets();
-    setNewPresetName('');
-    updateDebugInfo(`预设 ${presetName} 保存完成`);
-  }, [
-    autoBreath,
-    autoEyeBlink,
-    backgroundImage,
-    backgroundOpacity,
-    expressions,
-    eyeTracking,
-    hasBackground,
-    loadSavedPresets,
-    modelScale,
-    motions,
-    newPresetName,
-    localeTag,
-    selectedModel,
-    t,
-    updateDebugInfo,
-  ]);
-
-  const loadPreset = useCallback(
-    async (preset) => {
-      const config = preset.config || {};
-      const modelDir = parseModelDir(config.selectedModel || selectedModel);
-
-      motions.forEach((motion) => revokeIfBlob(motion.filePath));
-      expressions.forEach((expression) => revokeIfBlob(expression.filePath));
-
-      if (config.selectedModel) {
-        setSelectedModel(config.selectedModel);
-        onModelChange?.(config.selectedModel);
-      }
-
-      if (typeof config.autoEyeBlink === 'boolean') {
-        toggleAutoEyeBlink(config.autoEyeBlink);
-      }
-      if (typeof config.autoBreath === 'boolean') {
-        toggleAutoBreath(config.autoBreath);
-      }
-      if (typeof config.eyeTracking === 'boolean') {
-        toggleEyeTracking(config.eyeTracking);
-      }
-      if (typeof config.modelScale === 'number') {
-        updateModelScale(config.modelScale);
-      }
-
-      if (typeof config.backgroundOpacity === 'number') {
-        setBackgroundOpacity(config.backgroundOpacity);
-      }
-      if (typeof config.hasBackground === 'boolean') {
-        setHasBackground(config.hasBackground);
-      }
-      if (config.backgroundImage) {
-        setBackgroundImage(config.backgroundImage);
-      }
-
-      if (Array.isArray(config.motions)) {
-        const nextMotions = await Promise.all(
-          config.motions.map(async (savedMotion) => {
-            const base =
-              motions.find((motion) => motion.id === savedMotion.id) ||
-              ({
-                id: savedMotion.id,
-                name: savedMotion.name,
-                group: savedMotion.group || 'Custom',
-                index: savedMotion.index || 0,
-              });
-
-            if (savedMotion.fileContent) {
-              const file = new File(
-                [savedMotion.fileContent],
-                savedMotion.fileName || `${savedMotion.name}.motion3.json`,
-                { type: savedMotion.fileType || 'application/json' },
-              );
-              const filePath = URL.createObjectURL(file);
-              return {
-                ...base,
-                ...savedMotion,
-                fileObject: file,
-                filePath,
-                fileName: file.name,
-                clickAreas: savedMotion.clickAreas || [],
-              };
-            }
-
-            return {
-              ...base,
-              ...savedMotion,
-              fileObject: null,
-              filePath:
-                savedMotion.filePath ||
-                (savedMotion.fileName ? `${modelDir}/motions/${savedMotion.fileName}` : null),
-              clickAreas: savedMotion.clickAreas || [],
-            };
-          }),
-        );
-        setMotions(nextMotions);
-        saveMotionConfig(nextMotions);
-      }
-
-      if (Array.isArray(config.expressions)) {
-        const nextExpressions = await Promise.all(
-          config.expressions.map(async (savedExpression) => {
-            const base =
-              expressions.find((expression) => expression.id === savedExpression.id) ||
-              ({
-                id: savedExpression.id,
-                name: savedExpression.name,
-              });
-
-            if (savedExpression.fileContent) {
-              const file = new File(
-                [savedExpression.fileContent],
-                savedExpression.fileName || `${savedExpression.name}.exp3.json`,
-                { type: savedExpression.fileType || 'application/json' },
-              );
-              const filePath = URL.createObjectURL(file);
-              return {
-                ...base,
-                ...savedExpression,
-                fileObject: file,
-                filePath,
-                fileName: file.name,
-                clickAreas: savedExpression.clickAreas || [],
-              };
-            }
-
-            return {
-              ...base,
-              ...savedExpression,
-              fileObject: null,
-              filePath:
-                savedExpression.filePath ||
-                (savedExpression.fileName ? `${modelDir}/expressions/${savedExpression.fileName}` : null),
-              clickAreas: savedExpression.clickAreas || [],
-            };
-          }),
-        );
-        setExpressions(nextExpressions);
-        saveExpressionConfig(nextExpressions);
-      }
-
-      onBackgroundChange?.({
-        image: config.backgroundImage || null,
-        opacity: config.backgroundOpacity ?? backgroundOpacity,
-        hasBackground: Boolean(config.hasBackground),
-      });
-
-      updateDebugInfo(`预设 ${preset.name} 加载完成`);
-    },
-    [
-      backgroundOpacity,
-      expressions,
-      motions,
-      onBackgroundChange,
-      onModelChange,
-      saveExpressionConfig,
-      saveMotionConfig,
-      selectedModel,
-      toggleAutoBreath,
-      toggleAutoEyeBlink,
-      toggleEyeTracking,
-      updateDebugInfo,
-      updateModelScale,
-    ],
-  );
-
-  const deletePreset = useCallback(
-    (presetName) => {
-      if (!window.confirm(t('controls.presetDeleteConfirm', { name: presetName }))) {
-        return;
-      }
-
-      const presets = JSON.parse(localStorage.getItem(STORAGE_KEYS.presetConfigs) || '[]');
-      const filtered = presets.filter((preset) => preset.name !== presetName);
-      localStorage.setItem(STORAGE_KEYS.presetConfigs, JSON.stringify(filtered));
-      loadSavedPresets();
-    },
-    [loadSavedPresets, t],
-  );
-
-  const exportPreset = useCallback((preset) => {
-    const data = JSON.stringify(preset, null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${preset.name}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-  }, []);
-
-  const importPreset = useCallback(() => {
-    presetFileInputRef.current?.click();
-  }, []);
-
-  const handlePresetFileImport = useCallback(
-    (event) => {
-      const file = event.target.files?.[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const presetData = JSON.parse(e.target.result);
-          if (!presetData.name || !presetData.config) {
-            window.alert(t('controls.invalidPresetFile'));
-            return;
-          }
-
-          const existing = JSON.parse(localStorage.getItem(STORAGE_KEYS.presetConfigs) || '[]');
-          const index = existing.findIndex((preset) => preset.name === presetData.name);
-
-          if (index >= 0) {
-            if (!window.confirm(t('controls.presetExistsOverwrite', { name: presetData.name }))) {
-              return;
-            }
-            existing[index] = presetData;
-          } else {
-            existing.push(presetData);
-          }
-
-          localStorage.setItem(STORAGE_KEYS.presetConfigs, JSON.stringify(existing));
-          loadSavedPresets();
-        } catch (error) {
-          window.alert(t('controls.presetFormatError'));
-          console.error('导入预设失败:', error);
-        }
-      };
-      reader.readAsText(file);
-      event.target.value = '';
-    },
-    [loadSavedPresets, t],
-  );
-
   const statusChip = selectedModel
     ? (modelLoaded ? t('model.status.loaded') : t('model.status.loading'))
     : t('model.status.unloaded');
@@ -1738,19 +1408,6 @@ export default function Live2DControls({
     <Box className="live2d-controls-root">
       <Stack spacing={1.5}>
         <Chip size="small" color={modelLoaded ? 'success' : 'warning'} label={statusChip} />
-
-        <PresetPanel
-          newPresetName={newPresetName}
-          onNewPresetNameChange={setNewPresetName}
-          onSavePreset={savePreset}
-          savedPresets={savedPresets}
-          onLoadPreset={loadPreset}
-          onExportPreset={exportPreset}
-          onDeletePreset={deletePreset}
-          presetFileInputRef={presetFileInputRef}
-          onImportPreset={importPreset}
-          onHandlePresetFileImport={handlePresetFileImport}
-        />
 
         <ModelSettingsPanel
           modelLoaded={modelLoaded}
