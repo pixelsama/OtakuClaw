@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { desktopBridge } from '../../services/desktopBridge.js';
 
 const STATUS_IDLE = 'idle';
@@ -24,6 +24,7 @@ function normalizeVoiceError(error) {
 }
 
 export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}) {
+  const sessionIdRef = useRef('');
   const [sessionId, setSessionId] = useState('');
   const [status, setStatus] = useState(STATUS_IDLE);
   const [lastPartialText, setLastPartialText] = useState('');
@@ -31,7 +32,12 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
   const [lastError, setLastError] = useState('');
   const [flowControl, setFlowControl] = useState({ action: 'resume', bufferedMs: 0 });
 
-  const active = Boolean(sessionId && status !== STATUS_IDLE);
+  const setSessionIdWithRef = useCallback((nextSessionId) => {
+    sessionIdRef.current = nextSessionId || '';
+    setSessionId(nextSessionId || '');
+  }, []);
+
+  const active = Boolean(sessionIdRef.current && status !== STATUS_IDLE);
 
   useEffect(() => {
     if (!desktopMode) {
@@ -39,7 +45,8 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
     }
 
     const disposeEvent = desktopBridge.voice.onEvent((event = {}) => {
-      if (sessionId && event.sessionId && event.sessionId !== sessionId) {
+      const currentSessionId = sessionIdRef.current;
+      if (currentSessionId && event.sessionId && event.sessionId !== currentSessionId) {
         return;
       }
 
@@ -61,12 +68,13 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
 
       if (event.type === 'done' && event.stage === 'session') {
         setStatus(STATUS_IDLE);
-        setSessionId('');
+        setSessionIdWithRef('');
       }
     });
 
     const disposeFlow = desktopBridge.voice.onFlowControl((event = {}) => {
-      if (sessionId && event.sessionId && event.sessionId !== sessionId) {
+      const currentSessionId = sessionIdRef.current;
+      if (currentSessionId && event.sessionId && event.sessionId !== currentSessionId) {
         return;
       }
 
@@ -80,7 +88,7 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
       disposeEvent();
       disposeFlow();
     };
-  }, [desktopMode, sessionId]);
+  }, [desktopMode, setSessionIdWithRef]);
 
   const startSession = useCallback(
     async ({ mode = 'vad' } = {}) => {
@@ -104,11 +112,11 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
         return result;
       }
 
-      setSessionId(nextSessionId);
+      setSessionIdWithRef(nextSessionId);
       setStatus(result.status || 'listening');
       return result;
     },
-    [desktopMode],
+    [desktopMode, setSessionIdWithRef],
   );
 
   const sendAudioChunk = useCallback(
@@ -121,12 +129,13 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
       sampleFormat = 'pcm_s16le',
       isSpeech = false,
     } = {}) => {
-      if (!sessionId) {
+      const activeSessionId = sessionIdRef.current;
+      if (!activeSessionId) {
         return { ok: false, reason: 'session_not_started' };
       }
 
       return desktopBridge.voice.sendAudioChunk({
-        sessionId,
+        sessionId: activeSessionId,
         seq,
         chunkId,
         pcmChunk,
@@ -136,67 +145,71 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
         isSpeech,
       });
     },
-    [sessionId],
+    [],
   );
 
   const commitInput = useCallback(
     async ({ finalSeq } = {}) => {
-      if (!sessionId) {
+      const activeSessionId = sessionIdRef.current;
+      if (!activeSessionId) {
         return { ok: false, reason: 'session_not_started' };
       }
 
       return desktopBridge.voice.commit({
-        sessionId,
+        sessionId: activeSessionId,
         finalSeq,
       });
     },
-    [sessionId],
+    [],
   );
 
   const stopSession = useCallback(
     async ({ reason = 'manual' } = {}) => {
-      if (!sessionId) {
+      const activeSessionId = sessionIdRef.current;
+      if (!activeSessionId) {
         return { ok: true, reason: 'not_started' };
       }
 
       const result = await desktopBridge.voice.stop({
-        sessionId,
+        sessionId: activeSessionId,
         reason,
       });
-      setSessionId('');
+      setSessionIdWithRef('');
       setStatus(STATUS_IDLE);
       return result;
     },
-    [sessionId],
+    [setSessionIdWithRef],
   );
 
   const stopTts = useCallback(
     async ({ reason = 'manual' } = {}) => {
-      if (!sessionId) {
+      const activeSessionId = sessionIdRef.current;
+      if (!activeSessionId) {
         return { ok: true, reason: 'not_started' };
       }
 
       return desktopBridge.voice.stopTts({
-        sessionId,
+        sessionId: activeSessionId,
         reason,
       });
     },
-    [sessionId],
+    [],
   );
 
   const sendPlaybackAck = useCallback(
     async ({ ackSeq, bufferedMs } = {}) => {
-      if (!sessionId) {
+      const activeSessionId = sessionIdRef.current;
+      if (!activeSessionId) {
         return { ok: false, reason: 'session_not_started' };
       }
 
       return desktopBridge.voice.sendPlaybackAck({
-        sessionId,
+        sessionId: activeSessionId,
         ackSeq,
         bufferedMs,
       });
     },
-    [sessionId],
+    [],
   );
 
   return useMemo(
