@@ -2,6 +2,26 @@ import { useEffect } from 'react';
 import { MODE_PET } from '../../mode/ModeContext.jsx';
 import { desktopBridge } from '../../services/desktopBridge.js';
 
+export function normalizePetCursorContext(context) {
+  if (!context?.ok || context.mode !== MODE_PET) {
+    return null;
+  }
+
+  const { cursor, desktopBounds } = context;
+  const width = desktopBounds?.width ?? 0;
+  const height = desktopBounds?.height ?? 0;
+  if (!cursor || width <= 0 || height <= 0) {
+    return null;
+  }
+
+  const normalizedX = ((cursor.x - desktopBounds.x) / width) * 2.0 - 1.0;
+  const normalizedY = -(((cursor.y - desktopBounds.y) / height) * 2.0 - 1.0);
+  return {
+    normalizedX,
+    normalizedY,
+  };
+}
+
 export function usePetCursorTracking({
   desktopMode,
   isPetMode,
@@ -19,20 +39,19 @@ export function usePetCursorTracking({
     const pollGlobalCursor = async () => {
       try {
         const context = await desktopBridge.window.getCursorContext();
-        if (disposed || !context?.ok || context.mode !== MODE_PET) {
+        if (disposed) {
           return;
         }
 
-        const { cursor, desktopBounds } = context;
-        const width = desktopBounds?.width ?? 0;
-        const height = desktopBounds?.height ?? 0;
-        if (!cursor || width <= 0 || height <= 0) {
+        const normalizedCursor = normalizePetCursorContext(context);
+        if (!normalizedCursor) {
           return;
         }
 
-        const normalizedX = ((cursor.x - desktopBounds.x) / width) * 2.0 - 1.0;
-        const normalizedY = -(((cursor.y - desktopBounds.y) / height) * 2.0 - 1.0);
-        live2dViewerRef.current?.setPointerNormalized?.(normalizedX, normalizedY);
+        live2dViewerRef.current?.setPointerNormalized?.(
+          normalizedCursor.normalizedX,
+          normalizedCursor.normalizedY,
+        );
       } catch {
         // noop
       } finally {

@@ -9,6 +9,34 @@ const defaultOpenClawSettings = {
   hasSecureStorage: true,
 };
 
+export function buildOpenClawSettingsPayload(settings) {
+  const payload = {
+    baseUrl: settings?.baseUrl || '',
+    agentId: settings?.agentId || '',
+  };
+  const token = settings?.token?.trim?.() || '';
+  if (token) {
+    payload.token = token;
+  }
+  return payload;
+}
+
+export function formatOpenClawSettingsError({ error, normalizeError, t }) {
+  if (typeof normalizeError === 'function') {
+    return normalizeError(error);
+  }
+
+  if (typeof error === 'string' && error) {
+    return error;
+  }
+
+  if (typeof error?.message === 'string' && error.message) {
+    return error.message;
+  }
+
+  return t('common.requestFailed');
+}
+
 export function useOpenClawSettings({ t, normalizeError }) {
   const [openClawSettings, setOpenClawSettings] = useState(defaultOpenClawSettings);
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -17,21 +45,7 @@ export function useOpenClawSettings({ t, normalizeError }) {
   const [settingsError, setSettingsError] = useState('');
 
   const formatError = useCallback(
-    (error) => {
-      if (typeof normalizeError === 'function') {
-        return normalizeError(error);
-      }
-
-      if (typeof error === 'string' && error) {
-        return error;
-      }
-
-      if (typeof error?.message === 'string' && error.message) {
-        return error.message;
-      }
-
-      return t('common.requestFailed');
-    },
+    (error) => formatOpenClawSettingsError({ error, normalizeError, t }),
     [normalizeError, t],
   );
 
@@ -76,14 +90,7 @@ export function useOpenClawSettings({ t, normalizeError }) {
     setSettingsFeedback('');
 
     try {
-      const payload = {
-        baseUrl: openClawSettings.baseUrl,
-        agentId: openClawSettings.agentId,
-      };
-      const token = openClawSettings.token.trim();
-      if (token) {
-        payload.token = token;
-      }
+      const payload = buildOpenClawSettingsPayload(openClawSettings);
 
       const saved = await desktopBridge.settings.save(payload);
       setOpenClawSettings({
@@ -97,7 +104,7 @@ export function useOpenClawSettings({ t, normalizeError }) {
     } finally {
       setSettingsSaving(false);
     }
-  }, [formatError, openClawSettings.agentId, openClawSettings.baseUrl, openClawSettings.token, t]);
+  }, [formatError, openClawSettings, t]);
 
   const onTestOpenClawSettings = useCallback(async () => {
     setSettingsTesting(true);
@@ -105,14 +112,7 @@ export function useOpenClawSettings({ t, normalizeError }) {
     setSettingsFeedback('');
 
     try {
-      const payload = {
-        baseUrl: openClawSettings.baseUrl,
-        agentId: openClawSettings.agentId,
-      };
-      const token = openClawSettings.token.trim();
-      if (token) {
-        payload.token = token;
-      }
+      const payload = buildOpenClawSettingsPayload(openClawSettings);
 
       const result = await desktopBridge.settings.testConnection(payload);
       if (!result?.ok) {
@@ -127,7 +127,7 @@ export function useOpenClawSettings({ t, normalizeError }) {
     } finally {
       setSettingsTesting(false);
     }
-  }, [formatError, openClawSettings.agentId, openClawSettings.baseUrl, openClawSettings.token, t]);
+  }, [formatError, openClawSettings, t]);
 
   const onClearSavedToken = useCallback(async () => {
     setSettingsSaving(true);
