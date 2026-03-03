@@ -645,6 +645,9 @@ const Live2DViewer = forwardRef(function Live2DViewer(
       setMotionFromFile: async (fileUrl) => {
         await managerRef.current?.setMotionFromFile(fileUrl);
       },
+      setPointerNormalized: (normalizedX, normalizedY) => {
+        managerRef.current?.setPointerNormalized?.(normalizedX, normalizedY);
+      },
       syncCanvasSize: () => {
         handleResize();
       },

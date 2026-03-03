@@ -1319,9 +1319,22 @@ class Live2DManager {
     // 转换坐标到模型空间 (-1.0 到 1.0)
     const normalizedX = (x / canvasWidth) * 2.0 - 1.0
     const normalizedY = -((y / canvasHeight) * 2.0 - 1.0)
-    
-    // 设置拖拽参数
-    this.currentModel.setDragging(normalizedX, normalizedY)
+
+    this.setPointerNormalized(normalizedX, normalizedY)
+  }
+
+  /**
+   * 使用归一化坐标更新眼神跟随
+   * @param {number} normalizedX - X坐标 (-1.0 到 1.0)
+   * @param {number} normalizedY - Y坐标 (-1.0 到 1.0)
+   */
+  setPointerNormalized(normalizedX, normalizedY) {
+    if (!this.isModelLoaded || !this.currentModel || !this.eyeTrackingEnabled) return
+
+    const safeX = Number.isFinite(normalizedX) ? Math.max(-1.0, Math.min(1.0, normalizedX)) : 0.0
+    const safeY = Number.isFinite(normalizedY) ? Math.max(-1.0, Math.min(1.0, normalizedY)) : 0.0
+
+    this.currentModel.setDragging(safeX, safeY)
   }
 
   /**

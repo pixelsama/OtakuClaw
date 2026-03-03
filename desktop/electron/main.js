@@ -1,5 +1,5 @@
 const path = require('node:path');
-const { app, BrowserWindow, shell, ipcMain, protocol } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, protocol, screen } = require('electron');
 
 const { registerChatStreamIpc } = require('./ipc/chatStream');
 const { registerLive2DModelsIpc } = require('./ipc/live2dModels');
@@ -69,6 +69,36 @@ function registerWindowControlIpc() {
     }
 
     return { ok: false, reason: 'unsupported_action' };
+  });
+
+  ipcMain.handle('window:get-cursor-context', () => {
+    const window = mainWindow;
+    if (!window || window.isDestroyed()) {
+      return { ok: false, reason: 'window_unavailable' };
+    }
+
+    const displays = screen.getAllDisplays();
+    if (!displays.length) {
+      return { ok: false, reason: 'display_unavailable' };
+    }
+
+    const minX = Math.min(...displays.map((item) => item.bounds.x));
+    const minY = Math.min(...displays.map((item) => item.bounds.y));
+    const maxX = Math.max(...displays.map((item) => item.bounds.x + item.bounds.width));
+    const maxY = Math.max(...displays.map((item) => item.bounds.y + item.bounds.height));
+
+    return {
+      ok: true,
+      mode: windowModeManager?.getMode?.() || 'window',
+      cursor: screen.getCursorScreenPoint(),
+      windowBounds: window.getBounds(),
+      desktopBounds: {
+        x: minX,
+        y: minY,
+        width: maxX - minX,
+        height: maxY - minY,
+      },
+    };
   });
 }
 
@@ -267,6 +297,7 @@ app.on('before-quit', () => {
 
   ipcMain.removeHandler('window:get-platform');
   ipcMain.removeHandler('window:control');
+  ipcMain.removeHandler('window:get-cursor-context');
   try {
     protocol.unhandle(MODEL_PROTOCOL);
   } catch {

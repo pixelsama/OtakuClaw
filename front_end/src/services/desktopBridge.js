@@ -340,6 +340,14 @@ export const desktopBridge = {
 
       return api.windowControls.control(action);
     },
+    async getCursorContext() {
+      const api = getDesktopApi();
+      if (!api?.windowControls?.getCursorContext) {
+        return { ok: false, reason: 'desktop_cursor_context_unavailable' };
+      }
+
+      return api.windowControls.getCursorContext();
+    },
   },
   models: {
     async list() {

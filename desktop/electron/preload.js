@@ -92,6 +92,9 @@ const windowControls = {
   control(action) {
     return ipcRenderer.invoke('window:control', { action });
   },
+  getCursorContext() {
+    return ipcRenderer.invoke('window:get-cursor-context');
+  },
 };
 
 const live2dModels = {
