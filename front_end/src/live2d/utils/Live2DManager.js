@@ -1649,8 +1649,16 @@ class Live2DManager {
     
     // 重置视图矩阵并应用新的缩放
     this.updateViewMatrix()
-    
+
     console.log(`Model scale set to: ${clampedScale}`)
+  }
+
+  /**
+   * 获取当前模型缩放
+   * @returns {number}
+   */
+  getModelScale() {
+    return typeof this.currentScale === 'number' ? this.currentScale : 1.0
   }
 
   /**

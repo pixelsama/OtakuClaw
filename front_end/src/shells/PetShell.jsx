@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, IconButton } from '@mui/material';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
+import LockIcon from '@mui/icons-material/Lock';
+import LockOpenIcon from '@mui/icons-material/LockOpen';
 import Live2DViewer from '../components/live2d/Live2DViewer.jsx';
 import SubtitleBar from '../components/subtitle/SubtitleBar.jsx';
 import { usePetDraggable } from '../hooks/pet/usePetDraggable.js';
@@ -28,6 +30,7 @@ export default function PetShell({
   const [isModelHovering, setIsModelHovering] = useState(false);
   const [isControlsHovering, setIsControlsHovering] = useState(false);
   const [isComposerExpanded, setIsComposerExpanded] = useState(false);
+  const [isModelLocked, setIsModelLocked] = useState(false);
 
   const setModelHover = useCallback(
     (nextHovering) => {
@@ -101,13 +104,40 @@ export default function PetShell({
   }, []);
 
   const { isDragging, dragStyle, dragBindings } = usePetDraggable({
-    enabled: desktopMode,
+    enabled: desktopMode && !isModelLocked,
     canStartDrag: (event) => detectModelPixelHover(event),
     onDragStateChange: (dragging) => {
       setPetHover?.('pet-dragging', dragging);
       setModelHover(dragging);
     },
   });
+
+  const handleModelScaleByWheel = useCallback(
+    (event) => {
+      if (!desktopMode || isModelLocked) {
+        return;
+      }
+
+      const manager = live2dViewerRef.current?.getManager?.();
+      if (!manager || !manager.isModelLoaded || typeof manager.setModelScale !== 'function') {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const currentScale =
+        typeof manager.getModelScale === 'function'
+          ? manager.getModelScale()
+          : typeof manager.currentScale === 'number'
+            ? manager.currentScale
+            : 1.0;
+      const scaleStep = 0.08;
+      const direction = event.deltaY < 0 ? 1 : -1;
+      manager.setModelScale(currentScale + direction * scaleStep);
+    },
+    [desktopMode, isModelLocked, live2dViewerRef],
+  );
 
   useEffect(
     () => () => {
@@ -133,6 +163,7 @@ export default function PetShell({
         ref={hitboxRef}
         className={`live2d-hitbox pet-draggable-hitbox ${isDragging ? 'pet-dragging' : ''}`.trim()}
         style={dragStyle}
+        onWheel={handleModelScaleByWheel}
         onMouseEnter={(event) => {
           if (isDragging) {
             setModelHover(true);
@@ -196,6 +227,16 @@ export default function PetShell({
             title="切换到主窗口模式"
           >
             <SwapHorizIcon />
+          </IconButton>
+          <IconButton
+            className="mode-toggle pet-mode-toggle"
+            color={isModelLocked ? 'secondary' : 'primary'}
+            onClick={() => {
+              setIsModelLocked((prev) => !prev);
+            }}
+            title={isModelLocked ? '已锁定（点击解锁）' : '未锁定（点击锁定）'}
+          >
+            {isModelLocked ? <LockIcon /> : <LockOpenIcon />}
           </IconButton>
           <EdgeComposer
             variant="pet"
