@@ -13,6 +13,7 @@ import {
   TextField,
   useMediaQuery,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import CloseIcon from '@mui/icons-material/Close';
 import Live2DControls from './components/controls/Live2DControls.jsx';
 import { useStreamingChat } from './hooks/useStreamingChat.js';
@@ -28,6 +29,12 @@ import {
   LANGUAGE_ZH_CN,
   useI18n,
 } from './i18n/I18nContext.jsx';
+import {
+  THEME_MODE_DARK,
+  THEME_MODE_LIGHT,
+  THEME_MODE_SYSTEM,
+  useThemeMode,
+} from './theme/ThemeModeContext.jsx';
 
 const DEFAULT_MODEL = '';
 const CONFIG_DRAWER_WIDTH = 420;
@@ -85,8 +92,10 @@ function AppContent({ desktopMode }) {
   const configPanelWindowResizedRef = useRef(false);
   const closePanelSyncTimeoutRef = useRef(null);
   const { isPetMode, setMode } = useModeContext();
+  const muiTheme = useTheme();
   const isNarrowViewport = useMediaQuery('(max-width:900px)');
   const { language, setLanguage, t } = useI18n();
+  const { themeMode, setThemeMode } = useThemeMode();
 
   const [modelLoaded, setModelLoaded] = useState(false);
   const [currentModelPath, setCurrentModelPath] = useState(DEFAULT_MODEL);
@@ -301,9 +310,11 @@ function AppContent({ desktopMode }) {
       paddingRight: showConfigPanel && !isPetMode && !isNarrowViewport ? `${CONFIG_DRAWER_WIDTH}px` : 0,
       background: isPetMode
         ? 'transparent'
-        : 'radial-gradient(circle at top, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.06)), linear-gradient(180deg, #e5eeff 0%, #f9fbff 100%)',
+        : muiTheme.palette.mode === 'dark'
+          ? 'radial-gradient(circle at top, rgba(39, 57, 92, 0.45), rgba(12, 16, 24, 0.15)), linear-gradient(180deg, #131c2d 0%, #0b111c 100%)'
+          : 'radial-gradient(circle at top, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.06)), linear-gradient(180deg, #e5eeff 0%, #f9fbff 100%)',
     }),
-    [isNarrowViewport, isPetMode, showConfigPanel],
+    [isNarrowViewport, isPetMode, muiTheme.palette.mode, showConfigPanel],
   );
 
   const handleControlModelChange = useCallback((modelPath) => {
@@ -572,22 +583,6 @@ function AppContent({ desktopMode }) {
               </IconButton>
               <span>{t('app.settingsPanel')}</span>
               {modelLoaded && <Chip color="success" size="small" label={t('app.modelLoaded')} />}
-              <Stack direction="row" spacing={0.75} sx={{ ml: 'auto' }}>
-                <Button
-                  size="small"
-                  variant={language === LANGUAGE_ZH_CN ? 'contained' : 'outlined'}
-                  onClick={() => setLanguage(LANGUAGE_ZH_CN)}
-                >
-                  {t('language.zh')}
-                </Button>
-                <Button
-                  size="small"
-                  variant={language === LANGUAGE_EN_US ? 'contained' : 'outlined'}
-                  onClick={() => setLanguage(LANGUAGE_EN_US)}
-                >
-                  {t('language.en')}
-                </Button>
-              </Stack>
             </Stack>
           </Box>
 
@@ -596,6 +591,7 @@ function AppContent({ desktopMode }) {
               <Tabs value={activeConfigTab} onChange={(_, tab) => setActiveConfigTab(tab)} variant="fullWidth">
                 <Tab label={t('app.tab.live2d')} />
                 <Tab label={t('app.tab.openclaw')} />
+                <Tab label={t('app.tab.preferences')} />
               </Tabs>
               <Divider />
 
@@ -688,6 +684,57 @@ function AppContent({ desktopMode }) {
 
                   {settingsError && <Alert severity="error">{settingsError}</Alert>}
                   {settingsFeedback && <Alert severity="success">{settingsFeedback}</Alert>}
+                </Stack>
+              )}
+
+              {activeConfigTab === 2 && (
+                <Stack spacing={2}>
+                  <Box sx={{ fontWeight: 600 }}>{t('preferences.title')}</Box>
+                  <Stack spacing={1}>
+                    <Box sx={{ color: 'text.secondary', fontSize: 14 }}>{t('preferences.language')}</Box>
+                    <Stack direction="row" spacing={1}>
+                      <Button
+                        size="small"
+                        variant={language === LANGUAGE_ZH_CN ? 'contained' : 'outlined'}
+                        onClick={() => setLanguage(LANGUAGE_ZH_CN)}
+                      >
+                        {t('language.zh')}
+                      </Button>
+                      <Button
+                        size="small"
+                        variant={language === LANGUAGE_EN_US ? 'contained' : 'outlined'}
+                        onClick={() => setLanguage(LANGUAGE_EN_US)}
+                      >
+                        {t('language.en')}
+                      </Button>
+                    </Stack>
+                  </Stack>
+                  <Stack spacing={1}>
+                    <Box sx={{ color: 'text.secondary', fontSize: 14 }}>{t('preferences.theme')}</Box>
+                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                      <Button
+                        size="small"
+                        variant={themeMode === THEME_MODE_LIGHT ? 'contained' : 'outlined'}
+                        onClick={() => setThemeMode(THEME_MODE_LIGHT)}
+                      >
+                        {t('preferences.theme.light')}
+                      </Button>
+                      <Button
+                        size="small"
+                        variant={themeMode === THEME_MODE_DARK ? 'contained' : 'outlined'}
+                        onClick={() => setThemeMode(THEME_MODE_DARK)}
+                      >
+                        {t('preferences.theme.dark')}
+                      </Button>
+                      <Button
+                        size="small"
+                        variant={themeMode === THEME_MODE_SYSTEM ? 'contained' : 'outlined'}
+                        onClick={() => setThemeMode(THEME_MODE_SYSTEM)}
+                      >
+                        {t('preferences.theme.system')}
+                      </Button>
+                    </Stack>
+                  </Stack>
                 </Stack>
               )}
             </Stack>
