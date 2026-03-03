@@ -1,3 +1,27 @@
+:root {
+  --composer-panel-bg: rgba(236, 242, 252, 0.74);
+  --composer-panel-border: rgba(255, 255, 255, 0.42);
+  --composer-panel-shadow: 0 18px 36px rgba(15, 23, 42, 0.2);
+  --composer-input-bg: rgba(255, 255, 255, 0.62);
+  --composer-input-border: rgba(66, 113, 172, 0.38);
+  --composer-input-border-hover: rgba(47, 108, 191, 0.6);
+  --composer-input-border-focus: rgba(44, 124, 236, 0.9);
+  --composer-input-text: #132235;
+  --composer-input-placeholder: rgba(31, 51, 76, 0.58);
+}
+
+:root[data-theme-mode='dark'] {
+  --composer-panel-bg: linear-gradient(145deg, rgba(15, 24, 40, 0.82), rgba(10, 18, 32, 0.74));
+  --composer-panel-border: rgba(130, 170, 238, 0.32);
+  --composer-panel-shadow: 0 22px 46px rgba(2, 8, 20, 0.62), 0 0 0 1px rgba(130, 170, 238, 0.08);
+  --composer-input-bg: rgba(12, 22, 38, 0.62);
+  --composer-input-border: rgba(122, 161, 232, 0.35);
+  --composer-input-border-hover: rgba(138, 180, 255, 0.58);
+  --composer-input-border-focus: rgba(107, 175, 255, 0.95);
+  --composer-input-text: #e7f0ff;
+  --composer-input-placeholder: rgba(211, 225, 250, 0.56);
+}
+
 .edge-composer {
   position: relative;
   display: inline-flex;
@@ -17,16 +41,46 @@
   width: min(360px, 42vw);
   padding: 12px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.42);
-  background: rgba(236, 242, 252, 0.74);
+  border: 1px solid var(--composer-panel-border);
+  background: var(--composer-panel-bg);
   backdrop-filter: blur(14px);
-  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.2);
+  box-shadow: var(--composer-panel-shadow);
   z-index: 40;
 }
 
 .edge-composer-pet .edge-composer-panel {
   width: min(300px, 70vw);
-  background: rgba(245, 248, 255, 0.78);
+}
+
+.edge-composer-panel .MuiOutlinedInput-root {
+  color: var(--composer-input-text);
+  border-radius: 12px;
+  background: var(--composer-input-bg);
+}
+
+.edge-composer-panel .MuiOutlinedInput-root .MuiOutlinedInput-notchedOutline {
+  border-color: var(--composer-input-border);
+}
+
+.edge-composer-panel .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline {
+  border-color: var(--composer-input-border-hover);
+}
+
+.edge-composer-panel .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline {
+  border-color: var(--composer-input-border-focus);
+  border-width: 1px;
+  box-shadow: 0 0 0 2px rgba(107, 175, 255, 0.28);
+}
+
+.edge-composer-panel .MuiInputBase-input,
+.edge-composer-panel .MuiInputBase-inputMultiline {
+  color: var(--composer-input-text);
+}
+
+.edge-composer-panel .MuiInputBase-input::placeholder,
+.edge-composer-panel textarea::placeholder {
+  color: var(--composer-input-placeholder);
+  opacity: 1;
 }
 
 .edge-composer-error {
