@@ -60,6 +60,7 @@ export default function PetShell({
     () => () => {
       setPetHover?.('live2d-hitbox', false);
       setPetHover?.('pet-dragging', false);
+      setPetHover?.('pet-composer', false);
     },
     [setPetHover],
   );
@@ -125,7 +126,13 @@ export default function PetShell({
           >
             <SwapHorizIcon />
           </IconButton>
-          <EdgeComposer variant="pet" {...textComposerProps} />
+          <EdgeComposer
+            variant="pet"
+            onExpandedChange={(expanded) => {
+              setPetHover?.('pet-composer', expanded);
+            }}
+            {...textComposerProps}
+          />
         </Box>
       </Box>
 

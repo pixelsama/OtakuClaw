@@ -50,6 +50,7 @@ export default function EdgeComposer({
   onStop,
   externalError = '',
   onDismissExternalError,
+  onExpandedChange,
   placeholder = '输入你想让她说的话...',
 }) {
   const rootRef = useRef(null);
@@ -171,6 +172,10 @@ export default function EdgeComposer({
     };
   }, [clearAutoHideTimer]);
 
+  useEffect(() => {
+    onExpandedChange?.(expanded);
+  }, [expanded, onExpandedChange]);
+
   return (
     <Box
       ref={rootRef}
@@ -178,7 +183,6 @@ export default function EdgeComposer({
         'edge-composer',
         expanded ? 'expanded' : 'collapsed',
         `edge-composer-${variant}`,
-        isImeComposing ? 'edge-composer-ime-composing' : '',
       ]
         .filter(Boolean)
         .join(' ')}

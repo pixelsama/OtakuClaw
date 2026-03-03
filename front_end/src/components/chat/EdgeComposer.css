@@ -29,14 +29,6 @@
   background: rgba(245, 248, 255, 0.78);
 }
 
-.edge-composer-pet .edge-composer-actions {
-  margin-top: 14px;
-}
-
-.edge-composer.edge-composer-ime-composing.edge-composer-pet .edge-composer-actions {
-  display: none;
-}
-
 .edge-composer-error {
   margin-top: 8px;
   color: #c62828;

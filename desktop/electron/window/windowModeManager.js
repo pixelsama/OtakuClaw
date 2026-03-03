@@ -206,9 +206,12 @@ class WindowModeManager {
     const shouldIgnore = this.forceIgnoreMouse || this.hoveringComponents.size === 0;
     this.setIgnoreMouseEvents(shouldIgnore);
 
-    if (!shouldIgnore) {
-      this.window.setFocusable(true);
+    if (this.isMac) {
+      // In pet mode, use lower top level while interacting so macOS IME candidate window can appear above.
+      this.window.setAlwaysOnTop(true, shouldIgnore ? 'screen-saver' : 'floating');
     }
+
+    this.window.setFocusable(!shouldIgnore);
   }
 
   emitModeChanged(mode) {
