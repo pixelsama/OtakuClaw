@@ -26,6 +26,14 @@
 - Keep security-sensitive logic in Electron main process, not renderer.
 - Keep preload API minimal and explicit.
 
+## UI Framework Policy
+- Current direction: **progressive de-MUI migration**. Treat MUI as legacy dependency in this project.
+- Do **not** introduce new MUI components for new UI work unless explicitly required by the user.
+- For new UI, prefer local reusable primitives/components with project-owned styles (CSS/CSS variables), optimized for desktop widget/pet-mode visuals.
+- When touching existing MUI-heavy areas, migrate incrementally by replacing highest-friction components first (for example: `TextField`, `Button`, `Tabs`, `Drawer`).
+- Do not do one-shot full rewrites. Keep behavior parity and reduce regression risk through staged replacement.
+- Preserve UX/security constraints during migration: pet-mode interaction affordance, streaming composer behavior, and Electron security boundaries.
+
 ## Testing Guidelines
 - Frameworks:
   - Desktop: Node built-in `node:test`
