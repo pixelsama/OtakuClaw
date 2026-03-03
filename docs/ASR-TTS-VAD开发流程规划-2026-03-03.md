@@ -94,6 +94,24 @@
    - `VOICE_TTS_PROVIDER`
 3. 增加 Mock ASR/TTS provider，先打通端到端事件流。
 
+ASR provider 扩展约束（阶段 8 补充）：
+
+- `VOICE_ASR_PROVIDER=mock|sherpa-onnx`（默认 `mock`）。
+- 当使用 `sherpa-onnx` 时，至少配置：
+  - `VOICE_ASR_SHERPA_MODEL`（当前先按 CTC 单模型接入）
+  - `VOICE_ASR_SHERPA_TOKENS`
+- 可选配置：
+  - `VOICE_ASR_SHERPA_MODE=offline|online`（默认按模型类型自动推断）
+  - `VOICE_ASR_SHERPA_MODEL_KIND`（如 `zipformerCtc` / `zipformer2Ctc` / `senseVoice`）
+  - `VOICE_ASR_SHERPA_PREFER_ONLINE=0|1`
+  - `VOICE_ASR_SHERPA_ENCODER` / `VOICE_ASR_SHERPA_DECODER` / `VOICE_ASR_SHERPA_JOINER`（online transducer 模型）
+  - `VOICE_ASR_SHERPA_NUM_THREADS`（默认 2）
+  - `VOICE_ASR_SHERPA_EXECUTION_PROVIDER=cpu|coreml|cuda`（默认 `cpu`）
+  - `VOICE_ASR_SHERPA_SAMPLE_RATE`（默认 16000）
+  - `VOICE_ASR_SHERPA_FEATURE_DIM`（默认 80）
+  - `VOICE_ASR_SHERPA_DECODE_CHUNK_MS`（默认 160）
+  - `VOICE_ASR_SHERPA_DEBUG=0|1`
+
 验收：
 - 不接入真实模型时，也能完成“录音 -> mock 文本 -> mock 音频播放”。
 - 连续 50 次 `start/stop` 不出现未释放监听器、定时器或 AudioContext 泄漏。

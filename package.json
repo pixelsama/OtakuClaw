@@ -20,7 +20,8 @@
     "electron-builder": "^26.0.12"
   },
   "optionalDependencies": {
-    "keytar": "^8.0.0"
+    "keytar": "^8.0.0",
+    "sherpa-onnx-node": "^1.12.28"
   },
   "build": {
     "appId": "com.freeagent.vtuber.openclaw",
