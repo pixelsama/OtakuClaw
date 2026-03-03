@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, IconButton } from '@mui/material';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import Live2DViewer from '../components/live2d/Live2DViewer.jsx';
@@ -22,6 +22,12 @@ export default function PetShell({
   textComposerProps,
 }) {
   const modelHoverRef = useRef(false);
+  const hitboxRef = useRef(null);
+  const controlsRef = useRef(null);
+  const [isActivationRectHovering, setIsActivationRectHovering] = useState(false);
+  const [isModelHovering, setIsModelHovering] = useState(false);
+  const [isControlsHovering, setIsControlsHovering] = useState(false);
+  const [isComposerExpanded, setIsComposerExpanded] = useState(false);
 
   const setModelHover = useCallback(
     (nextHovering) => {
@@ -31,6 +37,7 @@ export default function PetShell({
       }
 
       modelHoverRef.current = normalized;
+      setIsModelHovering(normalized);
       setPetHover?.('live2d-hitbox', normalized);
     },
     [setPetHover],
@@ -47,6 +54,52 @@ export default function PetShell({
     [desktopMode, live2dViewerRef],
   );
 
+  const detectActivationRectHover = useCallback((event) => {
+    if (!event) {
+      return false;
+    }
+
+    const hitboxRect = hitboxRef.current?.getBoundingClientRect?.();
+    if (!hitboxRect) {
+      return false;
+    }
+
+    const controlsRect = controlsRef.current?.getBoundingClientRect?.();
+    if (!controlsRect) {
+      const { clientX, clientY } = event;
+      return (
+        clientX >= hitboxRect.left &&
+        clientX <= hitboxRect.right &&
+        clientY >= hitboxRect.top &&
+        clientY <= hitboxRect.bottom
+      );
+    }
+
+    const centerX = hitboxRect.left + hitboxRect.width / 2;
+    const centerY = hitboxRect.top + hitboxRect.height / 2;
+    const minX = Math.min(hitboxRect.left, controlsRect.left);
+    const maxX = Math.max(hitboxRect.right, controlsRect.right);
+    const minY = Math.min(hitboxRect.top, controlsRect.top);
+    const maxY = Math.max(hitboxRect.bottom, controlsRect.bottom);
+    const halfWidth = Math.max(centerX - minX, maxX - centerX);
+    const halfHeight = Math.max(centerY - minY, maxY - centerY);
+
+    const rect = {
+      left: centerX - halfWidth,
+      right: centerX + halfWidth,
+      top: centerY - halfHeight,
+      bottom: centerY + halfHeight,
+    };
+
+    const { clientX, clientY } = event;
+    return (
+      clientX >= rect.left &&
+      clientX <= rect.right &&
+      clientY >= rect.top &&
+      clientY <= rect.bottom
+    );
+  }, []);
+
   const { isDragging, dragStyle, dragBindings } = usePetDraggable({
     enabled: desktopMode,
     canStartDrag: (event) => detectModelPixelHover(event),
@@ -60,10 +113,15 @@ export default function PetShell({
     () => () => {
       setPetHover?.('live2d-hitbox', false);
       setPetHover?.('pet-dragging', false);
+      setPetHover?.('pet-bottom-controls', false);
       setPetHover?.('pet-composer', false);
     },
     [setPetHover],
   );
+
+  const controlsVisible =
+    isActivationRectHovering || isModelHovering || isDragging || isControlsHovering || isComposerExpanded;
+  const controlsHoverBindings = bindPetHover?.('pet-bottom-controls') ?? {};
 
   const stageClassName = ['live2d-stage', 'pet-mode', desktopMode ? `platform-${platform}` : '']
     .filter(Boolean)
@@ -72,25 +130,31 @@ export default function PetShell({
   return (
     <Box className={stageClassName}>
       <Box
+        ref={hitboxRef}
         className={`live2d-hitbox pet-draggable-hitbox ${isDragging ? 'pet-dragging' : ''}`.trim()}
         style={dragStyle}
         onMouseEnter={(event) => {
           if (isDragging) {
             setModelHover(true);
+            setIsActivationRectHovering(true);
             return;
           }
 
           setModelHover(detectModelPixelHover(event));
+          setIsActivationRectHovering(detectActivationRectHover(event));
         }}
         onMouseMove={(event) => {
           if (isDragging) {
             setModelHover(true);
+            setIsActivationRectHovering(true);
             return;
           }
 
           setModelHover(detectModelPixelHover(event));
+          setIsActivationRectHovering(detectActivationRectHover(event));
         }}
         onMouseLeave={() => {
+          setIsActivationRectHovering(false);
           if (!isDragging) {
             setModelHover(false);
           }
@@ -109,8 +173,16 @@ export default function PetShell({
           className="live2d-viewer"
         />
         <Box
-          className="pet-hitbox-controls"
-          {...bindPetHover?.('pet-bottom-controls')}
+          ref={controlsRef}
+          className={`pet-hitbox-controls ${controlsVisible ? 'is-visible' : ''}`.trim()}
+          onMouseEnter={(event) => {
+            setIsControlsHovering(true);
+            controlsHoverBindings.onMouseEnter?.(event);
+          }}
+          onMouseLeave={(event) => {
+            setIsControlsHovering(false);
+            controlsHoverBindings.onMouseLeave?.(event);
+          }}
           onPointerDownCapture={(event) => {
             event.stopPropagation();
           }}
@@ -128,6 +200,7 @@ export default function PetShell({
           <EdgeComposer
             variant="pet"
             onExpandedChange={(expanded) => {
+              setIsComposerExpanded(expanded);
               setPetHover?.('pet-composer', expanded);
             }}
             {...textComposerProps}

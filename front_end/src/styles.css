@@ -64,8 +64,17 @@ body,
   align-items: center;
   gap: 10px;
   z-index: 8;
-  pointer-events: auto;
+  opacity: 0;
+  transform: translate3d(-8px, 0, 0);
+  pointer-events: none;
+  transition: opacity 150ms ease, transform 150ms ease;
   -webkit-app-region: no-drag;
+}
+
+.live2d-stage.pet-mode .pet-hitbox-controls.is-visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+  pointer-events: auto;
 }
 
 .live2d-stage.pet-mode .subtitle-container {
