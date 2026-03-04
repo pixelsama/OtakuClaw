@@ -112,6 +112,29 @@ ASR provider 扩展约束（阶段 8 补充）：
   - `VOICE_ASR_SHERPA_DECODE_CHUNK_MS`（默认 160）
   - `VOICE_ASR_SHERPA_DEBUG=0|1`
 
+TTS provider 扩展约束（阶段 9 补充）：
+
+- `VOICE_TTS_PROVIDER=mock|sherpa-onnx`（默认 `mock`）。
+- 当使用 `sherpa-onnx` 时，默认按 `kokoro` 模型类型解析，至少配置：
+  - `VOICE_TTS_SHERPA_MODEL`
+  - `VOICE_TTS_SHERPA_TOKENS`
+  - `VOICE_TTS_SHERPA_VOICES`
+- 可选配置：
+  - `VOICE_TTS_SHERPA_MODEL_KIND=kokoro|vits|matcha|kitten|pocket`（默认 `kokoro`）
+  - `VOICE_TTS_SHERPA_NUM_THREADS`（默认 2）
+  - `VOICE_TTS_SHERPA_EXECUTION_PROVIDER=cpu|coreml|cuda`（默认 `cpu`）
+  - `VOICE_TTS_SHERPA_DEBUG=0|1`
+  - `VOICE_TTS_SHERPA_SID`（默认 0）
+  - `VOICE_TTS_SHERPA_SPEED`（默认 1）
+  - `VOICE_TTS_SHERPA_CHUNK_MS`（默认 120）
+  - `VOICE_TTS_SHERPA_OUTPUT_SAMPLE_FORMAT=pcm_s16le|pcm_f32le`（默认 `pcm_s16le`）
+  - `VOICE_TTS_SHERPA_ENABLE_EXTERNAL_BUFFER=0|1`
+  - 各模型专用路径：
+    - `kokoro|kitten`：`VOICE_TTS_SHERPA_MODEL/VOICES/TOKENS`
+    - `vits`：`VOICE_TTS_SHERPA_MODEL/TOKENS`（可选 `VOICE_TTS_SHERPA_LEXICON`）
+    - `matcha`：`VOICE_TTS_SHERPA_ACOUSTIC_MODEL/VOCODER/TOKENS`
+    - `pocket`：`VOICE_TTS_SHERPA_LM_FLOW/LM_MAIN/ENCODER/DECODER/TEXT_CONDITIONER/VOCAB_JSON/TOKEN_SCORES_JSON`
+
 验收：
 - 不接入真实模型时，也能完成“录音 -> mock 文本 -> mock 音频播放”。
 - 连续 50 次 `start/stop` 不出现未释放监听器、定时器或 AudioContext 泄漏。
