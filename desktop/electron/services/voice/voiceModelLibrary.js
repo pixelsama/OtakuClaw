@@ -1,6 +1,6 @@
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
-const { execFile } = require('node:child_process');
+const { execFile, spawn } = require('node:child_process');
 const http = require('node:http');
 const https = require('node:https');
 const path = require('node:path');
@@ -42,6 +42,28 @@ function stripAnsiCodes(value) {
   }
 
   return value.replace(/\u001b\[[0-9;]*m/g, '');
+}
+
+function parseSizeToBytes(value, unit = '') {
+  const numeric = Number.parseFloat(value);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return 0;
+  }
+
+  const normalizedUnit = sanitizeText(unit).toUpperCase();
+  if (normalizedUnit === 'K') {
+    return Math.round(numeric * 1024);
+  }
+  if (normalizedUnit === 'M') {
+    return Math.round(numeric * 1024 * 1024);
+  }
+  if (normalizedUnit === 'G') {
+    return Math.round(numeric * 1024 * 1024 * 1024);
+  }
+  if (normalizedUnit === 'T') {
+    return Math.round(numeric * 1024 * 1024 * 1024 * 1024);
+  }
+  return Math.round(numeric);
 }
 
 function normalizeBundleRecord(bundle = {}) {
@@ -121,7 +143,7 @@ function normalizeBundleRecord(bundle = {}) {
       asrModelDir: sanitizeText(bundle.runtime.asrModelDir),
       ttsModelDir: sanitizeText(bundle.runtime.ttsModelDir),
       ttsTokenizerDir: sanitizeText(bundle.runtime.ttsTokenizerDir),
-      asrLanguage: sanitizeOptionalText(bundle.runtime.asrLanguage, '中文'),
+      asrLanguage: sanitizeOptionalText(bundle.runtime.asrLanguage, 'auto'),
       ttsLanguage: sanitizeOptionalText(bundle.runtime.ttsLanguage, 'Chinese'),
       ttsMode: sanitizeOptionalText(bundle.runtime.ttsMode, 'custom_voice'),
       ttsSpeaker: sanitizeOptionalText(bundle.runtime.ttsSpeaker, 'Vivian'),
@@ -349,6 +371,92 @@ async function runPythonCommand(pythonExecutable, args, { timeoutMs = PYTHON_STE
   }
 }
 
+async function runPythonCommandStreaming(
+  pythonExecutable,
+  args,
+  {
+    timeoutMs = PYTHON_STEP_TIMEOUT_MS,
+    onStdoutChunk = null,
+    onStderrChunk = null,
+  } = {},
+) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(pythonExecutable, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+
+    let stdoutText = '';
+    let stderrText = '';
+    let settled = false;
+    const timeoutId = setTimeout(() => {
+      child.kill('SIGTERM');
+    }, timeoutMs);
+    timeoutId.unref?.();
+
+    const finalizeReject = (error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutId);
+      reject(error);
+    };
+
+    const finalizeResolve = (payload) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutId);
+      resolve(payload);
+    };
+
+    child.stdout?.on('data', (chunk) => {
+      const text = chunk.toString('utf-8');
+      stdoutText += text;
+      if (typeof onStdoutChunk === 'function') {
+        onStdoutChunk(text);
+      }
+    });
+
+    child.stderr?.on('data', (chunk) => {
+      const text = chunk.toString('utf-8');
+      stderrText += text;
+      if (typeof onStderrChunk === 'function') {
+        onStderrChunk(text);
+      }
+    });
+
+    child.on('error', (error) => {
+      finalizeReject(
+        createVoiceModelError(
+          'voice_python_runtime_command_failed',
+          error?.message || 'Python command failed.',
+        ),
+      );
+    });
+
+    child.on('close', (code, signal) => {
+      if (code === 0) {
+        finalizeResolve({
+          stdout: stdoutText,
+          stderr: stderrText,
+        });
+        return;
+      }
+
+      const stderr = sanitizeText(stripAnsiCodes(stderrText));
+      const stdout = sanitizeText(stripAnsiCodes(stdoutText));
+      const message =
+        stderr
+        || stdout
+        || `Python command failed with exit code ${code ?? 'unknown'} (signal: ${signal || 'none'}).`;
+      finalizeReject(createVoiceModelError('voice_python_runtime_command_failed', message));
+    });
+  });
+}
+
 function parseJsonOutput(rawText, code, fallbackMessage) {
   const text = sanitizeText(rawText);
   if (!text) {
@@ -492,12 +600,21 @@ async function downloadFileFromUrl({ url, destinationPath, onProgress }) {
   const writeStream = fs.createWriteStream(tempPath);
 
   let downloadedBytes = 0;
+  const startedAt = Date.now();
   response.on('data', (chunk) => {
     downloadedBytes += chunk.length;
     if (typeof onProgress === 'function') {
+      const elapsedSeconds = Math.max(0.001, (Date.now() - startedAt) / 1000);
+      const bytesPerSecond = downloadedBytes / elapsedSeconds;
+      const estimatedRemainingSeconds =
+        expectedTotal > 0 && bytesPerSecond > 0
+          ? Math.max(0, (expectedTotal - downloadedBytes) / bytesPerSecond)
+          : null;
       onProgress({
         downloadedBytes,
         totalBytes: expectedTotal,
+        bytesPerSecond,
+        estimatedRemainingSeconds,
       });
     }
   });
@@ -609,6 +726,8 @@ class VoiceModelLibrary {
       currentFile = '',
       fileDownloadedBytes = 0,
       fileTotalBytes = 0,
+      downloadSpeedBytesPerSec = 0,
+      estimatedRemainingSeconds = null,
       overallProgress = null,
     }) => {
       if (typeof onProgress !== 'function') {
@@ -625,6 +744,8 @@ class VoiceModelLibrary {
         currentFile,
         fileDownloadedBytes,
         fileTotalBytes,
+        downloadSpeedBytesPerSec,
+        estimatedRemainingSeconds,
         overallProgress,
       });
     };
@@ -642,7 +763,7 @@ class VoiceModelLibrary {
         await this.downloadFileImpl({
           url: component.archiveUrl,
           destinationPath: archivePath,
-          onProgress: ({ downloadedBytes, totalBytes }) => {
+          onProgress: ({ downloadedBytes, totalBytes, bytesPerSecond, estimatedRemainingSeconds }) => {
             const downloadRatio =
               Number.isFinite(totalBytes) && totalBytes > 0 ? Math.min(1, downloadedBytes / totalBytes) : 0;
             const progress = (completedTasks + downloadRatio) / totalTasks;
@@ -651,6 +772,11 @@ class VoiceModelLibrary {
               currentFile: path.basename(component.archiveUrl),
               fileDownloadedBytes: downloadedBytes,
               fileTotalBytes: totalBytes,
+              downloadSpeedBytesPerSec: Number.isFinite(bytesPerSecond) ? bytesPerSecond : 0,
+              estimatedRemainingSeconds:
+                Number.isFinite(estimatedRemainingSeconds) && estimatedRemainingSeconds >= 0
+                  ? estimatedRemainingSeconds
+                  : null,
               overallProgress: progress,
             });
           },
@@ -839,6 +965,8 @@ class VoiceModelLibrary {
       currentFile = '',
       fileDownloadedBytes = 0,
       fileTotalBytes = 0,
+      downloadSpeedBytesPerSec = 0,
+      estimatedRemainingSeconds = null,
       overallProgress = null,
     }) => {
       if (typeof onProgress !== 'function') {
@@ -855,6 +983,8 @@ class VoiceModelLibrary {
         currentFile,
         fileDownloadedBytes,
         fileTotalBytes,
+        downloadSpeedBytesPerSec,
+        estimatedRemainingSeconds,
         overallProgress,
       });
     };
@@ -868,7 +998,7 @@ class VoiceModelLibrary {
       await this.downloadFileImpl({
         url: archiveUrl,
         destinationPath: runtimeArchivePath,
-        onProgress: ({ downloadedBytes, totalBytes }) => {
+        onProgress: ({ downloadedBytes, totalBytes, bytesPerSecond, estimatedRemainingSeconds }) => {
           const downloadRatio =
             Number.isFinite(totalBytes) && totalBytes > 0 ? Math.min(1, downloadedBytes / totalBytes) : 0;
           const progress = (completedTasks + downloadRatio) / totalTasks;
@@ -877,6 +1007,11 @@ class VoiceModelLibrary {
             currentFile: path.basename(archiveUrl),
             fileDownloadedBytes: downloadedBytes,
             fileTotalBytes: totalBytes,
+            downloadSpeedBytesPerSec: Number.isFinite(bytesPerSecond) ? bytesPerSecond : 0,
+            estimatedRemainingSeconds:
+              Number.isFinite(estimatedRemainingSeconds) && estimatedRemainingSeconds >= 0
+                ? estimatedRemainingSeconds
+                : null,
             overallProgress: progress,
           });
         },
@@ -955,7 +1090,7 @@ class VoiceModelLibrary {
       const bootstrapArgs = [
         bootstrapScriptPath,
         '--asr-model-id',
-        sanitizeOptionalText(runtime.asrModelId, 'FunAudioLLM/Fun-ASR-Nano-2512'),
+        sanitizeOptionalText(runtime.asrModelId, 'FunAudioLLM/SenseVoiceSmall'),
         '--tts-model-id',
         sanitizeOptionalText(runtime.ttsModelId, 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice'),
         '--asr-model-dir',
@@ -975,11 +1110,106 @@ class VoiceModelLibrary {
         );
       }
 
-      const bootstrapResult = await runPythonCommand(
+      const bootstrapTaskFileProgress = new Map();
+      let bootstrapProgressRateBytesPerSec = 0;
+      let bootstrapProgressBuffer = '';
+      let bootstrapLastEmitAt = 0;
+
+      const emitBootstrapDownloadProgress = ({ force = false } = {}) => {
+        const totals = Array.from(bootstrapTaskFileProgress.values()).reduce(
+          (acc, item) => {
+            if (!Number.isFinite(item.totalBytes) || item.totalBytes <= 0) {
+              return acc;
+            }
+            acc.totalBytes += item.totalBytes;
+            acc.downloadedBytes += Math.min(item.downloadedBytes, item.totalBytes);
+            return acc;
+          },
+          {
+            downloadedBytes: 0,
+            totalBytes: 0,
+          },
+        );
+
+        if (totals.totalBytes <= 0) {
+          return;
+        }
+
+        const now = Date.now();
+        if (!force && now - bootstrapLastEmitAt < 250) {
+          return;
+        }
+        bootstrapLastEmitAt = now;
+
+        const downloadRatio = Math.min(1, totals.downloadedBytes / totals.totalBytes);
+        const overallProgress = (completedTasks + downloadRatio) / totalTasks;
+        const estimatedRemainingSeconds =
+          bootstrapProgressRateBytesPerSec > 0
+            ? Math.max(0, (totals.totalBytes - totals.downloadedBytes) / bootstrapProgressRateBytesPerSec)
+            : null;
+
+        emitProgress({
+          phase: 'running',
+          currentFile: '正在下载 ASR/TTS 模型',
+          fileDownloadedBytes: totals.downloadedBytes,
+          fileTotalBytes: totals.totalBytes,
+          downloadSpeedBytesPerSec: bootstrapProgressRateBytesPerSec,
+          estimatedRemainingSeconds,
+          overallProgress,
+        });
+      };
+
+      const parseBootstrapLine = (line) => {
+        const downloadMatches = line.matchAll(
+          /Downloading \[([^\]]+)\]:.*?([0-9]+(?:\.[0-9]+)?)\s*([kMGT]?)(?:i?B?)\/([0-9]+(?:\.[0-9]+)?)\s*([kMGT]?)(?:i?B?)/gi,
+        );
+        let hasProgressUpdate = false;
+        for (const match of downloadMatches) {
+          const fileName = sanitizeText(match?.[1]);
+          const downloadedBytes = parseSizeToBytes(match?.[2], match?.[3]);
+          const totalBytes = parseSizeToBytes(match?.[4], match?.[5]);
+          if (!fileName || totalBytes <= 0) {
+            continue;
+          }
+          bootstrapTaskFileProgress.set(fileName, {
+            downloadedBytes,
+            totalBytes,
+          });
+          hasProgressUpdate = true;
+        }
+
+        const rateMatch = line.match(/,\s*([0-9]+(?:\.[0-9]+)?)\s*([kMGT]?)(?:i?B?)\/s\]/i);
+        if (rateMatch) {
+          const rateBytesPerSec = parseSizeToBytes(rateMatch[1], rateMatch[2]);
+          if (rateBytesPerSec > 0) {
+            bootstrapProgressRateBytesPerSec = rateBytesPerSec;
+          }
+        }
+
+        if (hasProgressUpdate) {
+          emitBootstrapDownloadProgress();
+        }
+      };
+
+      const bootstrapResult = await runPythonCommandStreaming(
         pythonExecutablePath,
         bootstrapArgs,
-        { timeoutMs: PYTHON_MODEL_DOWNLOAD_TIMEOUT_MS },
+        {
+          timeoutMs: PYTHON_MODEL_DOWNLOAD_TIMEOUT_MS,
+          onStderrChunk: (chunkText) => {
+            bootstrapProgressBuffer += stripAnsiCodes(chunkText);
+            const lines = bootstrapProgressBuffer.split(/[\r\n]+/);
+            bootstrapProgressBuffer = lines.pop() || '';
+            for (const line of lines) {
+              parseBootstrapLine(line);
+            }
+          },
+        },
       );
+      if (bootstrapProgressBuffer) {
+        parseBootstrapLine(bootstrapProgressBuffer);
+      }
+      emitBootstrapDownloadProgress({ force: true });
       const bootstrapPayload = parseJsonOutput(
         bootstrapResult.stdout,
         'voice_python_runtime_bootstrap_invalid_output',
@@ -1027,7 +1257,7 @@ class VoiceModelLibrary {
           asrModelDir: resolvedAsrModelDir,
           ttsModelDir: resolvedTtsModelDir,
           ttsTokenizerDir: resolvedTtsTokenizerDir,
-          asrLanguage: sanitizeOptionalText(runtime.asrLanguage, '中文'),
+          asrLanguage: sanitizeOptionalText(runtime.asrLanguage, 'auto'),
           ttsLanguage: sanitizeOptionalText(runtime.ttsLanguage, 'Chinese'),
           ttsMode: sanitizeOptionalText(runtime.ttsMode, 'custom_voice'),
           ttsSpeaker: sanitizeOptionalText(runtime.ttsSpeaker, 'Vivian'),
@@ -1267,7 +1497,15 @@ class VoiceModelLibrary {
     }
 
     const taskProgressMap = new Map();
-    const emitProgress = ({ phase, currentTask, downloadedBytes, totalBytes, completedTasks }) => {
+    const emitProgress = ({
+      phase,
+      currentTask,
+      downloadedBytes,
+      totalBytes,
+      bytesPerSecond = 0,
+      estimatedRemainingSeconds = null,
+      completedTasks,
+    }) => {
       if (typeof onProgress !== 'function') {
         return;
       }
@@ -1311,6 +1549,11 @@ class VoiceModelLibrary {
         currentFile: currentTask?.fileName || '',
         fileDownloadedBytes: downloadedBytes || 0,
         fileTotalBytes: totalBytes || 0,
+        downloadSpeedBytesPerSec: Number.isFinite(bytesPerSecond) ? bytesPerSecond : 0,
+        estimatedRemainingSeconds:
+          Number.isFinite(estimatedRemainingSeconds) && estimatedRemainingSeconds >= 0
+            ? estimatedRemainingSeconds
+            : null,
         overallProgress,
       });
     };
@@ -1329,12 +1572,14 @@ class VoiceModelLibrary {
         await this.downloadFileImpl({
           url: task.url,
           destinationPath: task.destinationPath,
-          onProgress: ({ downloadedBytes, totalBytes }) => {
+          onProgress: ({ downloadedBytes, totalBytes, bytesPerSecond, estimatedRemainingSeconds }) => {
             emitProgress({
               phase: 'running',
               currentTask: task,
               downloadedBytes,
               totalBytes,
+              bytesPerSecond,
+              estimatedRemainingSeconds,
               completedTasks,
             });
           },

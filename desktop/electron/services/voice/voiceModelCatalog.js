@@ -51,9 +51,9 @@ const BUILT_IN_VOICE_MODEL_CATALOG = [
   },
   {
     id: 'builtin-python-funasr-qwen3tts-v1',
-    name: 'Python 语音栈（Fun-ASR + Qwen3-TTS）',
+    name: 'Python 语音栈（SenseVoice + Qwen3-TTS）',
     description:
-      '内置 Python 3.11 + FunAudioLLM/Fun-ASR-Nano-2512 + Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice（实验）',
+      '内置 Python 3.11 + FunAudioLLM/SenseVoiceSmall + Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice（实验）',
     hasAsr: true,
     hasTts: true,
     runtime: {
@@ -68,12 +68,12 @@ const BUILT_IN_VOICE_MODEL_CATALOG = [
         'numpy>=1.26.0',
         'soundfile>=0.12.1',
       ],
-      asrModelId: 'FunAudioLLM/Fun-ASR-Nano-2512',
+      asrModelId: 'FunAudioLLM/SenseVoiceSmall',
       ttsModelId: 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice',
       ttsTokenizerModelId: 'Qwen/Qwen3-TTS-Tokenizer-12Hz',
       ttsMode: 'custom_voice',
       ttsSpeaker: 'Vivian',
-      asrLanguage: '中文',
+      asrLanguage: 'auto',
       ttsLanguage: 'Chinese',
       modelSource: 'auto',
       device: 'auto',

@@ -66,14 +66,106 @@ def select_dtype_for_device(torch_module, device):
   return torch_module.float32
 
 
+def read_model_config_text(model_dir):
+  try:
+    config_path = Path(model_dir) / 'config.yaml'
+    if not config_path.exists():
+      return ''
+    return config_path.read_text(encoding='utf-8', errors='ignore')
+  except Exception:  # pylint: disable=broad-except
+    return ''
+
+
+def is_sensevoice_model(model_dir):
+  normalized = (model_dir or '').strip().lower()
+  if 'sensevoice' in normalized:
+    return True
+  return 'sensevoice' in read_model_config_text(model_dir).lower()
+
+
+def normalize_asr_language(language):
+  raw = (language or '').strip()
+  normalized = raw.lower()
+  if not normalized or normalized == 'auto':
+    return 'auto'
+
+  mapping = {
+      'chinese': 'zh',
+      '中文': 'zh',
+      'zh': 'zh',
+      'zh-cn': 'zh',
+      'english': 'en',
+      'en': 'en',
+      'japanese': 'ja',
+      'ja': 'ja',
+      'korean': 'ko',
+      'ko': 'ko',
+      'cantonese': 'yue',
+      'yue': 'yue',
+      'nospeech': 'nospeech',
+  }
+  return mapping.get(normalized, raw)
+
+
+def extract_asr_text(result):
+  if isinstance(result, list) and result:
+    first = result[0]
+    if isinstance(first, dict):
+      return str(first.get('text', '')).strip()
+  if isinstance(result, dict):
+    return str(result.get('text', '')).strip()
+  return ''
+
+
+def load_audio_for_sensevoice(audio_path):
+  import numpy as np
+  import soundfile as sf
+
+  samples, sample_rate = sf.read(audio_path, dtype='float32')
+  if samples.ndim > 1:
+    samples = np.mean(samples, axis=1)
+
+  target_sample_rate = 16000
+  if int(sample_rate) != target_sample_rate:
+    try:
+      import librosa
+      samples = librosa.resample(samples, orig_sr=sample_rate, target_sr=target_sample_rate)
+      sample_rate = target_sample_rate
+    except Exception as error:  # pylint: disable=broad-except
+      raise RuntimeError(
+          f'Failed to resample audio from {sample_rate}Hz to {target_sample_rate}Hz: {error}'
+      ) from error
+
+  return np.asarray(samples, dtype=np.float32)
+
+
 def run_asr_once(args, device):
   from funasr import AutoModel
 
+  is_sensevoice = is_sensevoice_model(args.model_dir)
   model = AutoModel(
       model=args.model_dir,
-      trust_remote_code=True,
       device=device,
   )
+
+  if is_sensevoice:
+    audio_samples = load_audio_for_sensevoice(args.audio_path)
+    result = model.generate(
+        input=[audio_samples],
+        cache={},
+        language=normalize_asr_language(args.language),
+        use_itn=True,
+        batch_size_s=30,
+    )
+
+    text = extract_asr_text(result)
+    if text:
+      try:
+        from funasr.utils.postprocess_utils import rich_transcription_postprocess
+        text = rich_transcription_postprocess(text)
+      except Exception:  # pylint: disable=broad-except
+        pass
+    return text
 
   result = model.generate(
       input=[args.audio_path],
@@ -83,12 +175,7 @@ def run_asr_once(args, device):
       itn=True,
   )
 
-  text = ''
-  if isinstance(result, list) and result:
-    first = result[0]
-    if isinstance(first, dict):
-      text = str(first.get('text', '')).strip()
-  return text
+  return extract_asr_text(result)
 
 
 def run_asr(args):
@@ -184,7 +271,7 @@ def parse_args():
   parser.add_argument('--tokenizer-dir')
 
   parser.add_argument('--audio-path')
-  parser.add_argument('--language', default='Chinese')
+  parser.add_argument('--language', default='auto')
 
   parser.add_argument('--text')
   parser.add_argument('--tts-mode', default='custom_voice')

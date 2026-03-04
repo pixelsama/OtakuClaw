@@ -5,7 +5,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 
 const DEFAULT_SAMPLE_RATE = 16000;
-const DEFAULT_LANGUAGE = '中文';
+const DEFAULT_LANGUAGE = 'auto';
 const DEFAULT_DEVICE = 'auto';
 
 function createAbortError() {
@@ -142,6 +142,44 @@ function createWavHeader({
   return header;
 }
 
+function parseJsonPayload(stdoutText) {
+  const raw = typeof stdoutText === 'string' ? stdoutText : '';
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // Continue with best-effort extraction for noisy stdout.
+  }
+
+  const lines = trimmed
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    try {
+      return JSON.parse(lines[i]);
+    } catch {
+      // Keep scanning.
+    }
+  }
+
+  for (let start = trimmed.lastIndexOf('{'); start >= 0; start = trimmed.lastIndexOf('{', start - 1)) {
+    const candidate = trimmed.slice(start).trim();
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Keep scanning.
+    }
+  }
+
+  throw new Error('No JSON payload found in Python stdout.');
+}
+
 async function runPythonBridge({
   pythonExecutable,
   bridgeScriptPath,
@@ -210,7 +248,7 @@ async function runPythonBridge({
       }
 
       try {
-        const payload = JSON.parse((stdoutText || '').trim() || '{}');
+        const payload = parseJsonPayload(stdoutText);
         resolve(payload);
       } catch (error) {
         reject(

@@ -79,6 +79,33 @@ function formatBytes(value) {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+function formatBytesPerSecond(value) {
+  const bytesPerSecond = Number.isFinite(value) ? value : 0;
+  if (bytesPerSecond <= 0) {
+    return '0 B/s';
+  }
+  return `${formatBytes(bytesPerSecond)}/s`;
+}
+
+function formatEta(value) {
+  if (!Number.isFinite(value) || value < 0) {
+    return '--';
+  }
+
+  const totalSeconds = Math.max(0, Math.round(value));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${seconds}s`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
+}
+
 function formatLogTimestamp() {
   const now = new Date();
   return now.toLocaleTimeString('zh-CN', {
@@ -97,6 +124,12 @@ export default function VoiceSettingsPanel({ desktopMode = false }) {
   const stopVadRef = useRef(null);
   const stopSessionRef = useRef(null);
   const downloadLogKeyRef = useRef('');
+  const progressEstimatorRef = useRef({
+    key: '',
+    lastBytes: 0,
+    lastAtMs: 0,
+    speedBytesPerSec: 0,
+  });
   const [capturedFrames, setCapturedFrames] = useState(0);
   const [isProcessingSpeech, setIsProcessingSpeech] = useState(false);
   const [modelBundles, setModelBundles] = useState([]);
@@ -315,6 +348,8 @@ export default function VoiceSettingsPanel({ desktopMode = false }) {
       overallProgress: null,
       fileDownloadedBytes: 0,
       fileTotalBytes: 0,
+      downloadSpeedBytesPerSec: 0,
+      estimatedRemainingSeconds: null,
     });
     setIsDownloadingModels(true);
 
@@ -504,18 +539,81 @@ export default function VoiceSettingsPanel({ desktopMode = false }) {
         return;
       }
 
-      setModelProgress({
-        phase: payload.phase || 'running',
-        completedTasks: Number.isFinite(payload.completedTasks) ? payload.completedTasks : 0,
-        totalTasks: Number.isFinite(payload.totalTasks) ? payload.totalTasks : 0,
-        currentFile: typeof payload.currentFile === 'string' ? payload.currentFile : '',
-        overallProgress: Number.isFinite(payload.overallProgress) ? payload.overallProgress : null,
-        fileDownloadedBytes: Number.isFinite(payload.fileDownloadedBytes) ? payload.fileDownloadedBytes : 0,
-        fileTotalBytes: Number.isFinite(payload.fileTotalBytes) ? payload.fileTotalBytes : 0,
-      });
-
       const phase = typeof payload.phase === 'string' ? payload.phase : 'running';
       const currentFile = typeof payload.currentFile === 'string' ? payload.currentFile.trim() : '';
+      const fileDownloadedBytes =
+        Number.isFinite(payload.fileDownloadedBytes) && payload.fileDownloadedBytes > 0
+          ? payload.fileDownloadedBytes
+          : 0;
+      const fileTotalBytes =
+        Number.isFinite(payload.fileTotalBytes) && payload.fileTotalBytes > 0
+          ? payload.fileTotalBytes
+          : 0;
+      const backendSpeed =
+        Number.isFinite(payload.downloadSpeedBytesPerSec) && payload.downloadSpeedBytesPerSec > 0
+          ? payload.downloadSpeedBytesPerSec
+          : 0;
+      const backendEta =
+        Number.isFinite(payload.estimatedRemainingSeconds) && payload.estimatedRemainingSeconds >= 0
+          ? payload.estimatedRemainingSeconds
+          : null;
+
+      let speedBytesPerSec = backendSpeed;
+      let estimatedRemainingSeconds = backendEta;
+      if (phase !== 'running' || !currentFile || fileTotalBytes <= 0) {
+        progressEstimatorRef.current = {
+          key: '',
+          lastBytes: 0,
+          lastAtMs: 0,
+          speedBytesPerSec: 0,
+        };
+      } else if (backendSpeed <= 0) {
+        const key = `${phase}|${currentFile}|${fileTotalBytes}`;
+        const nowMs = Date.now();
+        const previous = progressEstimatorRef.current;
+        if (previous.key !== key || fileDownloadedBytes < previous.lastBytes) {
+          progressEstimatorRef.current = {
+            key,
+            lastBytes: fileDownloadedBytes,
+            lastAtMs: nowMs,
+            speedBytesPerSec: 0,
+          };
+        } else {
+          const elapsedSeconds = Math.max(0.001, (nowMs - previous.lastAtMs) / 1000);
+          const deltaBytes = Math.max(0, fileDownloadedBytes - previous.lastBytes);
+          const instantSpeed = deltaBytes / elapsedSeconds;
+          const smoothedSpeed =
+            instantSpeed > 0
+              ? previous.speedBytesPerSec > 0
+                ? previous.speedBytesPerSec * 0.7 + instantSpeed * 0.3
+                : instantSpeed
+              : previous.speedBytesPerSec;
+
+          progressEstimatorRef.current = {
+            key,
+            lastBytes: fileDownloadedBytes,
+            lastAtMs: nowMs,
+            speedBytesPerSec: smoothedSpeed,
+          };
+          speedBytesPerSec = smoothedSpeed;
+          if (speedBytesPerSec > 0) {
+            estimatedRemainingSeconds = Math.max(0, (fileTotalBytes - fileDownloadedBytes) / speedBytesPerSec);
+          }
+        }
+      }
+
+      setModelProgress({
+        phase,
+        completedTasks: Number.isFinite(payload.completedTasks) ? payload.completedTasks : 0,
+        totalTasks: Number.isFinite(payload.totalTasks) ? payload.totalTasks : 0,
+        currentFile,
+        overallProgress: Number.isFinite(payload.overallProgress) ? payload.overallProgress : null,
+        fileDownloadedBytes,
+        fileTotalBytes,
+        downloadSpeedBytesPerSec: speedBytesPerSec,
+        estimatedRemainingSeconds,
+      });
+
       const dedupeKey = `${phase}|${currentFile}`;
       if (currentFile) {
         appendModelInstallLog(currentFile, dedupeKey);
@@ -753,8 +851,12 @@ export default function VoiceSettingsPanel({ desktopMode = false }) {
             </Box>
             <Typography variant="body2" color="text.secondary" align="center">
               {modelProgress?.currentFile || '准备下载...'} · {modelProgress?.completedTasks || 0}/
-              {modelProgress?.totalTasks || '?'} · {formatBytes(modelProgress?.fileDownloadedBytes || 0)}/
-              {formatBytes(modelProgress?.fileTotalBytes || 0)}
+              {modelProgress?.totalTasks || '?'}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" align="center">
+              {Number.isFinite(modelProgress?.fileTotalBytes) && modelProgress.fileTotalBytes > 0
+                ? `${formatBytes(modelProgress?.fileDownloadedBytes || 0)} / ${formatBytes(modelProgress?.fileTotalBytes || 0)} · ${formatBytesPerSecond(modelProgress?.downloadSpeedBytesPerSec || 0)} · 预计剩余 ${formatEta(modelProgress?.estimatedRemainingSeconds)}`
+                : '正在获取下载大小与速度信息...'}
             </Typography>
             <Collapse in={downloadDetailsOpen}>
               <Box
