@@ -151,7 +151,6 @@ export default function VoiceSettingsPanel({ desktopMode = false }) {
           return;
         }
 
-        setModelError('');
         setModelBundles(Array.isArray(result.bundles) ? result.bundles : []);
         setSelectedBundleId(typeof result.selectedBundleId === 'string' ? result.selectedBundleId : '');
       } catch (error) {
@@ -182,9 +181,12 @@ export default function VoiceSettingsPanel({ desktopMode = false }) {
 
       const items = result?.ok && Array.isArray(result.items) ? result.items : [];
       if (!result?.ok) {
-        setModelError(result?.error?.message || '读取内置模型列表失败，请重启应用后重试。');
+        setModelError(
+          result?.error?.message
+            || '读取内置模型列表失败。请完全退出桌面应用后重新执行 npm run desktop:dev。',
+        );
       } else if (!items.length) {
-        setModelError('当前没有可用的内置模型清单，请更新应用后重试。');
+        setModelError('当前没有可用的内置模型清单。请确认已拉取最新代码并重启桌面应用。');
       } else {
         setModelError('');
       }
