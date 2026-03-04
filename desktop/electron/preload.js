@@ -134,8 +134,14 @@ const live2dModels = {
 };
 
 const voiceModels = {
+  catalog() {
+    return ipcRenderer.invoke('voice-models:catalog');
+  },
   list() {
     return ipcRenderer.invoke('voice-models:list');
+  },
+  installCatalog(payload) {
+    return ipcRenderer.invoke('voice-models:install-catalog', payload);
   },
   select(payload) {
     return ipcRenderer.invoke('voice-models:select', payload);

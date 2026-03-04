@@ -88,8 +88,11 @@ export default function VoiceSettingsPanel({ desktopMode = false }) {
   const [isProcessingSpeech, setIsProcessingSpeech] = useState(false);
   const [modelBundles, setModelBundles] = useState([]);
   const [selectedBundleId, setSelectedBundleId] = useState('');
+  const [catalogItems, setCatalogItems] = useState([]);
+  const [selectedCatalogId, setSelectedCatalogId] = useState('');
   const [modelsLoading, setModelsLoading] = useState(false);
   const [downloadForm, setDownloadForm] = useState(DEFAULT_DOWNLOAD_FORM);
+  const [showAdvancedDownload, setShowAdvancedDownload] = useState(false);
   const [isDownloadingModels, setIsDownloadingModels] = useState(false);
   const [modelProgress, setModelProgress] = useState(null);
   const [modelFeedback, setModelFeedback] = useState('');
@@ -180,6 +183,34 @@ export default function VoiceSettingsPanel({ desktopMode = false }) {
     },
     [desktopMode],
   );
+
+  const loadModelCatalog = useCallback(async () => {
+    if (!desktopMode) {
+      return;
+    }
+
+    try {
+      const result = await desktopBridge.voiceModels.catalog();
+      if (!mountedRef.current) {
+        return;
+      }
+
+      const items = result?.ok && Array.isArray(result.items) ? result.items : [];
+      setCatalogItems(items);
+      setSelectedCatalogId((previous) => {
+        if (previous && items.some((item) => item.id === previous)) {
+          return previous;
+        }
+        return items[0]?.id || '';
+      });
+    } catch (error) {
+      if (mountedRef.current) {
+        setCatalogItems([]);
+        setSelectedCatalogId('');
+        setModelError(error?.message || '读取内置模型列表失败。');
+      }
+    }
+  }, [desktopMode]);
 
   const handleDownloadFormChange = useCallback((field, value) => {
     setDownloadForm((previous) => ({
@@ -285,6 +316,49 @@ export default function VoiceSettingsPanel({ desktopMode = false }) {
       }
     }
   }, [desktopMode, downloadForm]);
+
+  const handleInstallCatalog = useCallback(async () => {
+    if (!desktopMode || !selectedCatalogId) {
+      return;
+    }
+
+    setModelError('');
+    setModelFeedback('');
+    setModelProgress({
+      phase: 'started',
+      completedTasks: 0,
+      totalTasks: 0,
+      currentFile: '',
+      overallProgress: null,
+      fileDownloadedBytes: 0,
+      fileTotalBytes: 0,
+    });
+    setIsDownloadingModels(true);
+
+    try {
+      const result = await desktopBridge.voiceModels.installCatalog(selectedCatalogId);
+      if (!mountedRef.current) {
+        return;
+      }
+
+      if (!result?.ok) {
+        setModelError(result?.error?.message || '安装内置模型失败。');
+        return;
+      }
+
+      setModelBundles(Array.isArray(result.bundles) ? result.bundles : []);
+      setSelectedBundleId(typeof result.selectedBundleId === 'string' ? result.selectedBundleId : '');
+      setModelFeedback('内置模型安装完成并已自动选中。');
+    } catch (error) {
+      if (mountedRef.current) {
+        setModelError(error?.message || '安装内置模型失败。');
+      }
+    } finally {
+      if (mountedRef.current) {
+        setIsDownloadingModels(false);
+      }
+    }
+  }, [desktopMode, selectedCatalogId]);
 
   const enqueueSpeechTask = useCallback((task) => {
     speechQueueRef.current = speechQueueRef.current
@@ -423,7 +497,8 @@ export default function VoiceSettingsPanel({ desktopMode = false }) {
 
   useEffect(() => {
     void loadVoiceModels();
-  }, [loadVoiceModels]);
+    void loadModelCatalog();
+  }, [loadModelCatalog, loadVoiceModels]);
 
   useEffect(() => {
     if (!desktopMode) {
@@ -515,90 +590,136 @@ export default function VoiceSettingsPanel({ desktopMode = false }) {
             <TextField label="TTS Model Path" value={selectedBundle.tts.modelPath} disabled fullWidth />
           )}
 
-          <TextField
-            label="模型包名称（可选）"
-            value={downloadForm.bundleName}
-            onChange={(event) => handleDownloadFormChange('bundleName', event.target.value)}
-            placeholder="例如：zh-en + kokoro"
-            disabled={isDownloadingModels}
-            fullWidth
-          />
-          <TextField
-            label="ASR 模型 URL（.onnx）"
-            value={downloadForm.asrModelUrl}
-            onChange={(event) => handleDownloadFormChange('asrModelUrl', event.target.value)}
-            disabled={isDownloadingModels}
-            fullWidth
-          />
-          <TextField
-            label="ASR tokens URL（tokens.txt）"
-            value={downloadForm.asrTokensUrl}
-            onChange={(event) => handleDownloadFormChange('asrTokensUrl', event.target.value)}
-            disabled={isDownloadingModels}
-            fullWidth
-          />
-          <Stack direction="row" spacing={1}>
-            <TextField
-              label="ASR Model Kind"
-              value={downloadForm.asrModelKind}
-              onChange={(event) => handleDownloadFormChange('asrModelKind', event.target.value)}
-              disabled={isDownloadingModels}
-              fullWidth
-            />
-            <TextField
-              label="ASR Provider"
-              value={downloadForm.asrExecutionProvider}
-              onChange={(event) => handleDownloadFormChange('asrExecutionProvider', event.target.value)}
-              placeholder="cpu/coreml/cuda"
-              disabled={isDownloadingModels}
-              fullWidth
-            />
-          </Stack>
-          <TextField
-            label="TTS 模型 URL（.onnx）"
-            value={downloadForm.ttsModelUrl}
-            onChange={(event) => handleDownloadFormChange('ttsModelUrl', event.target.value)}
-            disabled={isDownloadingModels}
-            fullWidth
-          />
-          <TextField
-            label="TTS voices URL（voices.bin）"
-            value={downloadForm.ttsVoicesUrl}
-            onChange={(event) => handleDownloadFormChange('ttsVoicesUrl', event.target.value)}
-            disabled={isDownloadingModels}
-            fullWidth
-          />
-          <TextField
-            label="TTS tokens URL（tokens.txt）"
-            value={downloadForm.ttsTokensUrl}
-            onChange={(event) => handleDownloadFormChange('ttsTokensUrl', event.target.value)}
-            disabled={isDownloadingModels}
-            fullWidth
-          />
-          <Stack direction="row" spacing={1}>
-            <TextField
-              label="TTS Model Kind"
-              value={downloadForm.ttsModelKind}
-              onChange={(event) => handleDownloadFormChange('ttsModelKind', event.target.value)}
-              disabled={isDownloadingModels}
-              fullWidth
-            />
-            <TextField
-              label="TTS Provider"
-              value={downloadForm.ttsExecutionProvider}
-              onChange={(event) => handleDownloadFormChange('ttsExecutionProvider', event.target.value)}
-              placeholder="cpu/coreml/cuda"
-              disabled={isDownloadingModels}
-              fullWidth
-            />
-          </Stack>
+          {catalogItems.length > 0 ? (
+            <Stack spacing={1}>
+              <TextField
+                select
+                label="内置模型包"
+                value={selectedCatalogId}
+                onChange={(event) => setSelectedCatalogId(event.target.value)}
+                disabled={isDownloadingModels}
+                fullWidth
+              >
+                {catalogItems.map((item) => (
+                  <MenuItem key={item.id} value={item.id}>
+                    {item.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+              {selectedCatalogId && (
+                <Alert severity="info">
+                  {catalogItems.find((item) => item.id === selectedCatalogId)?.description || ''}
+                </Alert>
+              )}
+              <Button
+                variant="contained"
+                onClick={handleInstallCatalog}
+                disabled={isDownloadingModels || !selectedCatalogId}
+              >
+                {isDownloadingModels ? '安装中...' : '一键安装内置模型'}
+              </Button>
+            </Stack>
+          ) : (
+            <Alert severity="warning">当前没有可用的内置模型清单。</Alert>
+          )}
+
           <Button
-            variant="contained"
-            onClick={handleDownloadModels}
-            disabled={isDownloadingModels || modelsLoading}
+            variant="text"
+            size="small"
+            onClick={() => setShowAdvancedDownload((value) => !value)}
+            disabled={isDownloadingModels}
           >
-            {isDownloadingModels ? '下载中...' : '下载并安装模型'}
+            {showAdvancedDownload ? '隐藏高级下载（自定义 URL）' : '显示高级下载（自定义 URL）'}
           </Button>
+
+          {showAdvancedDownload && (
+            <Stack spacing={1}>
+              <TextField
+                label="模型包名称（可选）"
+                value={downloadForm.bundleName}
+                onChange={(event) => handleDownloadFormChange('bundleName', event.target.value)}
+                placeholder="例如：zh-en + kokoro"
+                disabled={isDownloadingModels}
+                fullWidth
+              />
+              <TextField
+                label="ASR 模型 URL（.onnx）"
+                value={downloadForm.asrModelUrl}
+                onChange={(event) => handleDownloadFormChange('asrModelUrl', event.target.value)}
+                disabled={isDownloadingModels}
+                fullWidth
+              />
+              <TextField
+                label="ASR tokens URL（tokens.txt）"
+                value={downloadForm.asrTokensUrl}
+                onChange={(event) => handleDownloadFormChange('asrTokensUrl', event.target.value)}
+                disabled={isDownloadingModels}
+                fullWidth
+              />
+              <Stack direction="row" spacing={1}>
+                <TextField
+                  label="ASR Model Kind"
+                  value={downloadForm.asrModelKind}
+                  onChange={(event) => handleDownloadFormChange('asrModelKind', event.target.value)}
+                  disabled={isDownloadingModels}
+                  fullWidth
+                />
+                <TextField
+                  label="ASR Provider"
+                  value={downloadForm.asrExecutionProvider}
+                  onChange={(event) => handleDownloadFormChange('asrExecutionProvider', event.target.value)}
+                  placeholder="cpu/coreml/cuda"
+                  disabled={isDownloadingModels}
+                  fullWidth
+                />
+              </Stack>
+              <TextField
+                label="TTS 模型 URL（.onnx）"
+                value={downloadForm.ttsModelUrl}
+                onChange={(event) => handleDownloadFormChange('ttsModelUrl', event.target.value)}
+                disabled={isDownloadingModels}
+                fullWidth
+              />
+              <TextField
+                label="TTS voices URL（voices.bin）"
+                value={downloadForm.ttsVoicesUrl}
+                onChange={(event) => handleDownloadFormChange('ttsVoicesUrl', event.target.value)}
+                disabled={isDownloadingModels}
+                fullWidth
+              />
+              <TextField
+                label="TTS tokens URL（tokens.txt）"
+                value={downloadForm.ttsTokensUrl}
+                onChange={(event) => handleDownloadFormChange('ttsTokensUrl', event.target.value)}
+                disabled={isDownloadingModels}
+                fullWidth
+              />
+              <Stack direction="row" spacing={1}>
+                <TextField
+                  label="TTS Model Kind"
+                  value={downloadForm.ttsModelKind}
+                  onChange={(event) => handleDownloadFormChange('ttsModelKind', event.target.value)}
+                  disabled={isDownloadingModels}
+                  fullWidth
+                />
+                <TextField
+                  label="TTS Provider"
+                  value={downloadForm.ttsExecutionProvider}
+                  onChange={(event) => handleDownloadFormChange('ttsExecutionProvider', event.target.value)}
+                  placeholder="cpu/coreml/cuda"
+                  disabled={isDownloadingModels}
+                  fullWidth
+                />
+              </Stack>
+              <Button
+                variant="outlined"
+                onClick={handleDownloadModels}
+                disabled={isDownloadingModels || modelsLoading}
+              >
+                {isDownloadingModels ? '下载中...' : '下载并安装模型'}
+              </Button>
+            </Stack>
+          )}
 
           {!!modelProgress && (
             <Stack spacing={0.5}>

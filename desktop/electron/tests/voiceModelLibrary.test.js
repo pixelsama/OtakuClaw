@@ -112,3 +112,24 @@ test('downloadBundle validates required URL groups', async () => {
     },
   );
 });
+
+test('listCatalog returns built-in model items', async () => {
+  const { library } = await createLibraryForTest();
+
+  const catalog = library.listCatalog();
+  assert.ok(Array.isArray(catalog));
+  assert.ok(catalog.length >= 1);
+  assert.ok(catalog.some((item) => item.id === 'builtin-zh-int8-zipformer-kokoro-v1'));
+});
+
+test('installCatalogBundle rejects unknown catalog id', async () => {
+  const { library } = await createLibraryForTest();
+
+  await assert.rejects(
+    () => library.installCatalogBundle({ catalogId: 'missing-catalog' }),
+    (error) => {
+      assert.equal(error.code, 'voice_model_catalog_not_found');
+      return true;
+    },
+  );
+});

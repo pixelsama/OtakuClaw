@@ -388,6 +388,16 @@ export const desktopBridge = {
     },
   },
   voiceModels: {
+    async catalog() {
+      const api = getDesktopApi();
+      if (!api?.voiceModels?.catalog) {
+        return {
+          ok: false,
+          items: [],
+        };
+      }
+      return api.voiceModels.catalog();
+    },
     async list() {
       const api = getDesktopApi();
       if (!api?.voiceModels?.list) {
@@ -399,6 +409,19 @@ export const desktopBridge = {
         };
       }
       return api.voiceModels.list();
+    },
+    async installCatalog(catalogId) {
+      const api = getDesktopApi();
+      if (!api?.voiceModels?.installCatalog) {
+        return {
+          ok: false,
+          error: {
+            code: 'desktop_voice_models_unavailable',
+            message: '当前环境不支持内置语音模型安装。',
+          },
+        };
+      }
+      return api.voiceModels.installCatalog({ catalogId });
     },
     async select(bundleId) {
       const api = getDesktopApi();

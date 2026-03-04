@@ -1,15 +1,20 @@
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
+const { execFile } = require('node:child_process');
 const http = require('node:http');
 const https = require('node:https');
 const path = require('node:path');
 const { pipeline } = require('node:stream/promises');
+const { promisify } = require('node:util');
+
+const { getBuiltInVoiceModelCatalog } = require('./voiceModelCatalog');
 
 const ROOT_DIR_NAME = 'voice-models';
 const BUNDLES_DIR_NAME = 'bundles';
 const STATE_FILE_NAME = 'state.json';
 const MAX_REDIRECTS = 5;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
+const execFileAsync = promisify(execFile);
 
 function createVoiceModelError(code, message) {
   const error = new Error(message);
@@ -110,6 +115,33 @@ function createBundleId(bundleName) {
   const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const prefix = normalized || 'voice-model';
   return `${prefix}-${suffix}`;
+}
+
+async function ensurePathExists(pathValue, code, message) {
+  try {
+    await fsp.access(pathValue);
+  } catch {
+    throw createVoiceModelError(code, message);
+  }
+}
+
+async function extractTarArchive({ archivePath, destinationDir }) {
+  await fsp.mkdir(destinationDir, { recursive: true });
+
+  try {
+    await execFileAsync('tar', ['-xf', archivePath, '-C', destinationDir]);
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      throw createVoiceModelError(
+        'voice_model_extract_tool_missing',
+        'Missing tar command. Please install tar first.',
+      );
+    }
+    throw createVoiceModelError(
+      'voice_model_extract_failed',
+      `Failed to extract model archive: ${error?.message || 'unknown error'}`,
+    );
+  }
 }
 
 function resolveHttpModule(protocol) {
@@ -275,6 +307,228 @@ class VoiceModelLibrary {
       bundles: this.state.bundles.map((bundle) => ({
         ...bundle,
       })),
+    };
+  }
+
+  listCatalog() {
+    return getBuiltInVoiceModelCatalog().map((item) => ({
+      id: item.id,
+      name: item.name,
+      description: item.description || '',
+      hasAsr: Boolean(item.asr),
+      hasTts: Boolean(item.tts),
+    }));
+  }
+
+  async installCatalogBundle({ catalogId } = {}, { onProgress } = {}) {
+    const normalizedCatalogId = sanitizeText(catalogId);
+    const catalogEntry = getBuiltInVoiceModelCatalog().find((item) => item.id === normalizedCatalogId);
+    if (!catalogEntry) {
+      throw createVoiceModelError('voice_model_catalog_not_found', `Built-in model not found: ${normalizedCatalogId}`);
+    }
+
+    const id = createBundleId(catalogEntry.name);
+    const name = catalogEntry.name;
+    const bundleDir = path.join(this.bundlesDir, id);
+    await fsp.mkdir(bundleDir, { recursive: true });
+
+    const components = [];
+    if (catalogEntry.asr) {
+      components.push({
+        key: 'asr',
+        label: 'ASR',
+        archiveUrl: catalogEntry.asr.archiveUrl,
+        extractedDir: catalogEntry.asr.extractedDir,
+      });
+    }
+    if (catalogEntry.tts) {
+      components.push({
+        key: 'tts',
+        label: 'TTS',
+        archiveUrl: catalogEntry.tts.archiveUrl,
+        extractedDir: catalogEntry.tts.extractedDir,
+      });
+    }
+
+    const totalTasks = components.length * 2;
+    let completedTasks = 0;
+    const emitProgress = ({
+      phase,
+      currentFile = '',
+      fileDownloadedBytes = 0,
+      fileTotalBytes = 0,
+      overallProgress = null,
+    }) => {
+      if (typeof onProgress !== 'function') {
+        return;
+      }
+
+      onProgress({
+        type: 'download-progress',
+        phase,
+        bundleId: id,
+        bundleName: name,
+        completedTasks,
+        totalTasks,
+        currentFile,
+        fileDownloadedBytes,
+        fileTotalBytes,
+        overallProgress,
+      });
+    };
+
+    emitProgress({
+      phase: 'started',
+      overallProgress: 0,
+    });
+
+    try {
+      for (const component of components) {
+        const archivePath = path.join(bundleDir, `${component.key}.tar.bz2`);
+        const extractedBaseDir = path.join(bundleDir, component.key);
+
+        await this.downloadFileImpl({
+          url: component.archiveUrl,
+          destinationPath: archivePath,
+          onProgress: ({ downloadedBytes, totalBytes }) => {
+            const downloadRatio =
+              Number.isFinite(totalBytes) && totalBytes > 0 ? Math.min(1, downloadedBytes / totalBytes) : 0;
+            const progress = (completedTasks + downloadRatio) / totalTasks;
+            emitProgress({
+              phase: 'running',
+              currentFile: path.basename(component.archiveUrl),
+              fileDownloadedBytes: downloadedBytes,
+              fileTotalBytes: totalBytes,
+              overallProgress: progress,
+            });
+          },
+        });
+        completedTasks += 1;
+        emitProgress({
+          phase: 'running',
+          currentFile: `已下载 ${component.label} 压缩包`,
+          overallProgress: completedTasks / totalTasks,
+        });
+
+        emitProgress({
+          phase: 'extracting',
+          currentFile: `正在解压 ${component.label} 模型`,
+          overallProgress: (completedTasks + 0.5) / totalTasks,
+        });
+        await extractTarArchive({
+          archivePath,
+          destinationDir: extractedBaseDir,
+        });
+        completedTasks += 1;
+        emitProgress({
+          phase: 'running',
+          currentFile: `已解压 ${component.label} 模型`,
+          overallProgress: completedTasks / totalTasks,
+        });
+
+        await fsp.rm(archivePath, { force: true });
+      }
+    } catch (error) {
+      emitProgress({
+        phase: 'failed',
+        currentFile: '',
+      });
+      try {
+        await fsp.rm(bundleDir, { recursive: true, force: true });
+      } catch {
+        // noop
+      }
+      throw error;
+    }
+
+    const asrModelPath = catalogEntry.asr
+      ? path.join(bundleDir, 'asr', catalogEntry.asr.extractedDir, catalogEntry.asr.modelRelativePath)
+      : '';
+    const asrTokensPath = catalogEntry.asr
+      ? path.join(bundleDir, 'asr', catalogEntry.asr.extractedDir, catalogEntry.asr.tokensRelativePath)
+      : '';
+    const ttsModelPath = catalogEntry.tts
+      ? path.join(bundleDir, 'tts', catalogEntry.tts.extractedDir, catalogEntry.tts.modelRelativePath)
+      : '';
+    const ttsVoicesPath = catalogEntry.tts
+      ? path.join(bundleDir, 'tts', catalogEntry.tts.extractedDir, catalogEntry.tts.voicesRelativePath)
+      : '';
+    const ttsTokensPath = catalogEntry.tts
+      ? path.join(bundleDir, 'tts', catalogEntry.tts.extractedDir, catalogEntry.tts.tokensRelativePath)
+      : '';
+
+    if (catalogEntry.asr) {
+      await ensurePathExists(
+        asrModelPath,
+        'voice_model_catalog_file_missing',
+        `ASR model file not found after extraction: ${asrModelPath}`,
+      );
+      await ensurePathExists(
+        asrTokensPath,
+        'voice_model_catalog_file_missing',
+        `ASR tokens file not found after extraction: ${asrTokensPath}`,
+      );
+    }
+    if (catalogEntry.tts) {
+      await ensurePathExists(
+        ttsModelPath,
+        'voice_model_catalog_file_missing',
+        `TTS model file not found after extraction: ${ttsModelPath}`,
+      );
+      await ensurePathExists(
+        ttsVoicesPath,
+        'voice_model_catalog_file_missing',
+        `TTS voices file not found after extraction: ${ttsVoicesPath}`,
+      );
+      await ensurePathExists(
+        ttsTokensPath,
+        'voice_model_catalog_file_missing',
+        `TTS tokens file not found after extraction: ${ttsTokensPath}`,
+      );
+    }
+
+    const bundleRecord = normalizeBundleRecord({
+      id,
+      name,
+      createdAt: new Date().toISOString(),
+      asr: catalogEntry.asr
+        ? {
+            modelPath: asrModelPath,
+            tokensPath: asrTokensPath,
+            modelKind: sanitizeOptionalText(catalogEntry.asr.modelKind, 'zipformer2ctc'),
+            executionProvider: sanitizeOptionalText(catalogEntry.asr.executionProvider, 'cpu'),
+          }
+        : null,
+      tts: catalogEntry.tts
+        ? {
+            modelPath: ttsModelPath,
+            voicesPath: ttsVoicesPath,
+            tokensPath: ttsTokensPath,
+            modelKind: sanitizeOptionalText(catalogEntry.tts.modelKind, 'kokoro'),
+            executionProvider: sanitizeOptionalText(catalogEntry.tts.executionProvider, 'cpu'),
+          }
+        : null,
+    });
+
+    if (!bundleRecord) {
+      throw createVoiceModelError('voice_model_bundle_invalid', 'Failed to build model bundle record.');
+    }
+
+    this.state.bundles = this.state.bundles.filter((item) => item.id !== bundleRecord.id);
+    this.state.bundles.unshift(bundleRecord);
+    this.state.selectedBundleId = bundleRecord.id;
+    await this.persistState();
+
+    emitProgress({
+      phase: 'completed',
+      currentFile: '',
+      overallProgress: 1,
+    });
+
+    return {
+      bundle: bundleRecord,
+      selectedBundleId: this.state.selectedBundleId,
+      bundles: this.state.bundles.map((item) => ({ ...item })),
     };
   }
 

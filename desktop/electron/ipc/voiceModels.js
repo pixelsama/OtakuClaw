@@ -17,11 +17,43 @@ function registerVoiceModelsIpc({
   voiceModelLibrary,
   emitDownloadProgress,
 }) {
+  ipcMain.handle('voice-models:catalog', async () => {
+    return {
+      ok: true,
+      items: voiceModelLibrary.listCatalog(),
+    };
+  });
+
   ipcMain.handle('voice-models:list', async () => {
     return {
       ok: true,
       ...voiceModelLibrary.listBundles(),
     };
+  });
+
+  ipcMain.handle('voice-models:install-catalog', async (_event, payload = {}) => {
+    try {
+      const result = await voiceModelLibrary.installCatalogBundle(
+        { catalogId: payload.catalogId },
+        {
+          onProgress: (progressPayload) => {
+            if (typeof emitDownloadProgress === 'function') {
+              emitDownloadProgress(progressPayload);
+            }
+          },
+        },
+      );
+
+      return {
+        ok: true,
+        ...result,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: toVoiceModelError(error),
+      };
+    }
   });
 
   ipcMain.handle('voice-models:select', async (_event, payload = {}) => {
@@ -62,7 +94,9 @@ function registerVoiceModelsIpc({
   });
 
   return () => {
+    ipcMain.removeHandler('voice-models:catalog');
     ipcMain.removeHandler('voice-models:list');
+    ipcMain.removeHandler('voice-models:install-catalog');
     ipcMain.removeHandler('voice-models:select');
     ipcMain.removeHandler('voice-models:download');
   };
