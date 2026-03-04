@@ -14,6 +14,11 @@ const BUNDLES_DIR_NAME = 'bundles';
 const STATE_FILE_NAME = 'state.json';
 const MAX_REDIRECTS = 5;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
+const PYTHON_BRIDGE_SCRIPT_NAME = 'voice_bridge.py';
+const PYTHON_BOOTSTRAP_SCRIPT_NAME = 'bootstrap_runtime.py';
+const PYTHON_STEP_TIMEOUT_MS = 20 * 60 * 1000;
+const PYTHON_MODEL_DOWNLOAD_TIMEOUT_MS = 120 * 60 * 1000;
+const PYTHON_EXEC_MAX_BUFFER = 20 * 1024 * 1024;
 const execFileAsync = promisify(execFile);
 
 function createVoiceModelError(code, message) {
@@ -29,6 +34,14 @@ function sanitizeText(value) {
 function sanitizeOptionalText(value, fallback = '') {
   const text = sanitizeText(value);
   return text || fallback;
+}
+
+function stripAnsiCodes(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.replace(/\u001b\[[0-9;]*m/g, '');
 }
 
 function normalizeBundleRecord(bundle = {}) {
@@ -78,12 +91,47 @@ function normalizeBundleRecord(bundle = {}) {
       lexiconPath: sanitizeOptionalText(bundle.tts.lexiconPath),
       dataDir: sanitizeOptionalText(bundle.tts.dataDir),
       lang: sanitizeOptionalText(bundle.tts.lang),
+      sid: sanitizeOptionalText(bundle.tts.sid),
+      speed: sanitizeOptionalText(bundle.tts.speed),
     };
   };
 
   const asr = normalizeAsr();
   const tts = normalizeTts();
-  if (!asr && !tts) {
+  const normalizeRuntime = () => {
+    if (!bundle.runtime || typeof bundle.runtime !== 'object') {
+      return null;
+    }
+
+    const runtimeKind = sanitizeOptionalText(bundle.runtime.kind).toLowerCase();
+    if (runtimeKind !== 'python') {
+      return null;
+    }
+
+    const pythonExecutablePath = sanitizeText(bundle.runtime.pythonExecutablePath);
+    if (!pythonExecutablePath) {
+      return null;
+    }
+
+    return {
+      kind: runtimeKind,
+      pythonExecutablePath,
+      bridgeScriptPath: sanitizeText(bundle.runtime.bridgeScriptPath),
+      bootstrapScriptPath: sanitizeText(bundle.runtime.bootstrapScriptPath),
+      asrModelDir: sanitizeText(bundle.runtime.asrModelDir),
+      ttsModelDir: sanitizeText(bundle.runtime.ttsModelDir),
+      ttsTokenizerDir: sanitizeText(bundle.runtime.ttsTokenizerDir),
+      asrLanguage: sanitizeOptionalText(bundle.runtime.asrLanguage, '中文'),
+      ttsLanguage: sanitizeOptionalText(bundle.runtime.ttsLanguage, 'Chinese'),
+      ttsMode: sanitizeOptionalText(bundle.runtime.ttsMode, 'custom_voice'),
+      ttsSpeaker: sanitizeOptionalText(bundle.runtime.ttsSpeaker, 'Vivian'),
+      modelSource: sanitizeOptionalText(bundle.runtime.modelSource, 'auto'),
+      device: sanitizeOptionalText(bundle.runtime.device, 'auto'),
+    };
+  };
+
+  const runtime = normalizeRuntime();
+  if (!asr && !tts && !runtime) {
     return null;
   }
 
@@ -93,6 +141,7 @@ function normalizeBundleRecord(bundle = {}) {
     createdAt: sanitizeOptionalText(bundle.createdAt, new Date().toISOString()),
     asr,
     tts,
+    runtime,
   };
 }
 
@@ -128,6 +177,7 @@ function resolveRuntimeTtsBundle(tts = {}) {
   let dataDir = sanitizeText(normalizedTts.dataDir);
   let lexiconPath = sanitizeText(normalizedTts.lexiconPath);
   let lang = sanitizeText(normalizedTts.lang);
+  let sid = sanitizeText(normalizedTts.sid);
 
   if (modelKind === 'kokoro' && modelDir) {
     dataDir = dataDir || resolveExistingPathCandidate(path.join(modelDir, 'espeak-ng-data'));
@@ -140,6 +190,10 @@ function resolveRuntimeTtsBundle(tts = {}) {
     if (!lang && lexiconPath && path.basename(lexiconPath).toLowerCase().includes('zh')) {
       lang = 'zh';
     }
+    if (!sid && (!lang || lang === 'zh')) {
+      // Default to a sweeter Chinese female timbre for kokoro legacy bundles.
+      sid = '46'; // zf_xiaoni
+    }
   }
 
   return {
@@ -147,6 +201,7 @@ function resolveRuntimeTtsBundle(tts = {}) {
     dataDir: dataDir || '',
     lexiconPath: lexiconPath || '',
     lang: lang || '',
+    sid: sid || '',
   };
 }
 
@@ -183,6 +238,128 @@ function resolveCatalogExecutionProvider(value, fallback = 'cpu') {
   }
 
   return fallback;
+}
+
+function resolveRuntimePlatformKey() {
+  return `${process.platform}-${process.arch}`;
+}
+
+function resolvePythonRuntimePackage(runtime = {}) {
+  const packages = runtime?.packages && typeof runtime.packages === 'object' ? runtime.packages : {};
+  const platformKey = resolveRuntimePlatformKey();
+  const selected = packages[platformKey];
+  if (!selected || typeof selected !== 'object') {
+    throw createVoiceModelError(
+      'voice_python_runtime_platform_unsupported',
+      `No built-in Python runtime package for ${platformKey}.`,
+    );
+  }
+
+  const archiveUrl = sanitizeText(selected.archiveUrl);
+  if (!archiveUrl) {
+    throw createVoiceModelError(
+      'voice_python_runtime_catalog_invalid',
+      `Missing Python runtime archive URL for ${platformKey}.`,
+    );
+  }
+
+  return {
+    platformKey,
+    archiveUrl,
+  };
+}
+
+function resolvePythonExecutableCandidates(runtimeRootDir) {
+  if (process.platform === 'win32') {
+    return [
+      path.join(runtimeRootDir, 'python.exe'),
+      path.join(runtimeRootDir, 'install', 'python.exe'),
+      path.join(runtimeRootDir, 'python', 'python.exe'),
+      path.join(runtimeRootDir, 'python', 'install', 'python.exe'),
+    ];
+  }
+
+  return [
+    path.join(runtimeRootDir, 'bin', 'python3'),
+    path.join(runtimeRootDir, 'bin', 'python'),
+    path.join(runtimeRootDir, 'python', 'bin', 'python3'),
+    path.join(runtimeRootDir, 'python', 'bin', 'python'),
+    path.join(runtimeRootDir, 'install', 'bin', 'python3'),
+    path.join(runtimeRootDir, 'install', 'bin', 'python'),
+    path.join(runtimeRootDir, 'python', 'install', 'bin', 'python3'),
+    path.join(runtimeRootDir, 'python', 'install', 'bin', 'python'),
+  ];
+}
+
+function resolvePythonExecutablePath(runtimeRootDir) {
+  const candidates = resolvePythonExecutableCandidates(runtimeRootDir);
+  const found = candidates.find((candidatePath) => fs.existsSync(candidatePath));
+  if (!found) {
+    throw createVoiceModelError(
+      'voice_python_runtime_executable_missing',
+      `Python executable not found under ${runtimeRootDir}.`,
+    );
+  }
+
+  return found;
+}
+
+async function copyPythonBridgeScripts({ destinationDir }) {
+  await fsp.mkdir(destinationDir, { recursive: true });
+  const sourceDir = path.join(__dirname, 'providers', 'python');
+
+  const bridgeScriptSourcePath = path.join(sourceDir, PYTHON_BRIDGE_SCRIPT_NAME);
+  const bootstrapScriptSourcePath = path.join(sourceDir, PYTHON_BOOTSTRAP_SCRIPT_NAME);
+  const bridgeScriptPath = path.join(destinationDir, PYTHON_BRIDGE_SCRIPT_NAME);
+  const bootstrapScriptPath = path.join(destinationDir, PYTHON_BOOTSTRAP_SCRIPT_NAME);
+
+  await ensurePathExists(
+    bridgeScriptSourcePath,
+    'voice_python_runtime_script_missing',
+    `Python bridge script not found: ${bridgeScriptSourcePath}`,
+  );
+  await ensurePathExists(
+    bootstrapScriptSourcePath,
+    'voice_python_runtime_script_missing',
+    `Python bootstrap script not found: ${bootstrapScriptSourcePath}`,
+  );
+
+  await fsp.copyFile(bridgeScriptSourcePath, bridgeScriptPath);
+  await fsp.copyFile(bootstrapScriptSourcePath, bootstrapScriptPath);
+  await fsp.chmod(bridgeScriptPath, 0o755).catch(() => {});
+  await fsp.chmod(bootstrapScriptPath, 0o755).catch(() => {});
+
+  return {
+    bridgeScriptPath,
+    bootstrapScriptPath,
+  };
+}
+
+async function runPythonCommand(pythonExecutable, args, { timeoutMs = PYTHON_STEP_TIMEOUT_MS } = {}) {
+  try {
+    return await execFileAsync(pythonExecutable, args, {
+      timeout: timeoutMs,
+      maxBuffer: PYTHON_EXEC_MAX_BUFFER,
+    });
+  } catch (error) {
+    const stderr = sanitizeText(stripAnsiCodes(error?.stderr));
+    const stdout = sanitizeText(stripAnsiCodes(error?.stdout));
+    const message = stderr || stdout || error?.message || 'Python command failed.';
+    throw createVoiceModelError('voice_python_runtime_command_failed', message);
+  }
+}
+
+function parseJsonOutput(rawText, code, fallbackMessage) {
+  const text = sanitizeText(rawText);
+  if (!text) {
+    throw createVoiceModelError(code, fallbackMessage);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw createVoiceModelError(code, fallbackMessage);
+  }
 }
 
 async function ensurePathExists(pathValue, code, message) {
@@ -383,8 +560,8 @@ class VoiceModelLibrary {
       id: item.id,
       name: item.name,
       description: item.description || '',
-      hasAsr: Boolean(item.asr),
-      hasTts: Boolean(item.tts),
+      hasAsr: typeof item.hasAsr === 'boolean' ? item.hasAsr : Boolean(item.asr),
+      hasTts: typeof item.hasTts === 'boolean' ? item.hasTts : Boolean(item.tts),
     }));
   }
 
@@ -393,6 +570,13 @@ class VoiceModelLibrary {
     const catalogEntry = getBuiltInVoiceModelCatalog().find((item) => item.id === normalizedCatalogId);
     if (!catalogEntry) {
       throw createVoiceModelError('voice_model_catalog_not_found', `Built-in model not found: ${normalizedCatalogId}`);
+    }
+
+    if (catalogEntry.runtime?.kind === 'python') {
+      return this.installPythonRuntimeCatalogBundle({
+        catalogEntry,
+        onProgress,
+      });
     }
 
     const id = createBundleId(catalogEntry.name);
@@ -597,6 +781,8 @@ class VoiceModelLibrary {
             dataDir: sanitizeOptionalText(ttsDataDirPath),
             lexiconPath: sanitizeOptionalText(ttsLexiconPath),
             lang: sanitizeOptionalText(catalogEntry.tts.lang),
+            sid: sanitizeOptionalText(catalogEntry.tts.sid),
+            speed: sanitizeOptionalText(catalogEntry.tts.speed),
           }
         : null,
     });
@@ -621,6 +807,267 @@ class VoiceModelLibrary {
       selectedBundleId: this.state.selectedBundleId,
       bundles: this.state.bundles.map((item) => ({ ...item })),
     };
+  }
+
+  async installPythonRuntimeCatalogBundle({ catalogEntry, onProgress }) {
+    const runtime = catalogEntry?.runtime && typeof catalogEntry.runtime === 'object'
+      ? catalogEntry.runtime
+      : {};
+    const { archiveUrl } = resolvePythonRuntimePackage(runtime);
+
+    const id = createBundleId(catalogEntry.name);
+    const name = catalogEntry.name;
+    const bundleDir = path.join(this.bundlesDir, id);
+    const runtimeDir = path.join(bundleDir, 'runtime');
+    const scriptDir = path.join(bundleDir, 'runtime-scripts');
+    const modelsDir = path.join(bundleDir, 'models');
+    const asrModelDir = path.join(modelsDir, 'asr');
+    const ttsModelDir = path.join(modelsDir, 'tts');
+    const ttsTokenizerDir = path.join(modelsDir, 'tts-tokenizer');
+    const runtimeArchivePath = path.join(bundleDir, 'python-runtime.tar.gz');
+    const pipPackages = Array.isArray(runtime.pipPackages)
+      ? runtime.pipPackages.map((item) => sanitizeText(item)).filter(Boolean)
+      : [];
+
+    await fsp.mkdir(bundleDir, { recursive: true });
+    await fsp.mkdir(modelsDir, { recursive: true });
+
+    const totalTasks = 3 + (pipPackages.length ? 2 : 1);
+    let completedTasks = 0;
+    const emitProgress = ({
+      phase,
+      currentFile = '',
+      fileDownloadedBytes = 0,
+      fileTotalBytes = 0,
+      overallProgress = null,
+    }) => {
+      if (typeof onProgress !== 'function') {
+        return;
+      }
+
+      onProgress({
+        type: 'download-progress',
+        phase,
+        bundleId: id,
+        bundleName: name,
+        completedTasks,
+        totalTasks,
+        currentFile,
+        fileDownloadedBytes,
+        fileTotalBytes,
+        overallProgress,
+      });
+    };
+
+    emitProgress({
+      phase: 'started',
+      overallProgress: 0,
+    });
+
+    try {
+      await this.downloadFileImpl({
+        url: archiveUrl,
+        destinationPath: runtimeArchivePath,
+        onProgress: ({ downloadedBytes, totalBytes }) => {
+          const downloadRatio =
+            Number.isFinite(totalBytes) && totalBytes > 0 ? Math.min(1, downloadedBytes / totalBytes) : 0;
+          const progress = (completedTasks + downloadRatio) / totalTasks;
+          emitProgress({
+            phase: 'running',
+            currentFile: path.basename(archiveUrl),
+            fileDownloadedBytes: downloadedBytes,
+            fileTotalBytes: totalBytes,
+            overallProgress: progress,
+          });
+        },
+      });
+      completedTasks += 1;
+      emitProgress({
+        phase: 'running',
+        currentFile: '已下载 Python 运行时',
+        overallProgress: completedTasks / totalTasks,
+      });
+
+      emitProgress({
+        phase: 'extracting',
+        currentFile: '正在解压 Python 运行时',
+        overallProgress: (completedTasks + 0.5) / totalTasks,
+      });
+      await extractTarArchive({
+        archivePath: runtimeArchivePath,
+        destinationDir: runtimeDir,
+      });
+      await fsp.rm(runtimeArchivePath, { force: true });
+      completedTasks += 1;
+      emitProgress({
+        phase: 'running',
+        currentFile: '已解压 Python 运行时',
+        overallProgress: completedTasks / totalTasks,
+      });
+
+      const pythonExecutablePath = resolvePythonExecutablePath(runtimeDir);
+      const { bridgeScriptPath, bootstrapScriptPath } = await copyPythonBridgeScripts({
+        destinationDir: scriptDir,
+      });
+
+      emitProgress({
+        phase: 'running',
+        currentFile: '正在升级 Python pip',
+        overallProgress: (completedTasks + 0.5) / totalTasks,
+      });
+      await runPythonCommand(
+        pythonExecutablePath,
+        ['-m', 'pip', 'install', '--upgrade', 'pip'],
+        { timeoutMs: PYTHON_STEP_TIMEOUT_MS },
+      );
+      completedTasks += 1;
+      emitProgress({
+        phase: 'running',
+        currentFile: 'pip 升级完成',
+        overallProgress: completedTasks / totalTasks,
+      });
+
+      if (pipPackages.length) {
+        emitProgress({
+          phase: 'running',
+          currentFile: '正在安装 Python 语音依赖',
+          overallProgress: (completedTasks + 0.5) / totalTasks,
+        });
+        await runPythonCommand(
+          pythonExecutablePath,
+          ['-m', 'pip', 'install', '--upgrade', ...pipPackages],
+          { timeoutMs: PYTHON_STEP_TIMEOUT_MS },
+        );
+        completedTasks += 1;
+        emitProgress({
+          phase: 'running',
+          currentFile: 'Python 语音依赖安装完成',
+          overallProgress: completedTasks / totalTasks,
+        });
+      }
+
+      emitProgress({
+        phase: 'running',
+        currentFile: '正在下载 ASR/TTS 模型',
+        overallProgress: (completedTasks + 0.5) / totalTasks,
+      });
+
+      const bootstrapArgs = [
+        bootstrapScriptPath,
+        '--asr-model-id',
+        sanitizeOptionalText(runtime.asrModelId, 'FunAudioLLM/Fun-ASR-Nano-2512'),
+        '--tts-model-id',
+        sanitizeOptionalText(runtime.ttsModelId, 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice'),
+        '--asr-model-dir',
+        asrModelDir,
+        '--tts-model-dir',
+        ttsModelDir,
+        '--source',
+        sanitizeOptionalText(runtime.modelSource, 'auto'),
+      ];
+      const ttsTokenizerModelId = sanitizeText(runtime.ttsTokenizerModelId);
+      if (ttsTokenizerModelId) {
+        bootstrapArgs.push(
+          '--tts-tokenizer-model-id',
+          ttsTokenizerModelId,
+          '--tts-tokenizer-dir',
+          ttsTokenizerDir,
+        );
+      }
+
+      const bootstrapResult = await runPythonCommand(
+        pythonExecutablePath,
+        bootstrapArgs,
+        { timeoutMs: PYTHON_MODEL_DOWNLOAD_TIMEOUT_MS },
+      );
+      const bootstrapPayload = parseJsonOutput(
+        bootstrapResult.stdout,
+        'voice_python_runtime_bootstrap_invalid_output',
+        'Invalid Python runtime bootstrap output.',
+      );
+
+      const resolvedAsrModelDir = sanitizeOptionalText(bootstrapPayload.asrModelDir, asrModelDir);
+      const resolvedTtsModelDir = sanitizeOptionalText(bootstrapPayload.ttsModelDir, ttsModelDir);
+      const resolvedTtsTokenizerDir = sanitizeOptionalText(bootstrapPayload.ttsTokenizerDir, ttsTokenizerDir);
+
+      await ensurePathExists(
+        resolvedAsrModelDir,
+        'voice_python_runtime_model_missing',
+        `ASR model directory not found: ${resolvedAsrModelDir}`,
+      );
+      await ensurePathExists(
+        resolvedTtsModelDir,
+        'voice_python_runtime_model_missing',
+        `TTS model directory not found: ${resolvedTtsModelDir}`,
+      );
+      if (ttsTokenizerModelId) {
+        await ensurePathExists(
+          resolvedTtsTokenizerDir,
+          'voice_python_runtime_model_missing',
+          `TTS tokenizer directory not found: ${resolvedTtsTokenizerDir}`,
+        );
+      }
+
+      completedTasks += 1;
+      emitProgress({
+        phase: 'running',
+        currentFile: 'ASR/TTS 模型下载完成',
+        overallProgress: completedTasks / totalTasks,
+      });
+
+      const bundleRecord = normalizeBundleRecord({
+        id,
+        name,
+        createdAt: new Date().toISOString(),
+        runtime: {
+          kind: 'python',
+          pythonExecutablePath,
+          bridgeScriptPath,
+          bootstrapScriptPath,
+          asrModelDir: resolvedAsrModelDir,
+          ttsModelDir: resolvedTtsModelDir,
+          ttsTokenizerDir: resolvedTtsTokenizerDir,
+          asrLanguage: sanitizeOptionalText(runtime.asrLanguage, '中文'),
+          ttsLanguage: sanitizeOptionalText(runtime.ttsLanguage, 'Chinese'),
+          ttsMode: sanitizeOptionalText(runtime.ttsMode, 'custom_voice'),
+          ttsSpeaker: sanitizeOptionalText(runtime.ttsSpeaker, 'Vivian'),
+          modelSource: sanitizeOptionalText(runtime.modelSource, 'auto'),
+          device: sanitizeOptionalText(runtime.device, 'auto'),
+        },
+      });
+
+      if (!bundleRecord) {
+        throw createVoiceModelError('voice_model_bundle_invalid', 'Failed to build Python runtime bundle.');
+      }
+
+      this.state.bundles = this.state.bundles.filter((item) => item.id !== bundleRecord.id);
+      this.state.bundles.unshift(bundleRecord);
+      this.state.selectedBundleId = bundleRecord.id;
+      await this.persistState();
+
+      emitProgress({
+        phase: 'completed',
+        currentFile: '',
+        overallProgress: 1,
+      });
+
+      return {
+        bundle: bundleRecord,
+        selectedBundleId: this.state.selectedBundleId,
+        bundles: this.state.bundles.map((item) => ({ ...item })),
+      };
+    } catch (error) {
+      emitProgress({
+        phase: 'failed',
+        currentFile: '',
+      });
+      try {
+        await fsp.rm(bundleDir, { recursive: true, force: true });
+      } catch {
+        // noop
+      }
+      throw error;
+    }
   }
 
   getSelectedBundle() {
@@ -657,6 +1104,47 @@ class VoiceModelLibrary {
       return env;
     }
 
+    if (selectedBundle.runtime?.kind === 'python') {
+      const runtime = selectedBundle.runtime;
+      env.VOICE_ASR_PROVIDER = 'python';
+      env.VOICE_TTS_PROVIDER = 'python';
+      env.VOICE_PYTHON_EXECUTABLE = runtime.pythonExecutablePath;
+      if (runtime.bridgeScriptPath) {
+        env.VOICE_PYTHON_BRIDGE_SCRIPT = runtime.bridgeScriptPath;
+      }
+      if (runtime.device) {
+        env.VOICE_PYTHON_DEVICE = runtime.device;
+      }
+
+      if (runtime.asrModelDir) {
+        env.VOICE_ASR_PYTHON_MODEL_DIR = runtime.asrModelDir;
+      }
+      if (runtime.asrLanguage) {
+        env.VOICE_ASR_PYTHON_LANGUAGE = runtime.asrLanguage;
+      }
+
+      if (runtime.ttsModelDir) {
+        env.VOICE_TTS_PYTHON_MODEL_DIR = runtime.ttsModelDir;
+      }
+      if (runtime.ttsTokenizerDir) {
+        env.VOICE_TTS_PYTHON_TOKENIZER_DIR = runtime.ttsTokenizerDir;
+      }
+      if (runtime.ttsLanguage) {
+        env.VOICE_TTS_PYTHON_LANGUAGE = runtime.ttsLanguage;
+      }
+      if (runtime.ttsMode) {
+        env.VOICE_TTS_PYTHON_MODE = runtime.ttsMode;
+      }
+      if (runtime.ttsSpeaker) {
+        env.VOICE_TTS_PYTHON_SPEAKER = runtime.ttsSpeaker;
+      }
+
+      if (!sanitizeText(env.VOICE_TTS_AUTO_ON_ASR_FINAL)) {
+        env.VOICE_TTS_AUTO_ON_ASR_FINAL = '1';
+      }
+      return env;
+    }
+
     if (selectedBundle.asr) {
       env.VOICE_ASR_PROVIDER = 'sherpa-onnx';
       env.VOICE_ASR_SHERPA_MODEL = selectedBundle.asr.modelPath;
@@ -681,6 +1169,12 @@ class VoiceModelLibrary {
       }
       if (runtimeTts.lang) {
         env.VOICE_TTS_SHERPA_LANG = runtimeTts.lang;
+      }
+      if (runtimeTts.sid) {
+        env.VOICE_TTS_SHERPA_SID = runtimeTts.sid;
+      }
+      if (runtimeTts.speed) {
+        env.VOICE_TTS_SHERPA_SPEED = runtimeTts.speed;
       }
       if (!sanitizeText(env.VOICE_TTS_SHERPA_ENABLE_EXTERNAL_BUFFER)) {
         env.VOICE_TTS_SHERPA_ENABLE_EXTERNAL_BUFFER = '0';
@@ -890,6 +1384,8 @@ class VoiceModelLibrary {
             tokensPath: path.join(bundleDir, 'tts-tokens.txt'),
             modelKind: sanitizeOptionalText(tts.modelKind, 'kokoro'),
             executionProvider: sanitizeOptionalText(tts.executionProvider, 'cpu'),
+            sid: sanitizeOptionalText(tts.sid),
+            speed: sanitizeOptionalText(tts.speed),
           }
         : null,
     });

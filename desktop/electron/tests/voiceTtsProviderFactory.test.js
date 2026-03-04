@@ -4,6 +4,7 @@ const test = require('node:test');
 const {
   createTtsProvider,
   buildSherpaOnnxTtsOptionsFromEnv,
+  buildPythonTtsOptionsFromEnv,
 } = require('../services/voice/providerFactory');
 const {
   createSherpaOnnxTtsProvider,
@@ -46,6 +47,32 @@ test('buildSherpaOnnxTtsOptionsFromEnv maps env values', () => {
   assert.equal(options.enableExternalBuffer, '0');
 });
 
+test('buildPythonTtsOptionsFromEnv maps env values', () => {
+  const options = buildPythonTtsOptionsFromEnv({
+    VOICE_PYTHON_EXECUTABLE: '/tmp/python',
+    VOICE_PYTHON_BRIDGE_SCRIPT: '/tmp/bridge.py',
+    VOICE_TTS_PYTHON_MODEL_DIR: '/tmp/tts',
+    VOICE_TTS_PYTHON_TOKENIZER_DIR: '/tmp/tokenizer',
+    VOICE_TTS_PYTHON_MODE: 'custom_voice',
+    VOICE_TTS_PYTHON_SPEAKER: 'Vivian',
+    VOICE_TTS_PYTHON_LANGUAGE: 'Chinese',
+    VOICE_PYTHON_DEVICE: 'cpu',
+    VOICE_TTS_PYTHON_CHUNK_MS: '80',
+    VOICE_TTS_PYTHON_TIMEOUT_MS: '120000',
+  });
+
+  assert.equal(options.pythonExecutable, '/tmp/python');
+  assert.equal(options.bridgeScriptPath, '/tmp/bridge.py');
+  assert.equal(options.modelDir, '/tmp/tts');
+  assert.equal(options.tokenizerDir, '/tmp/tokenizer');
+  assert.equal(options.ttsMode, 'custom_voice');
+  assert.equal(options.speaker, 'Vivian');
+  assert.equal(options.language, 'Chinese');
+  assert.equal(options.device, 'cpu');
+  assert.equal(options.chunkMs, '80');
+  assert.equal(options.timeoutMs, '120000');
+});
+
 test('createTtsProvider uses env default mock provider', async () => {
   const provider = createTtsProvider({
     env: {
@@ -61,6 +88,16 @@ test('createTtsProvider uses env default mock provider', async () => {
 
   assert.equal(chunks.length, 1);
   assert.equal(chunks[0].codec, 'mock/utf8');
+});
+
+test('createTtsProvider accepts python provider selection', () => {
+  const provider = createTtsProvider({
+    env: {
+      VOICE_TTS_PROVIDER: 'python',
+    },
+  });
+
+  assert.equal(typeof provider.synthesize, 'function');
 });
 
 test('createDefaultTtsConfig validates kokoro required paths', () => {

@@ -120,6 +120,7 @@ test('listCatalog returns built-in model items', async () => {
   assert.ok(Array.isArray(catalog));
   assert.ok(catalog.length >= 1);
   assert.ok(catalog.some((item) => item.id === 'builtin-zh-int8-zipformer-kokoro-v1'));
+  assert.ok(catalog.some((item) => item.id === 'builtin-python-funasr-qwen3tts-v1'));
 });
 
 test('getRuntimeEnv infers kokoro data dir and lexicon for legacy bundles', async () => {
@@ -156,7 +157,29 @@ test('getRuntimeEnv infers kokoro data dir and lexicon for legacy bundles', asyn
   assert.equal(runtimeEnv.VOICE_TTS_SHERPA_DATA_DIR, path.join(modelDir, 'espeak-ng-data'));
   assert.equal(runtimeEnv.VOICE_TTS_SHERPA_LEXICON, path.join(modelDir, 'lexicon-zh.txt'));
   assert.equal(runtimeEnv.VOICE_TTS_SHERPA_LANG, 'zh');
+  assert.equal(runtimeEnv.VOICE_TTS_SHERPA_SID, '46');
   assert.equal(runtimeEnv.VOICE_TTS_SHERPA_ENABLE_EXTERNAL_BUFFER, '0');
+});
+
+test('downloadBundle preserves optional tts sid/speed into runtime env', async () => {
+  const { library } = await createLibraryForTest();
+
+  await library.downloadBundle({
+    bundleName: 'tts-sid-speed',
+    tts: {
+      modelUrl: 'https://example.com/tts/model.onnx',
+      voicesUrl: 'https://example.com/tts/voices.bin',
+      tokensUrl: 'https://example.com/tts/tokens.txt',
+      modelKind: 'kokoro',
+      executionProvider: 'cpu',
+      sid: '47',
+      speed: '0.95',
+    },
+  });
+
+  const runtimeEnv = library.getRuntimeEnv({});
+  assert.equal(runtimeEnv.VOICE_TTS_SHERPA_SID, '47');
+  assert.equal(runtimeEnv.VOICE_TTS_SHERPA_SPEED, '0.95');
 });
 
 test('installCatalogBundle rejects unknown catalog id', async () => {
@@ -169,4 +192,57 @@ test('installCatalogBundle rejects unknown catalog id', async () => {
       return true;
     },
   );
+});
+
+test('getRuntimeEnv maps python runtime bundle into python provider env', async () => {
+  const { library, tmpDir } = await createLibraryForTest();
+
+  const pythonExecutablePath = path.join(tmpDir, 'runtime', 'python3');
+  const bridgeScriptPath = path.join(tmpDir, 'runtime', 'voice_bridge.py');
+  const asrModelDir = path.join(tmpDir, 'models', 'asr');
+  const ttsModelDir = path.join(tmpDir, 'models', 'tts');
+  const ttsTokenizerDir = path.join(tmpDir, 'models', 'tts-tokenizer');
+  await fs.mkdir(path.dirname(pythonExecutablePath), { recursive: true });
+  await fs.mkdir(asrModelDir, { recursive: true });
+  await fs.mkdir(ttsModelDir, { recursive: true });
+  await fs.mkdir(ttsTokenizerDir, { recursive: true });
+  await fs.writeFile(pythonExecutablePath, '');
+  await fs.writeFile(bridgeScriptPath, '');
+
+  library.state = {
+    selectedBundleId: 'python-runtime',
+    bundles: [
+      {
+        id: 'python-runtime',
+        name: 'python',
+        asr: null,
+        tts: null,
+        runtime: {
+          kind: 'python',
+          pythonExecutablePath,
+          bridgeScriptPath,
+          asrModelDir,
+          ttsModelDir,
+          ttsTokenizerDir,
+          asrLanguage: '中文',
+          ttsLanguage: 'Chinese',
+          ttsMode: 'custom_voice',
+          ttsSpeaker: 'Vivian',
+          device: 'cpu',
+        },
+      },
+    ],
+  };
+
+  const runtimeEnv = library.getRuntimeEnv({});
+  assert.equal(runtimeEnv.VOICE_ASR_PROVIDER, 'python');
+  assert.equal(runtimeEnv.VOICE_TTS_PROVIDER, 'python');
+  assert.equal(runtimeEnv.VOICE_PYTHON_EXECUTABLE, pythonExecutablePath);
+  assert.equal(runtimeEnv.VOICE_PYTHON_BRIDGE_SCRIPT, bridgeScriptPath);
+  assert.equal(runtimeEnv.VOICE_ASR_PYTHON_MODEL_DIR, asrModelDir);
+  assert.equal(runtimeEnv.VOICE_TTS_PYTHON_MODEL_DIR, ttsModelDir);
+  assert.equal(runtimeEnv.VOICE_TTS_PYTHON_TOKENIZER_DIR, ttsTokenizerDir);
+  assert.equal(runtimeEnv.VOICE_TTS_PYTHON_MODE, 'custom_voice');
+  assert.equal(runtimeEnv.VOICE_TTS_PYTHON_SPEAKER, 'Vivian');
+  assert.equal(runtimeEnv.VOICE_TTS_AUTO_ON_ASR_FINAL, '1');
 });

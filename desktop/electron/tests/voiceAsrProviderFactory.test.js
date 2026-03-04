@@ -4,6 +4,7 @@ const test = require('node:test');
 const {
   createAsrProvider,
   buildSherpaOnnxOptionsFromEnv,
+  buildPythonAsrOptionsFromEnv,
 } = require('../services/voice/providerFactory');
 const {
   createSherpaOnnxAsrProvider,
@@ -53,6 +54,24 @@ test('buildSherpaOnnxOptionsFromEnv maps env values', () => {
   assert.equal(options.recognizerMode, 'online');
 });
 
+test('buildPythonAsrOptionsFromEnv maps env values', () => {
+  const options = buildPythonAsrOptionsFromEnv({
+    VOICE_PYTHON_EXECUTABLE: '/tmp/python',
+    VOICE_PYTHON_BRIDGE_SCRIPT: '/tmp/bridge.py',
+    VOICE_ASR_PYTHON_MODEL_DIR: '/tmp/asr',
+    VOICE_ASR_PYTHON_LANGUAGE: '中文',
+    VOICE_PYTHON_DEVICE: 'cpu',
+    VOICE_ASR_PYTHON_TIMEOUT_MS: '60000',
+  });
+
+  assert.equal(options.pythonExecutable, '/tmp/python');
+  assert.equal(options.bridgeScriptPath, '/tmp/bridge.py');
+  assert.equal(options.modelDir, '/tmp/asr');
+  assert.equal(options.language, '中文');
+  assert.equal(options.device, 'cpu');
+  assert.equal(options.timeoutMs, '60000');
+});
+
 test('createAsrProvider uses env default mock provider', async () => {
   const provider = createAsrProvider({
     env: {
@@ -68,6 +87,16 @@ test('createAsrProvider uses env default mock provider', async () => {
     ],
   });
   assert.equal(result.text, 'mock voice input');
+});
+
+test('createAsrProvider accepts python provider selection', () => {
+  const provider = createAsrProvider({
+    env: {
+      VOICE_ASR_PROVIDER: 'python',
+    },
+  });
+
+  assert.equal(typeof provider.transcribe, 'function');
 });
 
 test('prepareAudioSamples converts pcm_s16le to float32', () => {

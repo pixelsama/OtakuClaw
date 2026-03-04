@@ -1,5 +1,7 @@
 const { createSherpaOnnxAsrProvider } = require('./providers/asr/sherpaOnnxProvider');
 const { createSherpaOnnxTtsProvider } = require('./providers/tts/sherpaOnnxProvider');
+const { createPythonAsrProvider } = require('./providers/asr/pythonProvider');
+const { createPythonTtsProvider } = require('./providers/tts/pythonProvider');
 
 function createAbortError() {
   const error = new Error('aborted');
@@ -111,6 +113,33 @@ function buildSherpaOnnxTtsOptionsFromEnv(env = process.env) {
   };
 }
 
+function buildPythonAsrOptionsFromEnv(env = process.env) {
+  return {
+    pythonExecutable: env.VOICE_PYTHON_EXECUTABLE || env.VOICE_PYTHON_BIN,
+    bridgeScriptPath: env.VOICE_PYTHON_BRIDGE_SCRIPT,
+    modelDir: env.VOICE_ASR_PYTHON_MODEL_DIR || env.VOICE_ASR_PYTHON_MODEL,
+    language: env.VOICE_ASR_PYTHON_LANGUAGE,
+    device: env.VOICE_ASR_PYTHON_DEVICE || env.VOICE_PYTHON_DEVICE,
+    timeoutMs: env.VOICE_ASR_PYTHON_TIMEOUT_MS,
+  };
+}
+
+function buildPythonTtsOptionsFromEnv(env = process.env) {
+  return {
+    pythonExecutable: env.VOICE_PYTHON_EXECUTABLE || env.VOICE_PYTHON_BIN,
+    bridgeScriptPath: env.VOICE_PYTHON_BRIDGE_SCRIPT,
+    modelDir: env.VOICE_TTS_PYTHON_MODEL_DIR || env.VOICE_TTS_PYTHON_MODEL,
+    tokenizerDir: env.VOICE_TTS_PYTHON_TOKENIZER_DIR,
+    ttsMode: env.VOICE_TTS_PYTHON_MODE,
+    speaker: env.VOICE_TTS_PYTHON_SPEAKER,
+    language: env.VOICE_TTS_PYTHON_LANGUAGE,
+    instruct: env.VOICE_TTS_PYTHON_INSTRUCT,
+    device: env.VOICE_TTS_PYTHON_DEVICE || env.VOICE_PYTHON_DEVICE,
+    chunkMs: env.VOICE_TTS_PYTHON_CHUNK_MS,
+    timeoutMs: env.VOICE_TTS_PYTHON_TIMEOUT_MS,
+  };
+}
+
 function createAsrProvider({ provider = null, env = process.env } = {}) {
   const providerName = normalizeProviderName(provider) || normalizeProviderName(env.VOICE_ASR_PROVIDER) || 'mock';
 
@@ -121,6 +150,12 @@ function createAsrProvider({ provider = null, env = process.env } = {}) {
   if (providerName === 'sherpa-onnx') {
     return createSherpaOnnxAsrProvider({
       options: buildSherpaOnnxOptionsFromEnv(env),
+    });
+  }
+
+  if (providerName === 'python') {
+    return createPythonAsrProvider({
+      options: buildPythonAsrOptionsFromEnv(env),
     });
   }
 
@@ -140,6 +175,12 @@ function createTtsProvider({ provider = null, env = process.env } = {}) {
     });
   }
 
+  if (providerName === 'python') {
+    return createPythonTtsProvider({
+      options: buildPythonTtsOptionsFromEnv(env),
+    });
+  }
+
   throw new Error(`Unsupported TTS provider: ${providerName}`);
 }
 
@@ -149,4 +190,6 @@ module.exports = {
   createAbortError,
   buildSherpaOnnxOptionsFromEnv,
   buildSherpaOnnxTtsOptionsFromEnv,
+  buildPythonAsrOptionsFromEnv,
+  buildPythonTtsOptionsFromEnv,
 };
