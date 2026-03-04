@@ -344,6 +344,12 @@ function registerVoiceSessionIpc({
 
     const fingerprint = buildVoiceEnvFingerprint(env);
     if (!cachedAsrService || !cachedTtsService || cachedEnvFingerprint !== fingerprint) {
+      if (cachedAsrService && typeof cachedAsrService.dispose === 'function') {
+        Promise.resolve(cachedAsrService.dispose()).catch(() => {});
+      }
+      if (cachedTtsService && typeof cachedTtsService.dispose === 'function') {
+        Promise.resolve(cachedTtsService.dispose()).catch(() => {});
+      }
       cachedAsrService = createAsrServiceImpl({ env });
       cachedTtsService = createTtsServiceImpl({ env });
       cachedEnvFingerprint = fingerprint;
@@ -659,6 +665,15 @@ function registerVoiceSessionIpc({
       clearTtsAckWatchdog(sessionState);
     }
     sessionMap.clear();
+    if (cachedAsrService && typeof cachedAsrService.dispose === 'function') {
+      Promise.resolve(cachedAsrService.dispose()).catch(() => {});
+    }
+    if (cachedTtsService && typeof cachedTtsService.dispose === 'function') {
+      Promise.resolve(cachedTtsService.dispose()).catch(() => {});
+    }
+    cachedAsrService = null;
+    cachedTtsService = null;
+    cachedEnvFingerprint = '';
 
     ipcMain.removeHandler('voice:session:start');
     ipcMain.removeHandler('voice:audio:chunk');
