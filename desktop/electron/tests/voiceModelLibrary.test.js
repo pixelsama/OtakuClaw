@@ -122,6 +122,43 @@ test('listCatalog returns built-in model items', async () => {
   assert.ok(catalog.some((item) => item.id === 'builtin-zh-int8-zipformer-kokoro-v1'));
 });
 
+test('getRuntimeEnv infers kokoro data dir and lexicon for legacy bundles', async () => {
+  const { library, tmpDir } = await createLibraryForTest();
+
+  const modelDir = path.join(tmpDir, 'kokoro');
+  await fs.mkdir(path.join(modelDir, 'espeak-ng-data'), { recursive: true });
+  await fs.writeFile(path.join(modelDir, 'model.onnx'), '');
+  await fs.writeFile(path.join(modelDir, 'voices.bin'), '');
+  await fs.writeFile(path.join(modelDir, 'tokens.txt'), '');
+  await fs.writeFile(path.join(modelDir, 'lexicon-zh.txt'), '');
+
+  library.state = {
+    selectedBundleId: 'legacy-kokoro',
+    bundles: [
+      {
+        id: 'legacy-kokoro',
+        name: 'legacy',
+        asr: null,
+        tts: {
+          modelPath: path.join(modelDir, 'model.onnx'),
+          voicesPath: path.join(modelDir, 'voices.bin'),
+          tokensPath: path.join(modelDir, 'tokens.txt'),
+          modelKind: 'kokoro',
+          executionProvider: 'coreml',
+        },
+      },
+    ],
+  };
+
+  const runtimeEnv = library.getRuntimeEnv({});
+  assert.equal(runtimeEnv.VOICE_TTS_PROVIDER, 'sherpa-onnx');
+  assert.equal(runtimeEnv.VOICE_TTS_SHERPA_EXECUTION_PROVIDER, 'cpu');
+  assert.equal(runtimeEnv.VOICE_TTS_SHERPA_DATA_DIR, path.join(modelDir, 'espeak-ng-data'));
+  assert.equal(runtimeEnv.VOICE_TTS_SHERPA_LEXICON, path.join(modelDir, 'lexicon-zh.txt'));
+  assert.equal(runtimeEnv.VOICE_TTS_SHERPA_LANG, 'zh');
+  assert.equal(runtimeEnv.VOICE_TTS_SHERPA_ENABLE_EXTERNAL_BUFFER, '0');
+});
+
 test('installCatalogBundle rejects unknown catalog id', async () => {
   const { library } = await createLibraryForTest();
 

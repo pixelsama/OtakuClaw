@@ -75,6 +75,9 @@ function normalizeBundleRecord(bundle = {}) {
       tokensPath,
       modelKind: sanitizeOptionalText(bundle.tts.modelKind, 'kokoro'),
       executionProvider: sanitizeOptionalText(bundle.tts.executionProvider, 'cpu'),
+      lexiconPath: sanitizeOptionalText(bundle.tts.lexiconPath),
+      dataDir: sanitizeOptionalText(bundle.tts.dataDir),
+      lang: sanitizeOptionalText(bundle.tts.lang),
     };
   };
 
@@ -105,6 +108,58 @@ function normalizeState(raw = {}) {
     bundles,
     selectedBundleId,
   };
+}
+
+function resolveExistingPathCandidate(pathValue) {
+  const normalizedPath = sanitizeText(pathValue);
+  if (!normalizedPath) {
+    return '';
+  }
+
+  return fs.existsSync(normalizedPath) ? normalizedPath : '';
+}
+
+function resolveRuntimeTtsBundle(tts = {}) {
+  const normalizedTts = tts && typeof tts === 'object' ? { ...tts } : {};
+  const modelKind = sanitizeOptionalText(normalizedTts.modelKind, 'kokoro').toLowerCase();
+  const modelPath = sanitizeText(normalizedTts.modelPath);
+  const modelDir = modelPath ? path.dirname(modelPath) : '';
+
+  let dataDir = sanitizeText(normalizedTts.dataDir);
+  let lexiconPath = sanitizeText(normalizedTts.lexiconPath);
+  let lang = sanitizeText(normalizedTts.lang);
+
+  if (modelKind === 'kokoro' && modelDir) {
+    dataDir = dataDir || resolveExistingPathCandidate(path.join(modelDir, 'espeak-ng-data'));
+    if (!lexiconPath) {
+      const zhLexicon = resolveExistingPathCandidate(path.join(modelDir, 'lexicon-zh.txt'));
+      if (zhLexicon) {
+        lexiconPath = zhLexicon;
+      }
+    }
+    if (!lang && lexiconPath && path.basename(lexiconPath).toLowerCase().includes('zh')) {
+      lang = 'zh';
+    }
+  }
+
+  return {
+    ...normalizedTts,
+    dataDir: dataDir || '',
+    lexiconPath: lexiconPath || '',
+    lang: lang || '',
+  };
+}
+
+function resolveRuntimeTtsExecutionProvider(tts = {}) {
+  const modelKind = sanitizeOptionalText(tts.modelKind, 'kokoro').toLowerCase();
+  const executionProvider = sanitizeOptionalText(tts.executionProvider, 'cpu').toLowerCase();
+
+  // Work around current sherpa-onnx CoreML memory instability for kokoro on macOS.
+  if (process.platform === 'darwin' && modelKind === 'kokoro' && executionProvider === 'coreml') {
+    return 'cpu';
+  }
+
+  return executionProvider || 'cpu';
 }
 
 function createBundleId(bundleName) {
@@ -469,6 +524,12 @@ class VoiceModelLibrary {
     const ttsTokensPath = catalogEntry.tts
       ? path.join(bundleDir, 'tts', catalogEntry.tts.extractedDir, catalogEntry.tts.tokensRelativePath)
       : '';
+    const ttsDataDirPath = catalogEntry.tts?.dataDirRelativePath
+      ? path.join(bundleDir, 'tts', catalogEntry.tts.extractedDir, catalogEntry.tts.dataDirRelativePath)
+      : '';
+    const ttsLexiconPath = catalogEntry.tts?.lexiconRelativePath
+      ? path.join(bundleDir, 'tts', catalogEntry.tts.extractedDir, catalogEntry.tts.lexiconRelativePath)
+      : '';
 
     if (catalogEntry.asr) {
       await ensurePathExists(
@@ -498,6 +559,20 @@ class VoiceModelLibrary {
         'voice_model_catalog_file_missing',
         `TTS tokens file not found after extraction: ${ttsTokensPath}`,
       );
+      if (catalogEntry.tts.dataDirRelativePath) {
+        await ensurePathExists(
+          ttsDataDirPath,
+          'voice_model_catalog_file_missing',
+          `TTS data dir not found after extraction: ${ttsDataDirPath}`,
+        );
+      }
+      if (catalogEntry.tts.lexiconRelativePath) {
+        await ensurePathExists(
+          ttsLexiconPath,
+          'voice_model_catalog_file_missing',
+          `TTS lexicon file not found after extraction: ${ttsLexiconPath}`,
+        );
+      }
     }
 
     const bundleRecord = normalizeBundleRecord({
@@ -519,6 +594,9 @@ class VoiceModelLibrary {
             tokensPath: ttsTokensPath,
             modelKind: sanitizeOptionalText(catalogEntry.tts.modelKind, 'kokoro'),
             executionProvider: resolveCatalogExecutionProvider(catalogEntry.tts.executionProvider, 'cpu'),
+            dataDir: sanitizeOptionalText(ttsDataDirPath),
+            lexiconPath: sanitizeOptionalText(ttsLexiconPath),
+            lang: sanitizeOptionalText(catalogEntry.tts.lang),
           }
         : null,
     });
@@ -588,12 +666,25 @@ class VoiceModelLibrary {
     }
 
     if (selectedBundle.tts) {
+      const runtimeTts = resolveRuntimeTtsBundle(selectedBundle.tts);
       env.VOICE_TTS_PROVIDER = 'sherpa-onnx';
-      env.VOICE_TTS_SHERPA_MODEL_KIND = selectedBundle.tts.modelKind;
-      env.VOICE_TTS_SHERPA_MODEL = selectedBundle.tts.modelPath;
-      env.VOICE_TTS_SHERPA_VOICES = selectedBundle.tts.voicesPath;
-      env.VOICE_TTS_SHERPA_TOKENS = selectedBundle.tts.tokensPath;
-      env.VOICE_TTS_SHERPA_EXECUTION_PROVIDER = selectedBundle.tts.executionProvider;
+      env.VOICE_TTS_SHERPA_MODEL_KIND = runtimeTts.modelKind;
+      env.VOICE_TTS_SHERPA_MODEL = runtimeTts.modelPath;
+      env.VOICE_TTS_SHERPA_VOICES = runtimeTts.voicesPath;
+      env.VOICE_TTS_SHERPA_TOKENS = runtimeTts.tokensPath;
+      env.VOICE_TTS_SHERPA_EXECUTION_PROVIDER = resolveRuntimeTtsExecutionProvider(runtimeTts);
+      if (runtimeTts.lexiconPath) {
+        env.VOICE_TTS_SHERPA_LEXICON = runtimeTts.lexiconPath;
+      }
+      if (runtimeTts.dataDir) {
+        env.VOICE_TTS_SHERPA_DATA_DIR = runtimeTts.dataDir;
+      }
+      if (runtimeTts.lang) {
+        env.VOICE_TTS_SHERPA_LANG = runtimeTts.lang;
+      }
+      if (!sanitizeText(env.VOICE_TTS_SHERPA_ENABLE_EXTERNAL_BUFFER)) {
+        env.VOICE_TTS_SHERPA_ENABLE_EXTERNAL_BUFFER = '0';
+      }
     }
 
     if (selectedBundle.asr && selectedBundle.tts && !sanitizeText(env.VOICE_TTS_AUTO_ON_ASR_FINAL)) {

@@ -268,9 +268,61 @@ test('voice tts backpressure pauses and resumes chunk delivery', async () => {
 
   const committed = await commitPromise;
   assert.equal(committed.ok, true);
-  assert.equal(emitted.filter((event) => event.type === 'tts-chunk').length, 3);
+  const ttsChunkEvents = emitted.filter((event) => event.type === 'tts-chunk');
+  assert.equal(ttsChunkEvents.length, 3);
+  assert.equal(Buffer.isBuffer(ttsChunkEvents[0].audioChunk), false);
+  assert.ok(ttsChunkEvents[0].audioChunk instanceof Uint8Array);
   assert.equal(flowEvents[0]?.action, 'pause');
   assert.equal(flowEvents[1]?.action, 'resume');
+});
+
+test('voice session survives event emitter exception during tts chunk delivery', async () => {
+  const ipcMain = createIpcMainMock();
+  const emitted = [];
+  let throwOnFirstTtsChunk = true;
+
+  registerVoiceSessionIpc({
+    ipcMain,
+    emitEvent: (event) => {
+      emitted.push(event);
+      if (event.type === 'tts-chunk' && throwOnFirstTtsChunk) {
+        throwOnFirstTtsChunk = false;
+        throw new Error('renderer_send_failed');
+      }
+    },
+    autoTtsOnAsrFinal: true,
+    createAsrServiceImpl: () => ({
+      transcribe: async () => ({ text: 'hello' }),
+    }),
+    createTtsServiceImpl: () => ({
+      synthesize: async ({ onChunk }) => {
+        await onChunk({
+          audioChunk: Buffer.from([1, 2, 3, 4]),
+          codec: 'pcm_s16le',
+          sampleRate: 24000,
+        });
+      },
+    }),
+  });
+
+  await ipcMain.invoke('voice:session:start', { sessionId: 's-emit-err', mode: 'vad' });
+  await ipcMain.invoke('voice:audio:chunk', {
+    sessionId: 's-emit-err',
+    seq: 1,
+    chunkId: 1,
+    pcmChunk: Buffer.from([1, 2]),
+    sampleRate: 16000,
+    channels: 1,
+    sampleFormat: 'pcm_s16le',
+    isSpeech: true,
+  });
+
+  const committed = await ipcMain.invoke('voice:input:commit', {
+    sessionId: 's-emit-err',
+    finalSeq: 1,
+  });
+  assert.equal(committed.ok, true);
+  assert.equal(emitted.some((event) => event.type === 'done' && event.stage === 'transcribing'), true);
 });
 
 test('voice tts emits timeout error when playback ack is missing', async () => {

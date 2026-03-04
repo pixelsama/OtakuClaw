@@ -69,6 +69,46 @@ function normalizePositiveInteger(value, fallback) {
   return Math.floor(parsed);
 }
 
+function cloneBinaryChunk(value) {
+  if (Buffer.isBuffer(value)) {
+    return Uint8Array.from(value);
+  }
+
+  if (value instanceof Uint8Array) {
+    return Uint8Array.from(value);
+  }
+
+  if (value instanceof ArrayBuffer) {
+    return new Uint8Array(value.slice(0));
+  }
+
+  if (ArrayBuffer.isView(value)) {
+    const view = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    return Uint8Array.from(view);
+  }
+
+  if (Array.isArray(value)) {
+    return Uint8Array.from(value);
+  }
+
+  return new Uint8Array(0);
+}
+
+function toSafeVoiceEvent(event) {
+  if (!event || typeof event !== 'object') {
+    return event;
+  }
+
+  if (event.type === 'tts-chunk' && Object.prototype.hasOwnProperty.call(event, 'audioChunk')) {
+    return {
+      ...event,
+      audioChunk: cloneBinaryChunk(event.audioChunk),
+    };
+  }
+
+  return event;
+}
+
 function isTruthyEnv(value, fallback = false) {
   if (typeof value === 'boolean') {
     return value;
@@ -247,7 +287,23 @@ function registerVoiceSessionIpc({
   let cachedEnvFingerprint = '';
 
   const sendEvent = (event) => {
-    emitEvent(event);
+    try {
+      emitEvent(toSafeVoiceEvent(event));
+    } catch (error) {
+      console.error('Failed to emit voice event:', error);
+    }
+  };
+
+  const sendFlowControl = (event) => {
+    if (typeof emitFlowControl !== 'function') {
+      return;
+    }
+
+    try {
+      emitFlowControl(event);
+    } catch (error) {
+      console.error('Failed to emit voice flow-control event:', error);
+    }
   };
 
   const sendState = (sessionId, status) => {
@@ -569,22 +625,20 @@ function registerVoiceSessionIpc({
       setTtsFlowPaused(sessionState, false);
     }
 
-    if (typeof emitFlowControl === 'function') {
-      if (shouldPause) {
-        emitFlowControl({
-          type: 'tts-flow-control',
-          sessionId,
-          action: 'pause',
-          bufferedMs,
-        });
-      } else if (shouldResume) {
-        emitFlowControl({
-          type: 'tts-flow-control',
-          sessionId,
-          action: 'resume',
-          bufferedMs,
-        });
-      }
+    if (shouldPause) {
+      sendFlowControl({
+        type: 'tts-flow-control',
+        sessionId,
+        action: 'pause',
+        bufferedMs,
+      });
+    } else if (shouldResume) {
+      sendFlowControl({
+        type: 'tts-flow-control',
+        sessionId,
+        action: 'resume',
+        bufferedMs,
+      });
     }
 
     return {
