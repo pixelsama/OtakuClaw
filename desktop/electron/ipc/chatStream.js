@@ -10,6 +10,13 @@ function registerChatStreamIpc({
   backendManager = createChatBackendManager(),
 }) {
   const streamMap = new Map();
+  const normalizeInputSource = (value) => {
+    if (typeof value !== 'string') {
+      return 'text-composer';
+    }
+    const normalized = value.trim();
+    return normalized || 'text-composer';
+  };
 
   const sendEvent = (streamId, type, payload = {}) => {
     emitEvent({
@@ -41,16 +48,22 @@ function registerChatStreamIpc({
 
   const runStream = async (streamId, request, state) => {
     let source = 'openclaw';
+    const inputSource = normalizeInputSource(request?.options?.source);
     const buildTurnPayload = (payload = {}) => ({
       sessionId: request.sessionId,
       turnId: streamId,
+      inputSource,
       ...payload,
     });
     const segmentEmitter = createChatSegmentEmitter({
       streamId,
       sessionId: request.sessionId,
       emitReady: (payload) => {
-        sendEvent(streamId, 'segment-ready', payload);
+        sendEvent(
+          streamId,
+          'segment-ready',
+          buildTurnPayload(payload),
+        );
       },
     });
 
@@ -108,17 +121,22 @@ function registerChatStreamIpc({
 
           if (event.type === 'text-delta') {
             const payload = event.payload || {};
-            sendEvent(streamId, 'text-delta', payload);
+            sendEvent(
+              streamId,
+              'text-delta',
+              buildTurnPayload(payload),
+            );
             if (typeof payload.content === 'string' && payload.content) {
               segmentEmitter.ingestDelta(payload.content, {
                 source: payload.source || source,
+                inputSource,
               });
             }
           }
         },
       });
 
-      segmentEmitter.flushRemaining({ source });
+      segmentEmitter.flushRemaining({ source, inputSource });
       completeStream(
         streamId,
         buildTurnPayload({ source }),

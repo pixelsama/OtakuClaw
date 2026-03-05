@@ -123,8 +123,14 @@ const handleDesktopEvent = (streamId, type, payload, pending) => {
   }
 };
 
-const shouldAdoptDesktopEvent = (streamId, type) => {
-  if (!streamId || desktopPendingMap.has(streamId)) {
+export function shouldAutoAdoptDesktopStreamEvent({
+  streamId,
+  type,
+  payload,
+  hasPending = false,
+  activeStreamId = null,
+} = {}) {
+  if (!streamId || hasPending) {
     return false;
   }
 
@@ -132,12 +138,27 @@ const shouldAdoptDesktopEvent = (streamId, type) => {
     return false;
   }
 
-  if (activeDesktopStreamId && activeDesktopStreamId !== streamId) {
+  if (activeStreamId && activeStreamId !== streamId) {
+    return false;
+  }
+
+  const inputSource = typeof payload?.inputSource === 'string' ? payload.inputSource.trim() : '';
+  // Only auto-adopt background voice-asr streams. Text streams must bind explicitly via start().
+  if (inputSource !== 'voice-asr') {
     return false;
   }
 
   return true;
-};
+}
+
+const shouldAdoptDesktopEvent = (streamId, type, payload) =>
+  shouldAutoAdoptDesktopStreamEvent({
+    streamId,
+    type,
+    payload,
+    hasPending: desktopPendingMap.has(streamId),
+    activeStreamId: activeDesktopStreamId,
+  });
 
 const createAdoptedDesktopPending = (streamId) => ({
   adopted: true,
@@ -208,7 +229,7 @@ const ensureDesktopEventListener = () => {
 
     const pending = desktopPendingMap.get(streamId);
     if (!pending) {
-      if (shouldAdoptDesktopEvent(streamId, type)) {
+      if (shouldAdoptDesktopEvent(streamId, type, payload)) {
         const adoptedPending = createAdoptedDesktopPending(streamId);
         desktopPendingMap.set(streamId, adoptedPending);
         activeDesktopStreamId = streamId;

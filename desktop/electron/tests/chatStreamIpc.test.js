@@ -46,9 +46,12 @@ test('chat stream emits text-delta and done events', async () => {
     ['text-delta', 'segment-ready', 'done'],
   );
   assert.equal(emitted[0].payload.content, 'hello');
+  assert.equal(emitted[0].payload.inputSource, 'text-composer');
   assert.equal(emitted[1].payload.text, 'hello');
+  assert.equal(emitted[1].payload.inputSource, 'text-composer');
   assert.equal(emitted[2].payload.sessionId, 's1');
   assert.equal(emitted[2].payload.turnId, emitted[2].streamId);
+  assert.equal(emitted[2].payload.inputSource, 'text-composer');
 });
 
 test('chat stream abort emits done with aborted flag', async () => {
@@ -175,4 +178,32 @@ test('chat stream segment-ready follows sentence boundaries across deltas', asyn
     .filter((event) => event.type === 'segment-ready')
     .map((event) => event.payload.text);
   assert.deepEqual(segments, ['你好。', '世界！']);
+});
+
+test('chat stream forwards request input source metadata', async () => {
+  const ipcMain = createIpcMainMock();
+  const emitted = [];
+
+  registerChatStreamIpc({
+    ipcMain,
+    getSettings: () => ({ baseUrl: 'http://example.com', token: 'x', agentId: 'main' }),
+    emitEvent: (event) => emitted.push(event),
+    startStream: async ({ onEvent }) => {
+      onEvent({ type: 'text-delta', payload: { content: 'voice line' } });
+      onEvent({ type: 'done', payload: { source: 'nanobot' } });
+    },
+  });
+
+  await ipcMain.invoke('chat:stream:start', {
+    sessionId: 'voice-session',
+    content: 'hello',
+    options: { source: 'voice-asr' },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const deltaEvent = emitted.find((event) => event.type === 'text-delta');
+  const doneEvent = emitted.find((event) => event.type === 'done');
+  assert.equal(deltaEvent?.payload?.inputSource, 'voice-asr');
+  assert.equal(doneEvent?.payload?.inputSource, 'voice-asr');
 });
