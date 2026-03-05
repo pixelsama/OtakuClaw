@@ -34,6 +34,14 @@
   background: var(--floating-button-bg, rgba(255, 255, 255, 0.85)) !important;
 }
 
+.edge-composer .voice-toggle.is-active {
+  background: rgba(235, 253, 241, 0.92) !important;
+}
+
+:root[data-theme-mode='dark'] .edge-composer .voice-toggle.is-active {
+  background: rgba(34, 70, 46, 0.92) !important;
+}
+
 .edge-composer-panel {
   position: absolute;
   right: 0;

@@ -3,76 +3,23 @@ import {
   Alert,
   Box,
   Button,
-  Chip,
   MenuItem,
   Stack,
   TextField,
 } from '@mui/material';
 import { useI18n } from '../../i18n/I18nContext.jsx';
-import { useSileroVad } from '../../hooks/voice/useSileroVad.js';
-import { useVoiceSession } from '../../hooks/voice/useVoiceSession.js';
-import { useVoiceTtsPlayback } from '../../hooks/voice/useVoiceTtsPlayback.js';
 import { desktopBridge } from '../../services/desktopBridge.js';
-
-const STATUS_CHIP_COLOR = {
-  idle: 'default',
-  listening: 'info',
-  transcribing: 'warning',
-  speaking: 'success',
-  error: 'error',
-};
-
-function clampToInt16(sample) {
-  const clamped = Math.max(-1, Math.min(1, sample));
-  return clamped < 0 ? Math.round(clamped * 0x8000) : Math.round(clamped * 0x7fff);
-}
-
-function splitFloat32ToPcmChunks(audioFloat32, frameSamples = 320) {
-  if (!(audioFloat32 instanceof Float32Array) || audioFloat32.length === 0) {
-    return [];
-  }
-
-  const int16 = new Int16Array(audioFloat32.length);
-  for (let i = 0; i < audioFloat32.length; i += 1) {
-    int16[i] = clampToInt16(audioFloat32[i]);
-  }
-
-  const chunks = [];
-  for (let offset = 0; offset < int16.length; offset += frameSamples) {
-    const segment = int16.slice(offset, Math.min(offset + frameSamples, int16.length));
-    if (!segment.length) {
-      continue;
-    }
-
-    const pcmChunk = new Uint8Array(segment.length * 2);
-    const view = new DataView(pcmChunk.buffer);
-    for (let i = 0; i < segment.length; i += 1) {
-      view.setInt16(i * 2, segment[i], true);
-    }
-    chunks.push(pcmChunk);
-  }
-
-  return chunks;
-}
 
 export default function VoiceSettingsPanel({ desktopMode = false, onOpenDownloadCenter }) {
   const { t } = useI18n();
-  const seqRef = useRef(0);
-  const chunkIdRef = useRef(0);
-  const speechQueueRef = useRef(Promise.resolve());
-  const runEpochRef = useRef(0);
   const mountedRef = useRef(true);
-  const stopPlaybackRef = useRef(null);
-  const stopVadRef = useRef(null);
-  const stopSessionRef = useRef(null);
   const progressEstimatorRef = useRef({
     key: '',
     lastBytes: 0,
     lastAtMs: 0,
     speedBytesPerSec: 0,
   });
-  const [capturedFrames, setCapturedFrames] = useState(0);
-  const [isProcessingSpeech, setIsProcessingSpeech] = useState(false);
+
   const [modelBundles, setModelBundles] = useState([]);
   const [selectedBundleId, setSelectedBundleId] = useState('');
   const [catalogItems, setCatalogItems] = useState([]);
@@ -83,46 +30,6 @@ export default function VoiceSettingsPanel({ desktopMode = false, onOpenDownload
   const [modelFeedback, setModelFeedback] = useState('');
   const [modelError, setModelError] = useState('');
 
-  const {
-    sessionId,
-    status,
-    active,
-    lastPartialText,
-    lastFinalText,
-    lastError,
-    flowControl,
-    startSession,
-    sendAudioChunk,
-    commitInput,
-    stopSession,
-    stopTts,
-    sendPlaybackAck,
-    onEvent,
-  } = useVoiceSession({ desktopMode });
-
-  const {
-    handleVoiceEvent,
-    stopPlayback,
-    isPlaying: isPlayingTts,
-    bufferedMs: ttsBufferedMs,
-    lastCodec: ttsCodec,
-    playbackError,
-  } = useVoiceTtsPlayback({
-    desktopMode,
-    sessionId,
-    sendPlaybackAck,
-  });
-
-  const {
-    isLoading: isVadLoading,
-    isListening: isVadListening,
-    isSpeaking: isVadSpeaking,
-    vadError,
-    start: startVad,
-    stop: stopVad,
-  } = useSileroVad();
-
-  const statusColor = useMemo(() => STATUS_CHIP_COLOR[status] || 'default', [status]);
   const selectedBundle = useMemo(
     () => modelBundles.find((item) => item.id === selectedBundleId) || null,
     [modelBundles, selectedBundleId],
@@ -138,45 +45,42 @@ export default function VoiceSettingsPanel({ desktopMode = false, onOpenDownload
     return modelBundles.some((bundle) => bundle.name === selectedCatalogItem.name);
   }, [modelBundles, selectedCatalogItem]);
 
-  const loadVoiceModels = useCallback(
-    async ({ silent = false } = {}) => {
-      if (!desktopMode) {
+  const loadVoiceModels = useCallback(async () => {
+    if (!desktopMode) {
+      return;
+    }
+
+    if (mountedRef.current) {
+      setModelsLoading(true);
+    }
+
+    try {
+      const result = await desktopBridge.voiceModels.list();
+      if (!mountedRef.current) {
         return;
       }
 
-      if (!silent && mountedRef.current) {
-        setModelsLoading(true);
+      if (!result?.ok) {
+        setModelError(result?.error?.message || '读取语音模型列表失败。');
+        setModelBundles([]);
+        setSelectedBundleId('');
+        return;
       }
 
-      try {
-        const result = await desktopBridge.voiceModels.list();
-        if (!mountedRef.current) {
-          return;
-        }
-
-        if (!result?.ok) {
-          setModelError(result?.error?.message || '读取语音模型列表失败。');
-          setModelBundles([]);
-          setSelectedBundleId('');
-          return;
-        }
-
-        setModelBundles(Array.isArray(result.bundles) ? result.bundles : []);
-        setSelectedBundleId(typeof result.selectedBundleId === 'string' ? result.selectedBundleId : '');
-      } catch (error) {
-        if (mountedRef.current) {
-          setModelError(error?.message || '读取语音模型列表失败。');
-          setModelBundles([]);
-          setSelectedBundleId('');
-        }
-      } finally {
-        if (mountedRef.current) {
-          setModelsLoading(false);
-        }
+      setModelBundles(Array.isArray(result.bundles) ? result.bundles : []);
+      setSelectedBundleId(typeof result.selectedBundleId === 'string' ? result.selectedBundleId : '');
+    } catch (error) {
+      if (mountedRef.current) {
+        setModelError(error?.message || '读取语音模型列表失败。');
+        setModelBundles([]);
+        setSelectedBundleId('');
       }
-    },
-    [desktopMode],
-  );
+    } finally {
+      if (mountedRef.current) {
+        setModelsLoading(false);
+      }
+    }
+  }, [desktopMode]);
 
   const loadModelCatalog = useCallback(async () => {
     if (!desktopMode) {
@@ -298,147 +202,6 @@ export default function VoiceSettingsPanel({ desktopMode = false, onOpenDownload
     }
   }, [desktopMode, onOpenDownloadCenter, selectedCatalogId]);
 
-  const enqueueSpeechTask = useCallback((task) => {
-    speechQueueRef.current = speechQueueRef.current
-      .then(async () => {
-        if (!mountedRef.current) {
-          return;
-        }
-
-        setIsProcessingSpeech(true);
-        try {
-          await task();
-        } finally {
-          if (mountedRef.current) {
-            setIsProcessingSpeech(false);
-          }
-        }
-      })
-      .catch((error) => {
-        console.error('Voice speech pipeline failed:', error);
-        if (mountedRef.current) {
-          setIsProcessingSpeech(false);
-        }
-      });
-
-    return speechQueueRef.current;
-  }, []);
-
-  const handleSpeechEnd = useCallback(
-    async (audioFloat32, epoch) =>
-      enqueueSpeechTask(async () => {
-        if (epoch !== runEpochRef.current) {
-          return;
-        }
-
-        const chunks = splitFloat32ToPcmChunks(audioFloat32, 320);
-        if (!chunks.length) {
-          return;
-        }
-
-        for (const pcmChunk of chunks) {
-          if (epoch !== runEpochRef.current) {
-            return;
-          }
-
-          seqRef.current += 1;
-          chunkIdRef.current += 1;
-          if (mountedRef.current) {
-            setCapturedFrames((value) => value + 1);
-          }
-
-          const sent = await sendAudioChunk({
-            seq: seqRef.current,
-            chunkId: chunkIdRef.current,
-            pcmChunk,
-            sampleRate: 16000,
-            channels: 1,
-            sampleFormat: 'pcm_s16le',
-            isSpeech: true,
-          });
-
-          if (!sent?.ok) {
-            return;
-          }
-        }
-
-        if (epoch !== runEpochRef.current) {
-          return;
-        }
-
-        await commitInput({
-          finalSeq: seqRef.current,
-        });
-      }),
-    [commitInput, enqueueSpeechTask, sendAudioChunk],
-  );
-
-  const handleStart = useCallback(async () => {
-    await stopPlayback({
-      emitFinalAck: false,
-      resetSeq: true,
-    });
-
-    const started = await startSession({ mode: 'vad' });
-    if (!started?.ok) {
-      return;
-    }
-
-    seqRef.current = 0;
-    chunkIdRef.current = 0;
-    setCapturedFrames(0);
-    const nextEpoch = runEpochRef.current + 1;
-    runEpochRef.current = nextEpoch;
-
-    const vadStarted = await startVad({
-      onSpeechEnd: async (audioFloat32) => handleSpeechEnd(audioFloat32, nextEpoch),
-    });
-
-    if (!vadStarted?.ok) {
-      runEpochRef.current += 1;
-      await stopSession({ reason: 'vad_start_failed' });
-    }
-  }, [handleSpeechEnd, startSession, startVad, stopPlayback, stopSession]);
-
-  const handleCommit = useCallback(async () => {
-    await enqueueSpeechTask(async () => {
-      if (!active) {
-        return;
-      }
-
-      await commitInput({
-        finalSeq: seqRef.current,
-      });
-    });
-  }, [active, commitInput, enqueueSpeechTask]);
-
-  const handleStop = useCallback(async () => {
-    runEpochRef.current += 1;
-    await stopPlayback({
-      emitFinalAck: true,
-      resetSeq: true,
-    });
-    await stopVad();
-    await stopSession({ reason: 'manual' });
-    seqRef.current = 0;
-    chunkIdRef.current = 0;
-    setCapturedFrames(0);
-  }, [stopPlayback, stopSession, stopVad]);
-
-  const handleStopTts = useCallback(async () => {
-    await stopPlayback({
-      emitFinalAck: true,
-      resetSeq: false,
-    });
-    await stopTts({ reason: 'manual' });
-  }, [stopPlayback, stopTts]);
-
-  useEffect(() => {
-    stopPlaybackRef.current = stopPlayback;
-    stopVadRef.current = stopVad;
-    stopSessionRef.current = stopSession;
-  }, [stopPlayback, stopSession, stopVad]);
-
   useEffect(() => {
     void loadVoiceModels();
     void loadModelCatalog();
@@ -532,29 +295,17 @@ export default function VoiceSettingsPanel({ desktopMode = false, onOpenDownload
   }, [desktopMode]);
 
   useEffect(() => {
-    return onEvent(handleVoiceEvent);
-  }, [handleVoiceEvent, onEvent]);
-
-  useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      runEpochRef.current += 1;
-      void stopPlaybackRef.current?.({
-        emitFinalAck: false,
-        resetSeq: true,
-      });
-      void stopVadRef.current?.();
-      void stopSessionRef.current?.({ reason: 'panel_unmount' });
     };
   }, []);
 
   return (
     <Stack spacing={2}>
       <Box sx={{ fontWeight: 600 }}>{t('voice.title')}</Box>
-      <Alert severity="info">{t('voice.vadHint')}</Alert>
       {!desktopMode && <Alert severity="warning">{t('voice.desktopOnly')}</Alert>}
-      {desktopMode && <Alert severity="info">{t('voice.liveCaptureHint')}</Alert>}
+
       {desktopMode && (
         <Stack spacing={1.5} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5 }}>
           <Box sx={{ fontWeight: 600 }}>本地语音模型管理</Box>
@@ -648,83 +399,6 @@ export default function VoiceSettingsPanel({ desktopMode = false, onOpenDownload
           {!!modelFeedback && <Alert severity="success">{modelFeedback}</Alert>}
         </Stack>
       )}
-
-      <Stack direction="row" spacing={1} alignItems="center">
-        <Chip size="small" color={statusColor} label={`${t('voice.status')}: ${status}`} />
-        <Chip
-          size="small"
-          color={isVadSpeaking ? 'warning' : isVadListening ? 'success' : 'default'}
-          label={
-            isVadLoading
-              ? t('voice.vadLoading')
-              : isVadSpeaking
-                ? t('voice.vadSpeaking')
-                : isVadListening
-                  ? t('voice.vadListening')
-                  : t('voice.vadStopped')
-          }
-        />
-      </Stack>
-
-      <TextField
-        label={t('voice.sessionId')}
-        value={sessionId}
-        placeholder={t('voice.sessionIdPlaceholder')}
-        disabled
-        fullWidth
-      />
-      <TextField label={t('voice.vadModel')} value="Silero VAD v5" disabled fullWidth />
-      <TextField
-        label={t('voice.flowControl')}
-        value={`${flowControl.action} (${flowControl.bufferedMs}ms)`}
-        disabled
-        fullWidth
-      />
-      <TextField
-        label="TTS Playback"
-        value={`${isPlayingTts ? 'playing' : 'idle'} (${Math.floor(ttsBufferedMs)}ms / ${ttsCodec || 'n/a'})`}
-        disabled
-        fullWidth
-      />
-      <TextField label={t('voice.capturedFrames')} value={capturedFrames} disabled fullWidth />
-
-      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-        <Button
-          variant="contained"
-          onClick={handleStart}
-          disabled={!desktopMode || active || isVadLoading || isProcessingSpeech}
-        >
-          {t('voice.startSession')}
-        </Button>
-        <Button variant="outlined" onClick={handleCommit} disabled={!desktopMode || !active || isProcessingSpeech}>
-          {t('voice.commitInput')}
-        </Button>
-        <Button variant="outlined" color="warning" onClick={handleStopTts} disabled={!desktopMode || !active}>
-          {t('voice.stopTts')}
-        </Button>
-        <Button variant="text" color="error" onClick={handleStop} disabled={!desktopMode || !active}>
-          {t('voice.stopSession')}
-        </Button>
-      </Stack>
-
-      <TextField
-        label={t('voice.partialText')}
-        value={lastPartialText}
-        placeholder={t('voice.empty')}
-        disabled
-        fullWidth
-      />
-      <TextField
-        label={t('voice.finalText')}
-        value={lastFinalText}
-        placeholder={t('voice.empty')}
-        disabled
-        fullWidth
-      />
-
-      {!!lastError && <Alert severity="error">{lastError}</Alert>}
-      {!!vadError && <Alert severity="warning">{vadError}</Alert>}
-      {!!playbackError && <Alert severity="warning">{playbackError}</Alert>}
     </Stack>
   );
 }

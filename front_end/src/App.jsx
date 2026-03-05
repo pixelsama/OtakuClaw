@@ -13,6 +13,7 @@ import { usePetHoverPassthrough } from './hooks/pet/usePetHoverPassthrough.js';
 import { usePetCursorTracking } from './hooks/pet/usePetCursorTracking.js';
 import { useChatBackendSettings } from './hooks/settings/useOpenClawSettings.js';
 import { usePlatformInfo } from './hooks/window/usePlatformInfo.js';
+import { useVoiceMicToggle } from './hooks/voice/useVoiceMicToggle.js';
 import { ModeProvider, MODE_PET, MODE_WINDOW, useModeContext } from './mode/ModeContext.jsx';
 import MainShell from './shells/MainShell.jsx';
 import PetShell from './shells/PetShell.jsx';
@@ -127,6 +128,25 @@ function AppContent({ desktopMode }) {
     cancelStreaming,
     isStreaming,
   });
+  const voiceMicToggle = useVoiceMicToggle({
+    desktopMode,
+    chatSessionId: 'text-composer',
+  });
+  const textComposerWithVoiceProps = useMemo(
+    () => ({
+      ...textComposerProps,
+      voiceEnabled: voiceMicToggle.isEnabled,
+      voiceToggleDisabled: !voiceMicToggle.isAvailable || voiceMicToggle.isBusy,
+      onToggleVoice: voiceMicToggle.toggleVoice,
+    }),
+    [
+      textComposerProps,
+      voiceMicToggle.isAvailable,
+      voiceMicToggle.isBusy,
+      voiceMicToggle.isEnabled,
+      voiceMicToggle.toggleVoice,
+    ],
+  );
 
   const handleModelLoaded = useCallback(() => {
     setModelLoaded(true);
@@ -245,7 +265,7 @@ function AppContent({ desktopMode }) {
           onSwitchToWindowMode={() => setDesktopWindowMode(MODE_WINDOW)}
           bindPetHover={bindPetHover}
           setPetHover={setPetHover}
-          textComposerProps={textComposerProps}
+          textComposerProps={textComposerWithVoiceProps}
         />
       ) : (
         <MainShell
@@ -261,7 +281,7 @@ function AppContent({ desktopMode }) {
           onOpenConfigPanel={openConfigPanel}
           onSwitchToPetMode={() => setDesktopWindowMode(MODE_PET)}
           onWindowControl={controlWindow}
-          textComposerProps={textComposerProps}
+          textComposerProps={textComposerWithVoiceProps}
         />
       )}
 

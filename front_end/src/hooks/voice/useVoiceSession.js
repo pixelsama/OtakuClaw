@@ -11,6 +11,14 @@ function createSessionId() {
   return `voice-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 }
 
+function normalizeRequestedSessionId(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.trim();
+}
+
 function normalizeVoiceError(error) {
   if (typeof error === 'string' && error) {
     return error;
@@ -113,13 +121,14 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
   }, [desktopMode, setSessionIdWithRef]);
 
   const startSession = useCallback(
-    async ({ mode = 'vad' } = {}) => {
+    async ({ mode = 'vad', sessionId: requestedSessionId = '' } = {}) => {
       if (!desktopMode) {
         setLastError('Voice mode requires desktop runtime.');
         return { ok: false, reason: 'desktop_only' };
       }
 
-      const nextSessionId = createSessionId();
+      const preferredSessionId = normalizeRequestedSessionId(requestedSessionId);
+      const nextSessionId = preferredSessionId || createSessionId();
       setLastError('');
       setLastPartialText('');
       setLastFinalText('');
@@ -134,7 +143,7 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
         return result;
       }
 
-      setSessionIdWithRef(nextSessionId);
+      setSessionIdWithRef(result.sessionId || nextSessionId);
       setStatus(result.status || 'listening');
       return result;
     },

@@ -124,6 +124,8 @@ const MESSAGES = {
 
     'composer.placeholder': '输入你想让她说的话...',
     'composer.sendTextTitle': '发送文字消息',
+    'composer.voiceEnableTitle': '开启语音输入',
+    'composer.voiceDisableTitle': '关闭语音输入',
     'composer.emptyInput': '请输入要发送的内容。',
     'composer.collapse': '收起',
     'composer.send': '发送',
@@ -331,6 +333,8 @@ const MESSAGES = {
 
     'composer.placeholder': 'Type what you want her to say...',
     'composer.sendTextTitle': 'Send text message',
+    'composer.voiceEnableTitle': 'Enable voice input',
+    'composer.voiceDisableTitle': 'Disable voice input',
     'composer.emptyInput': 'Please enter content to send.',
     'composer.collapse': 'Collapse',
     'composer.send': 'Send',
