@@ -39,6 +39,15 @@ function AppContent({ desktopMode }) {
   const { subtitleText, appendDelta, setSegmentText, finishStream, clearSubtitle, beginStream } = useSubtitleFeed();
   const { startStreaming, cancelStreaming, onDelta, onSegmentReady, onDone, onError, isStreaming } =
     useStreamingChat();
+  const onVoiceEvent = useCallback(
+    (handler) => {
+      if (!desktopMode || typeof handler !== 'function') {
+        return () => {};
+      }
+      return desktopBridge.voice.onEvent(handler);
+    },
+    [desktopMode],
+  );
 
   const normalizeError = useCallback((error) => normalizeErrorMessage(error, t), [t]);
   const {
@@ -138,6 +147,7 @@ function AppContent({ desktopMode }) {
     onSegmentReady,
     onDone,
     onError,
+    onVoiceEvent,
     normalizeError,
     onComposerError: setComposerExternalError,
   });
