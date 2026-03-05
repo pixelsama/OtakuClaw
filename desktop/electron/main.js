@@ -311,6 +311,42 @@ async function bootstrap() {
     getSettings: () => settingsStore.getForMain(),
     backendManager: chatBackendManager,
     emitEvent: (payload) => {
+      if (disposeVoiceSessionHandlers && typeof disposeVoiceSessionHandlers.enqueueSegmentReady === 'function') {
+        if (payload?.type === 'segment-ready' && payload?.payload) {
+          try {
+            disposeVoiceSessionHandlers.enqueueSegmentReady(payload.payload);
+          } catch (error) {
+            console.warn('Failed to enqueue segment-ready for voice playback:', error);
+          }
+        } else if (
+          typeof disposeVoiceSessionHandlers.markTurnDone === 'function'
+          && (payload?.type === 'done' || payload?.type === 'error')
+        ) {
+          try {
+            const eventPayload = payload?.payload || {};
+            const sessionId = typeof eventPayload.sessionId === 'string' ? eventPayload.sessionId : '';
+            const turnId =
+              typeof eventPayload.turnId === 'string'
+                ? eventPayload.turnId
+                : typeof payload?.streamId === 'string'
+                  ? payload.streamId
+                  : '';
+            if (sessionId && turnId) {
+              disposeVoiceSessionHandlers.markTurnDone({
+                sessionId,
+                turnId,
+                aborted:
+                  payload.type === 'error'
+                  || Boolean(eventPayload.aborted),
+                reason: payload.type === 'error' ? 'turn_error' : '',
+              });
+            }
+          } catch (error) {
+            console.warn('Failed to mark voice segment turn done:', error);
+          }
+        }
+      }
+
       if (!mainWindow || mainWindow.isDestroyed()) {
         return;
       }

@@ -69,6 +69,34 @@ function normalizePositiveInteger(value, fallback) {
   return Math.floor(parsed);
 }
 
+function normalizeTurnId(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.trim();
+}
+
+function normalizeSegmentText(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.trim();
+}
+
+function normalizeSegmentId(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.trim();
+}
+
+function buildTurnKey(sessionId, turnId) {
+  return `${sessionId}::${turnId}`;
+}
+
 function cloneBinaryChunk(value) {
   if (Buffer.isBuffer(value)) {
     return Uint8Array.from(value);
@@ -382,7 +410,430 @@ function registerVoiceSessionIpc({
     ttsBackpressureTimeoutMs: safeTtsBackpressureTimeoutMs,
     ttsAbortReason: '',
     ttsStopNotified: false,
+    segmentTurns: new Map(),
+    segmentTurnOrder: [],
+    segmentPlaybackActive: false,
+    activeSegment: null,
   });
+
+  const setSessionStatus = (sessionState, nextStatus) => {
+    if (!sessionState || sessionState.status === nextStatus) {
+      return;
+    }
+
+    sessionState.status = nextStatus;
+    sendState(sessionState.sessionId, nextStatus);
+  };
+
+  const normalizeSegmentPayload = (payload = {}) => {
+    const sessionId = normalizeSessionId(payload.sessionId);
+    const turnId = normalizeTurnId(payload.turnId);
+    const text = normalizeSegmentText(payload.text);
+    const index = normalizeSeq(payload.index);
+    const segmentId = normalizeSegmentId(payload.segmentId) || `${turnId}:${index}`;
+
+    return {
+      sessionId,
+      turnId,
+      segmentId,
+      index,
+      text,
+      final: Boolean(payload.final),
+      source: typeof payload.source === 'string' ? payload.source : undefined,
+      lang: typeof payload.lang === 'string' ? payload.lang : undefined,
+      createdAt: typeof payload.createdAt === 'number' ? payload.createdAt : undefined,
+    };
+  };
+
+  const emitSegmentLifecycleEvent = (type, segment, extra = {}) => {
+    if (!segment) {
+      return;
+    }
+
+    sendEvent({
+      type,
+      sessionId: segment.sessionId,
+      turnId: segment.turnId,
+      segmentId: segment.segmentId,
+      index: segment.index,
+      text: segment.text,
+      ...extra,
+    });
+  };
+
+  const createTurnState = ({ sessionId, turnId }) => ({
+    sessionId,
+    turnId,
+    key: buildTurnKey(sessionId, turnId),
+    segments: [],
+    segmentIds: new Set(),
+    cursor: 0,
+    done: false,
+    aborted: false,
+    abortReason: '',
+    draining: false,
+  });
+
+  const getOrCreateTurnState = (sessionState, sessionId, turnId) => {
+    const key = buildTurnKey(sessionId, turnId);
+    const existing = sessionState.segmentTurns.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const turnState = createTurnState({ sessionId, turnId });
+    sessionState.segmentTurns.set(key, turnState);
+    sessionState.segmentTurnOrder.push(key);
+    return turnState;
+  };
+
+  const emitSegmentAbortForRemaining = (
+    turnState,
+    reason = 'aborted',
+    message = 'Operation aborted.',
+    skipSegmentId = '',
+  ) => {
+    if (!turnState) {
+      return;
+    }
+
+    const startIndex = Math.max(0, turnState.cursor);
+    for (let i = startIndex; i < turnState.segments.length; i += 1) {
+      if (skipSegmentId && turnState.segments[i]?.segmentId === skipSegmentId) {
+        continue;
+      }
+      emitSegmentLifecycleEvent('segment-tts-failed', turnState.segments[i], {
+        code: 'aborted',
+        message,
+        retriable: true,
+        aborted: true,
+        reason,
+      });
+    }
+    turnState.cursor = turnState.segments.length;
+  };
+
+  const deleteTurnState = (sessionState, turnState) => {
+    if (!sessionState || !turnState) {
+      return;
+    }
+
+    sessionState.segmentTurns.delete(turnState.key);
+    const index = sessionState.segmentTurnOrder.indexOf(turnState.key);
+    if (index >= 0) {
+      sessionState.segmentTurnOrder.splice(index, 1);
+    }
+  };
+
+  const getNextTurnState = (sessionState) => {
+    for (const key of sessionState.segmentTurnOrder) {
+      const turnState = sessionState.segmentTurns.get(key);
+      if (!turnState) {
+        continue;
+      }
+      return turnState;
+    }
+
+    return null;
+  };
+
+  const hasPendingSegmentPlayback = (sessionState) => {
+    if (!sessionState) {
+      return false;
+    }
+
+    if (sessionState.ttsController) {
+      return true;
+    }
+
+    return sessionState.segmentTurnOrder.length > 0;
+  };
+
+  const updateStatusFromSegmentQueue = (sessionState) => {
+    if (!sessionState) {
+      return;
+    }
+
+    if (sessionState.status === SESSION_STATUS_IDLE || sessionState.status === SESSION_STATUS_TRANSCRIBING) {
+      return;
+    }
+
+    if (hasPendingSegmentPlayback(sessionState)) {
+      setSessionStatus(sessionState, SESSION_STATUS_SPEAKING);
+      return;
+    }
+
+    if (sessionState.status === SESSION_STATUS_SPEAKING) {
+      setSessionStatus(sessionState, SESSION_STATUS_LISTENING);
+    }
+  };
+
+  const markTurnAborted = (sessionState, turnState, reason, message) => {
+    if (!sessionState || !turnState) {
+      return;
+    }
+
+    turnState.aborted = true;
+    turnState.done = true;
+    turnState.abortReason = reason || turnState.abortReason || 'aborted';
+    const activeSegmentId =
+      sessionState.activeSegment?.turnId === turnState.turnId
+        ? sessionState.activeSegment.segmentId
+        : '';
+    emitSegmentAbortForRemaining(turnState, reason, message, activeSegmentId);
+    if (sessionState.activeSegment?.turnId === turnState.turnId) {
+      sessionState.ttsAbortReason = reason || 'turn_abort';
+      sessionState.ttsStopNotified = true;
+      setTtsFlowPaused(sessionState, false);
+      sessionState.ttsController?.abort();
+      clearTtsAckWatchdog(sessionState);
+    }
+  };
+
+  const abortAllTurnsForSession = (sessionState, reason, message) => {
+    if (!sessionState) {
+      return;
+    }
+
+    const turns = sessionState.segmentTurnOrder
+      .map((key) => sessionState.segmentTurns.get(key))
+      .filter(Boolean);
+
+    for (const turnState of turns) {
+      markTurnAborted(sessionState, turnState, reason, message);
+    }
+  };
+
+  const markTurnDone = ({ sessionId, turnId, aborted = false, reason = '' }) => {
+    const normalizedSessionId = normalizeSessionId(sessionId);
+    const normalizedTurnId = normalizeTurnId(turnId);
+    if (!normalizedSessionId || !normalizedTurnId) {
+      return {
+        ok: false,
+        reason: 'invalid_turn_ref',
+      };
+    }
+
+    const sessionState = sessionMap.get(normalizedSessionId);
+    if (!sessionState) {
+      return {
+        ok: false,
+        reason: 'session_not_found',
+      };
+    }
+
+    const turnState = getOrCreateTurnState(sessionState, normalizedSessionId, normalizedTurnId);
+    turnState.done = true;
+    if (aborted) {
+      markTurnAborted(
+        sessionState,
+        turnState,
+        reason || 'turn_abort',
+        'Segment playback aborted before completion.',
+      );
+    }
+
+    void drainSegmentPlaybackQueue(sessionState);
+    return { ok: true };
+  };
+
+  const enqueueSegmentReady = (payload = {}) => {
+    const segment = normalizeSegmentPayload(payload);
+    if (!segment.sessionId || !segment.turnId || !segment.text) {
+      return {
+        ok: false,
+        reason: 'invalid_segment',
+      };
+    }
+
+    const sessionState = sessionMap.get(segment.sessionId);
+    if (!sessionState) {
+      return {
+        ok: false,
+        reason: 'session_not_found',
+      };
+    }
+
+    const turnState = getOrCreateTurnState(sessionState, segment.sessionId, segment.turnId);
+    if (turnState.segmentIds.has(segment.segmentId)) {
+      return {
+        ok: true,
+        accepted: false,
+        reason: 'duplicate_segment',
+      };
+    }
+
+    turnState.segmentIds.add(segment.segmentId);
+    turnState.segments.push(segment);
+    void drainSegmentPlaybackQueue(sessionState);
+
+    return {
+      ok: true,
+      accepted: true,
+      segmentId: segment.segmentId,
+    };
+  };
+
+  async function synthesizeSegmentFromQueue({ sessionState, segment }) {
+    const runtime = resolveRuntime();
+    const ttsService = runtime.ttsService;
+    const timeoutMs = normalizePositiveInteger(
+      sessionState.ttsBackpressureTimeoutMs,
+      DEFAULT_TTS_BACKPRESSURE_TIMEOUT_MS,
+    );
+    sessionState.ttsBackpressureTimeoutMs = timeoutMs;
+
+    resetTtsRuntimeState(sessionState);
+    sessionState.ttsController = new AbortController();
+    sessionState.activeSegment = segment;
+    let seq = 0;
+
+    emitSegmentLifecycleEvent('segment-tts-started', segment);
+
+    try {
+      await ttsService.synthesize({
+        text: segment.text,
+        signal: sessionState.ttsController.signal,
+        onChunk: async ({ audioChunk, codec, sampleRate }) => {
+          await waitForTtsResume({
+            sessionState,
+            signal: sessionState.ttsController.signal,
+            timeoutMs,
+          });
+
+          if (sessionState.ttsAbortReason === 'backpressure_timeout') {
+            throw createTtsBackpressureTimeoutError(timeoutMs);
+          }
+
+          seq += 1;
+          sessionState.ttsLastChunkSeq = seq;
+          if (seq === 1) {
+            sessionState.ttsStartedAt = Date.now();
+            sessionState.ttsLastAckAt = 0;
+            startTtsAckWatchdog(sessionState, timeoutMs);
+          }
+
+          sendEvent({
+            type: 'tts-chunk',
+            sessionId: segment.sessionId,
+            turnId: segment.turnId,
+            segmentId: segment.segmentId,
+            index: segment.index,
+            seq,
+            chunkId: seq,
+            audioChunk,
+            codec,
+            sampleRate,
+          });
+        },
+      });
+
+      clearTtsAckWatchdog(sessionState);
+      emitSegmentLifecycleEvent('segment-tts-finished', segment);
+      return { ok: true };
+    } catch (error) {
+      clearTtsAckWatchdog(sessionState);
+
+      const abortReason = sessionState.ttsAbortReason;
+      const isAbort = error?.name === 'AbortError';
+      const isExpectedAbort =
+        isAbort
+        && (
+          abortReason === 'manual_stop'
+          || abortReason === 'session_stop'
+          || abortReason === 'turn_abort'
+          || abortReason === 'turn_error'
+        );
+
+      if (isExpectedAbort) {
+        emitSegmentLifecycleEvent('segment-tts-failed', segment, {
+          code: 'aborted',
+          message: 'Operation aborted.',
+          retriable: true,
+          aborted: true,
+          reason: abortReason,
+        });
+        return {
+          ok: false,
+          aborted: true,
+        };
+      }
+
+      const payload =
+        abortReason === 'backpressure_timeout' || error?.code === 'voice_tts_backpressure_timeout'
+          ? {
+              code: 'voice_tts_backpressure_timeout',
+              message: `No playback ACK received for ${timeoutMs}ms.`,
+              retriable: true,
+            }
+          : toVoiceError(error, 'voice_tts_failed', 'speaking');
+
+      emitSegmentLifecycleEvent('segment-tts-failed', segment, {
+        code: payload.code,
+        message: payload.message,
+        retriable: payload.retriable,
+        aborted: false,
+      });
+      return {
+        ok: false,
+        aborted: false,
+      };
+    } finally {
+      sessionState.activeSegment = null;
+      resetTtsRuntimeState(sessionState);
+    }
+  }
+
+  async function drainSegmentPlaybackQueue(sessionState) {
+    if (!sessionState || sessionState.segmentPlaybackActive) {
+      return;
+    }
+
+    sessionState.segmentPlaybackActive = true;
+
+    try {
+      while (true) {
+        if (sessionState.status === SESSION_STATUS_TRANSCRIBING || sessionState.status === SESSION_STATUS_IDLE) {
+          break;
+        }
+
+        const turnState = getNextTurnState(sessionState);
+        if (!turnState) {
+          break;
+        }
+
+        if (turnState.aborted) {
+          deleteTurnState(sessionState, turnState);
+          continue;
+        }
+
+        if (turnState.cursor >= turnState.segments.length) {
+          if (!turnState.done) {
+            break;
+          }
+          deleteTurnState(sessionState, turnState);
+          continue;
+        }
+
+        const segment = turnState.segments[turnState.cursor];
+        updateStatusFromSegmentQueue(sessionState);
+        await synthesizeSegmentFromQueue({ sessionState, segment });
+        turnState.cursor += 1;
+
+        if (turnState.aborted) {
+          deleteTurnState(sessionState, turnState);
+          continue;
+        }
+
+        if (turnState.done && turnState.cursor >= turnState.segments.length) {
+          deleteTurnState(sessionState, turnState);
+        }
+      }
+    } finally {
+      sessionState.segmentPlaybackActive = false;
+      updateStatusFromSegmentQueue(sessionState);
+    }
+  }
 
   ipcMain.handle('voice:session:start', async (_event, request = {}) => {
     const sessionId = normalizeSessionId(request.sessionId);
@@ -549,6 +1000,7 @@ function registerVoiceSessionIpc({
         sessionState.status = SESSION_STATUS_LISTENING;
         sendState(sessionId, sessionState.status);
       }
+      void drainSegmentPlaybackQueue(sessionState);
 
       return {
         ok: true,
@@ -579,6 +1031,11 @@ function registerVoiceSessionIpc({
     }
 
     sessionState.asrController?.abort();
+    abortAllTurnsForSession(
+      sessionState,
+      'session_stop',
+      'Segment playback aborted because session stopped.',
+    );
     sessionState.ttsAbortReason = 'session_stop';
     sessionState.ttsStopNotified = true;
     setTtsFlowPaused(sessionState, false);
@@ -603,6 +1060,11 @@ function registerVoiceSessionIpc({
       };
     }
 
+    abortAllTurnsForSession(
+      sessionState,
+      'manual_stop',
+      'Segment playback aborted by manual stop.',
+    );
     sessionState.ttsAbortReason = 'manual_stop';
     sessionState.ttsStopNotified = true;
     setTtsFlowPaused(sessionState, false);
@@ -663,9 +1125,14 @@ function registerVoiceSessionIpc({
     };
   });
 
-  return () => {
+  const dispose = () => {
     for (const [, sessionState] of sessionMap.entries()) {
       sessionState.asrController?.abort();
+      abortAllTurnsForSession(
+        sessionState,
+        'session_stop',
+        'Segment playback aborted because session stopped.',
+      );
       sessionState.ttsAbortReason = 'session_stop';
       sessionState.ttsStopNotified = true;
       setTtsFlowPaused(sessionState, false);
@@ -690,6 +1157,11 @@ function registerVoiceSessionIpc({
     ipcMain.removeHandler('voice:tts:stop');
     ipcMain.removeHandler('voice:playback:ack');
   };
+
+  dispose.enqueueSegmentReady = (payload = {}) => enqueueSegmentReady(payload);
+  dispose.markTurnDone = (payload = {}) => markTurnDone(payload);
+
+  return dispose;
 }
 
 async function synthesizeTts({

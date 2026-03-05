@@ -481,3 +481,159 @@ test('voice tts stop aborts speaking without emitting error', async () => {
   );
   assert.ok(Boolean(speakingDone));
 });
+
+test('segment queue emits started/finished lifecycle with stable segmentId', async () => {
+  const ipcMain = createIpcMainMock();
+  const emitted = [];
+
+  const voiceControl = registerVoiceSessionIpc({
+    ipcMain,
+    emitEvent: (event) => emitted.push(event),
+    createTtsServiceImpl: () => ({
+      synthesize: async ({ onChunk }) => {
+        await onChunk({
+          audioChunk: Buffer.from([1, 2, 3, 4]),
+          codec: 'pcm_s16le',
+          sampleRate: 24000,
+        });
+      },
+    }),
+  });
+
+  await ipcMain.invoke('voice:session:start', { sessionId: 'seg-s1', mode: 'vad' });
+
+  const segmentA = {
+    sessionId: 'seg-s1',
+    turnId: 'turn-1',
+    segmentId: 'turn-1:0',
+    index: 0,
+    text: '第一句。',
+    final: true,
+  };
+  const segmentB = {
+    sessionId: 'seg-s1',
+    turnId: 'turn-1',
+    segmentId: 'turn-1:1',
+    index: 1,
+    text: '第二句。',
+    final: true,
+  };
+
+  const enqueueA = voiceControl.enqueueSegmentReady(segmentA);
+  const enqueueB = voiceControl.enqueueSegmentReady(segmentB);
+  assert.equal(enqueueA.ok, true);
+  assert.equal(enqueueB.ok, true);
+
+  const markDone = voiceControl.markTurnDone({
+    sessionId: 'seg-s1',
+    turnId: 'turn-1',
+  });
+  assert.equal(markDone.ok, true);
+
+  await waitFor(
+    () => emitted.filter((event) => event.type === 'segment-tts-finished').length >= 2,
+    { timeoutMs: 1500 },
+  );
+
+  const startedSegments = emitted
+    .filter((event) => event.type === 'segment-tts-started')
+    .map((event) => event.segmentId);
+  const finishedSegments = emitted
+    .filter((event) => event.type === 'segment-tts-finished')
+    .map((event) => event.segmentId);
+
+  assert.deepEqual(startedSegments, ['turn-1:0', 'turn-1:1']);
+  assert.deepEqual(finishedSegments, ['turn-1:0', 'turn-1:1']);
+  assert.equal(
+    emitted.some((event) => event.type === 'tts-chunk' && event.segmentId === 'turn-1:0'),
+    true,
+  );
+});
+
+test('voice:tts:stop aborts current and pending segment playback with failed terminal state', async () => {
+  const ipcMain = createIpcMainMock();
+  const emitted = [];
+
+  const voiceControl = registerVoiceSessionIpc({
+    ipcMain,
+    emitEvent: (event) => emitted.push(event),
+    createTtsServiceImpl: () => ({
+      synthesize: async ({ signal, onChunk }) => {
+        await onChunk({
+          audioChunk: Buffer.from([1, 2, 3, 4]),
+          codec: 'pcm_s16le',
+          sampleRate: 24000,
+        });
+
+        if (signal.aborted) {
+          throw createAbortError();
+        }
+
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(resolve, 1000);
+          const onAbort = () => {
+            clearTimeout(timer);
+            reject(createAbortError());
+          };
+          signal.addEventListener(
+            'abort',
+            onAbort,
+            { once: true },
+          );
+          if (signal.aborted) {
+            onAbort();
+          }
+        });
+      },
+    }),
+  });
+
+  await ipcMain.invoke('voice:session:start', { sessionId: 'seg-stop-s1', mode: 'vad' });
+
+  voiceControl.enqueueSegmentReady({
+    sessionId: 'seg-stop-s1',
+    turnId: 'turn-stop-1',
+    segmentId: 'turn-stop-1:0',
+    index: 0,
+    text: '第一句。',
+    final: true,
+  });
+  voiceControl.enqueueSegmentReady({
+    sessionId: 'seg-stop-s1',
+    turnId: 'turn-stop-1',
+    segmentId: 'turn-stop-1:1',
+    index: 1,
+    text: '第二句。',
+    final: true,
+  });
+  voiceControl.markTurnDone({
+    sessionId: 'seg-stop-s1',
+    turnId: 'turn-stop-1',
+  });
+
+  await waitFor(
+    () => emitted.some((event) => event.type === 'segment-tts-started' && event.segmentId === 'turn-stop-1:0'),
+    { timeoutMs: 1000 },
+  );
+
+  const stopResult = await ipcMain.invoke('voice:tts:stop', {
+    sessionId: 'seg-stop-s1',
+    reason: 'manual',
+  });
+  assert.equal(stopResult.ok, true);
+
+  await waitFor(
+    () => emitted.filter((event) => event.type === 'segment-tts-failed').length >= 2,
+    { timeoutMs: 1500 },
+  );
+
+  const failedById = emitted
+    .filter((event) => event.type === 'segment-tts-failed')
+    .reduce((acc, event) => {
+      acc.set(event.segmentId, event);
+      return acc;
+    }, new Map());
+
+  assert.equal(failedById.get('turn-stop-1:0')?.aborted, true);
+  assert.equal(failedById.get('turn-stop-1:1')?.aborted, true);
+});

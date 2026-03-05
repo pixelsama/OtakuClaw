@@ -47,6 +47,8 @@ test('chat stream emits text-delta and done events', async () => {
   );
   assert.equal(emitted[0].payload.content, 'hello');
   assert.equal(emitted[1].payload.text, 'hello');
+  assert.equal(emitted[2].payload.sessionId, 's1');
+  assert.equal(emitted[2].payload.turnId, emitted[2].streamId);
 });
 
 test('chat stream abort emits done with aborted flag', async () => {

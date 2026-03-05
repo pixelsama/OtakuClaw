@@ -41,6 +41,11 @@ function registerChatStreamIpc({
 
   const runStream = async (streamId, request, state) => {
     let source = 'openclaw';
+    const buildTurnPayload = (payload = {}) => ({
+      sessionId: request.sessionId,
+      turnId: streamId,
+      ...payload,
+    });
     const segmentEmitter = createChatSegmentEmitter({
       streamId,
       sessionId: request.sessionId,
@@ -81,17 +86,22 @@ function registerChatStreamIpc({
 
           if (event.type === 'done') {
             segmentEmitter.flushRemaining({ source });
-            completeStream(streamId, event.payload || { source });
+            completeStream(
+              streamId,
+              buildTurnPayload(event.payload || { source }),
+            );
             return;
           }
 
           if (event.type === 'error') {
             failStream(
               streamId,
-              event.payload ||
-                backendManager.mapError(new Error('upstream error'), {
-                  backend: state.backend,
-                }),
+              buildTurnPayload(
+                event.payload ||
+                  backendManager.mapError(new Error('upstream error'), {
+                    backend: state.backend,
+                  }),
+              ),
             );
             return;
           }
@@ -109,16 +119,24 @@ function registerChatStreamIpc({
       });
 
       segmentEmitter.flushRemaining({ source });
-      completeStream(streamId, { source });
+      completeStream(
+        streamId,
+        buildTurnPayload({ source }),
+      );
     } catch (error) {
       if (state.aborted || error?.name === 'AbortError') {
-        completeStream(streamId, { source, aborted: true });
+        completeStream(
+          streamId,
+          buildTurnPayload({ source, aborted: true }),
+        );
       } else {
         failStream(
           streamId,
-          backendManager.mapError(error, {
-            backend: state.backend,
-          }),
+          buildTurnPayload(
+            backendManager.mapError(error, {
+              backend: state.backend,
+            }),
+          ),
         );
       }
     } finally {

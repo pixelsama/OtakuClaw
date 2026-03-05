@@ -31,6 +31,7 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
   const [lastPartialText, setLastPartialText] = useState('');
   const [lastFinalText, setLastFinalText] = useState('');
   const [lastError, setLastError] = useState('');
+  const [lastSegmentEvent, setLastSegmentEvent] = useState(null);
   const [flowControl, setFlowControl] = useState({ action: 'resume', bufferedMs: 0 });
 
   const setSessionIdWithRef = useCallback((nextSessionId) => {
@@ -64,6 +65,18 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
       }
 
       if (event.type === 'error') {
+        setLastError(normalizeVoiceError(event));
+      }
+
+      if (
+        event.type === 'segment-tts-started'
+        || event.type === 'segment-tts-finished'
+        || event.type === 'segment-tts-failed'
+      ) {
+        setLastSegmentEvent(event);
+      }
+
+      if (event.type === 'segment-tts-failed') {
         setLastError(normalizeVoiceError(event));
       }
 
@@ -240,6 +253,7 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
       lastPartialText,
       lastFinalText,
       lastError,
+      lastSegmentEvent,
       flowControl,
       startSession,
       sendAudioChunk,
@@ -256,6 +270,7 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
       lastPartialText,
       lastFinalText,
       lastError,
+      lastSegmentEvent,
       flowControl,
       startSession,
       sendAudioChunk,
