@@ -66,7 +66,8 @@ test('downloadBundle persists bundle and resolves runtime env', async () => {
   );
 
   assert.ok(result.bundle.id);
-  assert.equal(result.selectedBundleId, result.bundle.id);
+  assert.equal(result.selectedAsrBundleId, result.bundle.id);
+  assert.equal(result.selectedTtsBundleId, result.bundle.id);
   assert.equal(result.bundles.length, 1);
   assert.ok(progressEvents.length > 0);
   assert.equal(progressEvents.at(-1).phase, 'completed');
@@ -82,16 +83,51 @@ test('downloadBundle persists bundle and resolves runtime env', async () => {
 test('selectBundle supports clearing selection', async () => {
   const { library } = await createLibraryForTest();
   const downloaded = await library.downloadBundle({
+    bundleName: 'asr-tts',
+    asr: {
+      modelUrl: 'https://example.com/asr/model.onnx',
+      tokensUrl: 'https://example.com/asr/tokens.txt',
+    },
+    tts: {
+      modelUrl: 'https://example.com/tts/model.onnx',
+      voicesUrl: 'https://example.com/tts/voices.bin',
+      tokensUrl: 'https://example.com/tts/tokens.txt',
+    },
+  });
+
+  assert.equal(library.listBundles().selectedAsrBundleId, downloaded.bundle.id);
+  assert.equal(library.listBundles().selectedTtsBundleId, downloaded.bundle.id);
+  await library.selectBundles({ asrBundleId: '', ttsBundleId: '' });
+  assert.equal(library.listBundles().selectedAsrBundleId, '');
+  assert.equal(library.listBundles().selectedTtsBundleId, '');
+});
+
+test('selectBundles allows ASR and TTS from different bundles', async () => {
+  const { library } = await createLibraryForTest();
+  const asrOnly = await library.downloadBundle({
     bundleName: 'asr-only',
     asr: {
       modelUrl: 'https://example.com/asr/model.onnx',
       tokensUrl: 'https://example.com/asr/tokens.txt',
     },
   });
+  const ttsOnly = await library.downloadBundle({
+    bundleName: 'tts-only',
+    tts: {
+      modelUrl: 'https://example.com/tts/model.onnx',
+      voicesUrl: 'https://example.com/tts/voices.bin',
+      tokensUrl: 'https://example.com/tts/tokens.txt',
+    },
+  });
 
-  assert.equal(library.listBundles().selectedBundleId, downloaded.bundle.id);
-  await library.selectBundle('');
-  assert.equal(library.listBundles().selectedBundleId, '');
+  await library.selectBundles({
+    asrBundleId: asrOnly.bundle.id,
+    ttsBundleId: ttsOnly.bundle.id,
+  });
+
+  const listed = library.listBundles();
+  assert.equal(listed.selectedAsrBundleId, asrOnly.bundle.id);
+  assert.equal(listed.selectedTtsBundleId, ttsOnly.bundle.id);
 });
 
 test('downloadBundle validates required URL groups', async () => {
@@ -134,7 +170,8 @@ test('getRuntimeEnv infers kokoro data dir and lexicon for legacy bundles', asyn
   await fs.writeFile(path.join(modelDir, 'lexicon-zh.txt'), '');
 
   library.state = {
-    selectedBundleId: 'legacy-kokoro',
+    selectedAsrBundleId: '',
+    selectedTtsBundleId: 'legacy-kokoro',
     bundles: [
       {
         id: 'legacy-kokoro',
@@ -210,7 +247,8 @@ test('getRuntimeEnv maps python runtime bundle into python provider env', async 
   await fs.writeFile(bridgeScriptPath, '');
 
   library.state = {
-    selectedBundleId: 'python-runtime',
+    selectedAsrBundleId: 'python-runtime',
+    selectedTtsBundleId: 'python-runtime',
     bundles: [
       {
         id: 'python-runtime',

@@ -160,11 +160,48 @@ function normalizeBundleRecord(bundle = {}) {
   return {
     id,
     name,
+    catalogId: sanitizeOptionalText(bundle.catalogId),
     createdAt: sanitizeOptionalText(bundle.createdAt, new Date().toISOString()),
     asr,
     tts,
     runtime,
   };
+}
+
+function bundleSupportsAsr(bundle = {}) {
+  if (!bundle || typeof bundle !== 'object') {
+    return false;
+  }
+
+  if (bundle.asr && typeof bundle.asr === 'object') {
+    return Boolean(sanitizeText(bundle.asr.modelPath) && sanitizeText(bundle.asr.tokensPath));
+  }
+
+  if (bundle.runtime?.kind === 'python') {
+    return Boolean(sanitizeText(bundle.runtime.asrModelDir));
+  }
+
+  return false;
+}
+
+function bundleSupportsTts(bundle = {}) {
+  if (!bundle || typeof bundle !== 'object') {
+    return false;
+  }
+
+  if (bundle.tts && typeof bundle.tts === 'object') {
+    return Boolean(
+      sanitizeText(bundle.tts.modelPath)
+      && sanitizeText(bundle.tts.voicesPath)
+      && sanitizeText(bundle.tts.tokensPath),
+    );
+  }
+
+  if (bundle.runtime?.kind === 'python') {
+    return Boolean(sanitizeText(bundle.runtime.ttsModelDir));
+  }
+
+  return false;
 }
 
 function normalizeState(raw = {}) {
@@ -173,11 +210,16 @@ function normalizeState(raw = {}) {
     ? source.bundles.map((item) => normalizeBundleRecord(item)).filter(Boolean)
     : [];
   const idSet = new Set(bundles.map((item) => item.id));
-  const selectedBundleId = idSet.has(source.selectedBundleId) ? source.selectedBundleId : '';
+  const asrIdSet = new Set(bundles.filter((item) => bundleSupportsAsr(item)).map((item) => item.id));
+  const ttsIdSet = new Set(bundles.filter((item) => bundleSupportsTts(item)).map((item) => item.id));
+  const legacySelectedBundleId = idSet.has(source.selectedBundleId) ? source.selectedBundleId : '';
+  const selectedAsrCandidate = sanitizeOptionalText(source.selectedAsrBundleId, legacySelectedBundleId);
+  const selectedTtsCandidate = sanitizeOptionalText(source.selectedTtsBundleId, legacySelectedBundleId);
 
   return {
     bundles,
-    selectedBundleId,
+    selectedAsrBundleId: asrIdSet.has(selectedAsrCandidate) ? selectedAsrCandidate : '',
+    selectedTtsBundleId: ttsIdSet.has(selectedTtsCandidate) ? selectedTtsCandidate : '',
   };
 }
 
@@ -260,6 +302,35 @@ function resolveCatalogExecutionProvider(value, fallback = 'cpu') {
   }
 
   return fallback;
+}
+
+function getModelShortName(modelId) {
+  const normalized = sanitizeText(modelId);
+  if (!normalized) {
+    return '';
+  }
+  const parts = normalized.split('/');
+  return sanitizeOptionalText(parts.at(-1), normalized);
+}
+
+function resolveCatalogAsrLabel(item = {}) {
+  if (item.runtime?.kind === 'python') {
+    return getModelShortName(item.runtime.asrModelId) || 'Python ASR';
+  }
+  if (item.asr?.extractedDir) {
+    return sanitizeText(item.asr.extractedDir);
+  }
+  return sanitizeText(item.name) || 'ASR';
+}
+
+function resolveCatalogTtsLabel(item = {}) {
+  if (item.runtime?.kind === 'python') {
+    return getModelShortName(item.runtime.ttsModelId) || 'Python TTS';
+  }
+  if (item.tts?.extractedDir) {
+    return sanitizeText(item.tts.extractedDir);
+  }
+  return sanitizeText(item.name) || 'TTS';
 }
 
 function resolveRuntimePlatformKey() {
@@ -663,11 +734,20 @@ class VoiceModelLibrary {
   }
 
   listBundles() {
+    const selectedBundleId =
+      this.state.selectedAsrBundleId && this.state.selectedAsrBundleId === this.state.selectedTtsBundleId
+        ? this.state.selectedAsrBundleId
+        : '';
+
     return {
       rootDir: this.rootDir,
-      selectedBundleId: this.state.selectedBundleId,
+      selectedAsrBundleId: this.state.selectedAsrBundleId,
+      selectedTtsBundleId: this.state.selectedTtsBundleId,
+      selectedBundleId,
       bundles: this.state.bundles.map((bundle) => ({
         ...bundle,
+        hasAsr: bundleSupportsAsr(bundle),
+        hasTts: bundleSupportsTts(bundle),
       })),
     };
   }
@@ -677,21 +757,49 @@ class VoiceModelLibrary {
       id: item.id,
       name: item.name,
       description: item.description || '',
+      asrOptionLabel: resolveCatalogAsrLabel(item),
+      ttsOptionLabel: resolveCatalogTtsLabel(item),
       hasAsr: typeof item.hasAsr === 'boolean' ? item.hasAsr : Boolean(item.asr),
       hasTts: typeof item.hasTts === 'boolean' ? item.hasTts : Boolean(item.tts),
     }));
   }
 
-  async installCatalogBundle({ catalogId } = {}, { onProgress } = {}) {
+  async installCatalogBundle({ catalogId, installAsr, installTts } = {}, { onProgress } = {}) {
     const normalizedCatalogId = sanitizeText(catalogId);
     const catalogEntry = getBuiltInVoiceModelCatalog().find((item) => item.id === normalizedCatalogId);
     if (!catalogEntry) {
       throw createVoiceModelError('voice_model_catalog_not_found', `Built-in model not found: ${normalizedCatalogId}`);
     }
 
+    const catalogHasAsr = typeof catalogEntry.hasAsr === 'boolean' ? catalogEntry.hasAsr : Boolean(catalogEntry.asr);
+    const catalogHasTts = typeof catalogEntry.hasTts === 'boolean' ? catalogEntry.hasTts : Boolean(catalogEntry.tts);
+    const shouldInstallAsr = typeof installAsr === 'boolean' ? installAsr : catalogHasAsr;
+    const shouldInstallTts = typeof installTts === 'boolean' ? installTts : catalogHasTts;
+
+    if (!shouldInstallAsr && !shouldInstallTts) {
+      throw createVoiceModelError(
+        'voice_model_download_invalid_input',
+        'Please choose at least one component to install.',
+      );
+    }
+    if (shouldInstallAsr && !catalogHasAsr) {
+      throw createVoiceModelError(
+        'voice_model_catalog_component_not_found',
+        `Selected model does not provide ASR component: ${normalizedCatalogId}`,
+      );
+    }
+    if (shouldInstallTts && !catalogHasTts) {
+      throw createVoiceModelError(
+        'voice_model_catalog_component_not_found',
+        `Selected model does not provide TTS component: ${normalizedCatalogId}`,
+      );
+    }
+
     if (catalogEntry.runtime?.kind === 'python') {
       return this.installPythonRuntimeCatalogBundle({
         catalogEntry,
+        installAsr: shouldInstallAsr,
+        installTts: shouldInstallTts,
         onProgress,
       });
     }
@@ -702,7 +810,7 @@ class VoiceModelLibrary {
     await fsp.mkdir(bundleDir, { recursive: true });
 
     const components = [];
-    if (catalogEntry.asr) {
+    if (catalogEntry.asr && shouldInstallAsr) {
       components.push({
         key: 'asr',
         label: 'ASR',
@@ -710,7 +818,7 @@ class VoiceModelLibrary {
         extractedDir: catalogEntry.asr.extractedDir,
       });
     }
-    if (catalogEntry.tts) {
+    if (catalogEntry.tts && shouldInstallTts) {
       components.push({
         key: 'tts',
         label: 'TTS',
@@ -819,29 +927,29 @@ class VoiceModelLibrary {
       throw error;
     }
 
-    const asrModelPath = catalogEntry.asr
+    const asrModelPath = catalogEntry.asr && shouldInstallAsr
       ? path.join(bundleDir, 'asr', catalogEntry.asr.extractedDir, catalogEntry.asr.modelRelativePath)
       : '';
-    const asrTokensPath = catalogEntry.asr
+    const asrTokensPath = catalogEntry.asr && shouldInstallAsr
       ? path.join(bundleDir, 'asr', catalogEntry.asr.extractedDir, catalogEntry.asr.tokensRelativePath)
       : '';
-    const ttsModelPath = catalogEntry.tts
+    const ttsModelPath = catalogEntry.tts && shouldInstallTts
       ? path.join(bundleDir, 'tts', catalogEntry.tts.extractedDir, catalogEntry.tts.modelRelativePath)
       : '';
-    const ttsVoicesPath = catalogEntry.tts
+    const ttsVoicesPath = catalogEntry.tts && shouldInstallTts
       ? path.join(bundleDir, 'tts', catalogEntry.tts.extractedDir, catalogEntry.tts.voicesRelativePath)
       : '';
-    const ttsTokensPath = catalogEntry.tts
+    const ttsTokensPath = catalogEntry.tts && shouldInstallTts
       ? path.join(bundleDir, 'tts', catalogEntry.tts.extractedDir, catalogEntry.tts.tokensRelativePath)
       : '';
-    const ttsDataDirPath = catalogEntry.tts?.dataDirRelativePath
+    const ttsDataDirPath = catalogEntry.tts?.dataDirRelativePath && shouldInstallTts
       ? path.join(bundleDir, 'tts', catalogEntry.tts.extractedDir, catalogEntry.tts.dataDirRelativePath)
       : '';
-    const ttsLexiconPath = catalogEntry.tts?.lexiconRelativePath
+    const ttsLexiconPath = catalogEntry.tts?.lexiconRelativePath && shouldInstallTts
       ? path.join(bundleDir, 'tts', catalogEntry.tts.extractedDir, catalogEntry.tts.lexiconRelativePath)
       : '';
 
-    if (catalogEntry.asr) {
+    if (catalogEntry.asr && shouldInstallAsr) {
       await ensurePathExists(
         asrModelPath,
         'voice_model_catalog_file_missing',
@@ -853,7 +961,7 @@ class VoiceModelLibrary {
         `ASR tokens file not found after extraction: ${asrTokensPath}`,
       );
     }
-    if (catalogEntry.tts) {
+    if (catalogEntry.tts && shouldInstallTts) {
       await ensurePathExists(
         ttsModelPath,
         'voice_model_catalog_file_missing',
@@ -888,8 +996,9 @@ class VoiceModelLibrary {
     const bundleRecord = normalizeBundleRecord({
       id,
       name,
+      catalogId: normalizedCatalogId,
       createdAt: new Date().toISOString(),
-      asr: catalogEntry.asr
+      asr: catalogEntry.asr && shouldInstallAsr
         ? {
             modelPath: asrModelPath,
             tokensPath: asrTokensPath,
@@ -897,7 +1006,7 @@ class VoiceModelLibrary {
             executionProvider: resolveCatalogExecutionProvider(catalogEntry.asr.executionProvider, 'cpu'),
           }
         : null,
-      tts: catalogEntry.tts
+      tts: catalogEntry.tts && shouldInstallTts
         ? {
             modelPath: ttsModelPath,
             voicesPath: ttsVoicesPath,
@@ -919,7 +1028,7 @@ class VoiceModelLibrary {
 
     this.state.bundles = this.state.bundles.filter((item) => item.id !== bundleRecord.id);
     this.state.bundles.unshift(bundleRecord);
-    this.state.selectedBundleId = bundleRecord.id;
+    this.selectInstalledBundleCapabilities(bundleRecord);
     await this.persistState();
 
     emitProgress({
@@ -930,15 +1039,28 @@ class VoiceModelLibrary {
 
     return {
       bundle: bundleRecord,
-      selectedBundleId: this.state.selectedBundleId,
-      bundles: this.state.bundles.map((item) => ({ ...item })),
+      ...this.listBundles(),
     };
   }
 
-  async installPythonRuntimeCatalogBundle({ catalogEntry, onProgress }) {
+  async installPythonRuntimeCatalogBundle({
+    catalogEntry,
+    installAsr = true,
+    installTts = true,
+    onProgress,
+  }) {
     const runtime = catalogEntry?.runtime && typeof catalogEntry.runtime === 'object'
       ? catalogEntry.runtime
       : {};
+    const shouldInstallAsr = Boolean(installAsr);
+    const shouldInstallTts = Boolean(installTts);
+    if (!shouldInstallAsr && !shouldInstallTts) {
+      throw createVoiceModelError(
+        'voice_model_download_invalid_input',
+        'Please choose at least one component to install.',
+      );
+    }
+
     const { archiveUrl } = resolvePythonRuntimePackage(runtime);
 
     const id = createBundleId(catalogEntry.name);
@@ -954,6 +1076,11 @@ class VoiceModelLibrary {
     const pipPackages = Array.isArray(runtime.pipPackages)
       ? runtime.pipPackages.map((item) => sanitizeText(item)).filter(Boolean)
       : [];
+    const modelTargetLabel = shouldInstallAsr && shouldInstallTts
+      ? 'ASR/TTS 模型'
+      : shouldInstallAsr
+        ? 'ASR 模型'
+        : 'TTS 模型';
 
     await fsp.mkdir(bundleDir, { recursive: true });
     await fsp.mkdir(modelsDir, { recursive: true });
@@ -1083,25 +1210,34 @@ class VoiceModelLibrary {
 
       emitProgress({
         phase: 'running',
-        currentFile: '正在下载 ASR/TTS 模型',
+        currentFile: `正在下载 ${modelTargetLabel}`,
         overallProgress: (completedTasks + 0.5) / totalTasks,
       });
 
       const bootstrapArgs = [
         bootstrapScriptPath,
-        '--asr-model-id',
-        sanitizeOptionalText(runtime.asrModelId, 'FunAudioLLM/SenseVoiceSmall'),
-        '--tts-model-id',
-        sanitizeOptionalText(runtime.ttsModelId, 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice'),
-        '--asr-model-dir',
-        asrModelDir,
-        '--tts-model-dir',
-        ttsModelDir,
         '--source',
         sanitizeOptionalText(runtime.modelSource, 'auto'),
       ];
-      const ttsTokenizerModelId = sanitizeText(runtime.ttsTokenizerModelId);
-      if (ttsTokenizerModelId) {
+      if (shouldInstallAsr) {
+        bootstrapArgs.push(
+          '--asr-model-id',
+          sanitizeOptionalText(runtime.asrModelId, 'FunAudioLLM/SenseVoiceSmall'),
+          '--asr-model-dir',
+          asrModelDir,
+        );
+      }
+      if (shouldInstallTts) {
+        bootstrapArgs.push(
+          '--tts-model-id',
+          sanitizeOptionalText(runtime.ttsModelId, 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice'),
+          '--tts-model-dir',
+          ttsModelDir,
+        );
+      }
+
+      const ttsTokenizerModelId = shouldInstallTts ? sanitizeText(runtime.ttsTokenizerModelId) : '';
+      if (shouldInstallTts && ttsTokenizerModelId) {
         bootstrapArgs.push(
           '--tts-tokenizer-model-id',
           ttsTokenizerModelId,
@@ -1150,7 +1286,7 @@ class VoiceModelLibrary {
 
         emitProgress({
           phase: 'running',
-          currentFile: '正在下载 ASR/TTS 模型',
+          currentFile: `正在下载 ${modelTargetLabel}`,
           fileDownloadedBytes: totals.downloadedBytes,
           fileTotalBytes: totals.totalBytes,
           downloadSpeedBytesPerSec: bootstrapProgressRateBytesPerSec,
@@ -1216,21 +1352,31 @@ class VoiceModelLibrary {
         'Invalid Python runtime bootstrap output.',
       );
 
-      const resolvedAsrModelDir = sanitizeOptionalText(bootstrapPayload.asrModelDir, asrModelDir);
-      const resolvedTtsModelDir = sanitizeOptionalText(bootstrapPayload.ttsModelDir, ttsModelDir);
-      const resolvedTtsTokenizerDir = sanitizeOptionalText(bootstrapPayload.ttsTokenizerDir, ttsTokenizerDir);
+      const resolvedAsrModelDir = shouldInstallAsr
+        ? sanitizeOptionalText(bootstrapPayload.asrModelDir, asrModelDir)
+        : '';
+      const resolvedTtsModelDir = shouldInstallTts
+        ? sanitizeOptionalText(bootstrapPayload.ttsModelDir, ttsModelDir)
+        : '';
+      const resolvedTtsTokenizerDir = shouldInstallTts
+        ? sanitizeOptionalText(bootstrapPayload.ttsTokenizerDir, ttsTokenizerDir)
+        : '';
 
-      await ensurePathExists(
-        resolvedAsrModelDir,
-        'voice_python_runtime_model_missing',
-        `ASR model directory not found: ${resolvedAsrModelDir}`,
-      );
-      await ensurePathExists(
-        resolvedTtsModelDir,
-        'voice_python_runtime_model_missing',
-        `TTS model directory not found: ${resolvedTtsModelDir}`,
-      );
-      if (ttsTokenizerModelId) {
+      if (shouldInstallAsr) {
+        await ensurePathExists(
+          resolvedAsrModelDir,
+          'voice_python_runtime_model_missing',
+          `ASR model directory not found: ${resolvedAsrModelDir}`,
+        );
+      }
+      if (shouldInstallTts) {
+        await ensurePathExists(
+          resolvedTtsModelDir,
+          'voice_python_runtime_model_missing',
+          `TTS model directory not found: ${resolvedTtsModelDir}`,
+        );
+      }
+      if (shouldInstallTts && ttsTokenizerModelId) {
         await ensurePathExists(
           resolvedTtsTokenizerDir,
           'voice_python_runtime_model_missing',
@@ -1241,26 +1387,27 @@ class VoiceModelLibrary {
       completedTasks += 1;
       emitProgress({
         phase: 'running',
-        currentFile: 'ASR/TTS 模型下载完成',
+        currentFile: `${modelTargetLabel}下载完成`,
         overallProgress: completedTasks / totalTasks,
       });
 
       const bundleRecord = normalizeBundleRecord({
         id,
         name,
+        catalogId: sanitizeText(catalogEntry.id),
         createdAt: new Date().toISOString(),
         runtime: {
           kind: 'python',
           pythonExecutablePath,
           bridgeScriptPath,
           bootstrapScriptPath,
-          asrModelDir: resolvedAsrModelDir,
-          ttsModelDir: resolvedTtsModelDir,
-          ttsTokenizerDir: resolvedTtsTokenizerDir,
-          asrLanguage: sanitizeOptionalText(runtime.asrLanguage, 'auto'),
-          ttsLanguage: sanitizeOptionalText(runtime.ttsLanguage, 'Chinese'),
-          ttsMode: sanitizeOptionalText(runtime.ttsMode, 'custom_voice'),
-          ttsSpeaker: sanitizeOptionalText(runtime.ttsSpeaker, 'Vivian'),
+          asrModelDir: shouldInstallAsr ? resolvedAsrModelDir : '',
+          ttsModelDir: shouldInstallTts ? resolvedTtsModelDir : '',
+          ttsTokenizerDir: shouldInstallTts ? resolvedTtsTokenizerDir : '',
+          asrLanguage: shouldInstallAsr ? sanitizeOptionalText(runtime.asrLanguage, 'auto') : '',
+          ttsLanguage: shouldInstallTts ? sanitizeOptionalText(runtime.ttsLanguage, 'Chinese') : '',
+          ttsMode: shouldInstallTts ? sanitizeOptionalText(runtime.ttsMode, 'custom_voice') : '',
+          ttsSpeaker: shouldInstallTts ? sanitizeOptionalText(runtime.ttsSpeaker, 'Vivian') : '',
           modelSource: sanitizeOptionalText(runtime.modelSource, 'auto'),
           device: sanitizeOptionalText(runtime.device, 'auto'),
         },
@@ -1272,7 +1419,7 @@ class VoiceModelLibrary {
 
       this.state.bundles = this.state.bundles.filter((item) => item.id !== bundleRecord.id);
       this.state.bundles.unshift(bundleRecord);
-      this.state.selectedBundleId = bundleRecord.id;
+      this.selectInstalledBundleCapabilities(bundleRecord);
       await this.persistState();
 
       emitProgress({
@@ -1283,8 +1430,7 @@ class VoiceModelLibrary {
 
       return {
         bundle: bundleRecord,
-        selectedBundleId: this.state.selectedBundleId,
-        bundles: this.state.bundles.map((item) => ({ ...item })),
+        ...this.listBundles(),
       };
     } catch (error) {
       emitProgress({
@@ -1300,27 +1446,113 @@ class VoiceModelLibrary {
     }
   }
 
-  getSelectedBundle() {
-    if (!this.state.selectedBundleId) {
+  selectInstalledBundleCapabilities(bundleRecord) {
+    if (bundleSupportsAsr(bundleRecord)) {
+      this.state.selectedAsrBundleId = bundleRecord.id;
+    }
+    if (bundleSupportsTts(bundleRecord)) {
+      this.state.selectedTtsBundleId = bundleRecord.id;
+    }
+  }
+
+  getSelectedAsrBundle() {
+    if (!this.state.selectedAsrBundleId) {
       return null;
     }
 
-    return this.state.bundles.find((item) => item.id === this.state.selectedBundleId) || null;
+    const found = this.state.bundles.find((item) => item.id === this.state.selectedAsrBundleId) || null;
+    return bundleSupportsAsr(found) ? found : null;
+  }
+
+  getSelectedTtsBundle() {
+    if (!this.state.selectedTtsBundleId) {
+      return null;
+    }
+
+    const found = this.state.bundles.find((item) => item.id === this.state.selectedTtsBundleId) || null;
+    return bundleSupportsTts(found) ? found : null;
+  }
+
+  getSelectedBundle() {
+    const asrBundle = this.getSelectedAsrBundle();
+    const ttsBundle = this.getSelectedTtsBundle();
+    if (asrBundle && ttsBundle && asrBundle.id === ttsBundle.id) {
+      return asrBundle;
+    }
+    return asrBundle || ttsBundle || null;
   }
 
   selectBundle(bundleId) {
-    const nextBundleId = sanitizeText(bundleId);
-    if (!nextBundleId) {
-      this.state.selectedBundleId = '';
-      return this.persistState();
+    return this.selectBundles({ bundleId });
+  }
+
+  selectBundles(payload = {}) {
+    const request = payload && typeof payload === 'object' ? payload : {};
+    const hasAsrKey = Object.prototype.hasOwnProperty.call(request, 'asrBundleId');
+    const hasTtsKey = Object.prototype.hasOwnProperty.call(request, 'ttsBundleId');
+    const hasLegacyBundleKey = Object.prototype.hasOwnProperty.call(request, 'bundleId');
+
+    let nextAsrBundleId = this.state.selectedAsrBundleId;
+    let nextTtsBundleId = this.state.selectedTtsBundleId;
+
+    const resolveBundleRecord = (bundleId, capability) => {
+      const found = this.state.bundles.find((item) => item.id === bundleId);
+      if (!found) {
+        throw createVoiceModelError('voice_model_bundle_not_found', `Model bundle not found: ${bundleId}`);
+      }
+      if (capability === 'asr' && !bundleSupportsAsr(found)) {
+        throw createVoiceModelError(
+          'voice_model_bundle_capability_missing',
+          `Model bundle does not include ASR assets: ${bundleId}`,
+        );
+      }
+      if (capability === 'tts' && !bundleSupportsTts(found)) {
+        throw createVoiceModelError(
+          'voice_model_bundle_capability_missing',
+          `Model bundle does not include TTS assets: ${bundleId}`,
+        );
+      }
+    };
+
+    const applySelection = (inputValue, capability) => {
+      const candidateId = sanitizeText(inputValue);
+      if (!candidateId) {
+        return '';
+      }
+      resolveBundleRecord(candidateId, capability);
+      return candidateId;
+    };
+
+    if (hasLegacyBundleKey && !hasAsrKey && !hasTtsKey) {
+      const legacyBundleId = sanitizeText(request.bundleId);
+      if (!legacyBundleId) {
+        nextAsrBundleId = '';
+        nextTtsBundleId = '';
+      } else {
+        const found = this.state.bundles.find((item) => item.id === legacyBundleId);
+        if (!found) {
+          throw createVoiceModelError('voice_model_bundle_not_found', `Model bundle not found: ${legacyBundleId}`);
+        }
+        if (!bundleSupportsAsr(found) && !bundleSupportsTts(found)) {
+          throw createVoiceModelError(
+            'voice_model_bundle_capability_missing',
+            `Model bundle does not include ASR or TTS assets: ${legacyBundleId}`,
+          );
+        }
+        nextAsrBundleId = bundleSupportsAsr(found) ? legacyBundleId : '';
+        nextTtsBundleId = bundleSupportsTts(found) ? legacyBundleId : '';
+      }
+    } else {
+      if (hasAsrKey) {
+        nextAsrBundleId = applySelection(request.asrBundleId, 'asr');
+      }
+      if (hasTtsKey) {
+        nextTtsBundleId = applySelection(request.ttsBundleId, 'tts');
+      }
     }
 
-    const found = this.state.bundles.some((item) => item.id === nextBundleId);
-    if (!found) {
-      throw createVoiceModelError('voice_model_bundle_not_found', `Model bundle not found: ${nextBundleId}`);
-    }
-
-    this.state.selectedBundleId = nextBundleId;
+    this.state.selectedAsrBundleId = nextAsrBundleId;
+    this.state.selectedTtsBundleId = nextTtsBundleId;
     return this.persistState();
   }
 
@@ -1329,82 +1561,97 @@ class VoiceModelLibrary {
       ...(baseEnv || {}),
     };
 
-    const selectedBundle = this.getSelectedBundle();
-    if (!selectedBundle) {
+    const selectedAsrBundle = this.getSelectedAsrBundle();
+    const selectedTtsBundle = this.getSelectedTtsBundle();
+    if (!selectedAsrBundle && !selectedTtsBundle) {
       return env;
     }
 
-    if (selectedBundle.runtime?.kind === 'python') {
-      const runtime = selectedBundle.runtime;
-      env.VOICE_ASR_PROVIDER = 'python';
-      env.VOICE_TTS_PROVIDER = 'python';
-      env.VOICE_PYTHON_EXECUTABLE = runtime.pythonExecutablePath;
-      if (runtime.bridgeScriptPath) {
-        env.VOICE_PYTHON_BRIDGE_SCRIPT = runtime.bridgeScriptPath;
+    const resolvePythonRuntime = (bundle) => {
+      if (!bundle || bundle.runtime?.kind !== 'python') {
+        return null;
       }
-      if (runtime.device) {
-        env.VOICE_PYTHON_DEVICE = runtime.device;
-      }
+      const runtime = bundle.runtime;
+      return sanitizeText(runtime.pythonExecutablePath) ? runtime : null;
+    };
 
-      if (runtime.asrModelDir) {
+    const pythonRuntime = resolvePythonRuntime(selectedTtsBundle) || resolvePythonRuntime(selectedAsrBundle);
+    if (pythonRuntime) {
+      env.VOICE_PYTHON_EXECUTABLE = pythonRuntime.pythonExecutablePath;
+      if (pythonRuntime.bridgeScriptPath) {
+        env.VOICE_PYTHON_BRIDGE_SCRIPT = pythonRuntime.bridgeScriptPath;
+      }
+      if (pythonRuntime.device) {
+        env.VOICE_PYTHON_DEVICE = pythonRuntime.device;
+      }
+    }
+
+    if (selectedAsrBundle) {
+      if (
+        selectedAsrBundle.runtime?.kind === 'python'
+        && sanitizeText(selectedAsrBundle.runtime.asrModelDir)
+      ) {
+        const runtime = selectedAsrBundle.runtime;
+        env.VOICE_ASR_PROVIDER = 'python';
         env.VOICE_ASR_PYTHON_MODEL_DIR = runtime.asrModelDir;
+        if (runtime.asrLanguage) {
+          env.VOICE_ASR_PYTHON_LANGUAGE = runtime.asrLanguage;
+        }
+      } else if (selectedAsrBundle.asr) {
+        env.VOICE_ASR_PROVIDER = 'sherpa-onnx';
+        env.VOICE_ASR_SHERPA_MODEL = selectedAsrBundle.asr.modelPath;
+        env.VOICE_ASR_SHERPA_TOKENS = selectedAsrBundle.asr.tokensPath;
+        env.VOICE_ASR_SHERPA_MODEL_KIND = selectedAsrBundle.asr.modelKind;
+        env.VOICE_ASR_SHERPA_EXECUTION_PROVIDER = selectedAsrBundle.asr.executionProvider;
       }
-      if (runtime.asrLanguage) {
-        env.VOICE_ASR_PYTHON_LANGUAGE = runtime.asrLanguage;
-      }
+    }
 
-      if (runtime.ttsModelDir) {
+    if (selectedTtsBundle) {
+      if (
+        selectedTtsBundle.runtime?.kind === 'python'
+        && sanitizeText(selectedTtsBundle.runtime.ttsModelDir)
+      ) {
+        const runtime = selectedTtsBundle.runtime;
+        env.VOICE_TTS_PROVIDER = 'python';
         env.VOICE_TTS_PYTHON_MODEL_DIR = runtime.ttsModelDir;
-      }
-      if (runtime.ttsTokenizerDir) {
-        env.VOICE_TTS_PYTHON_TOKENIZER_DIR = runtime.ttsTokenizerDir;
-      }
-      if (runtime.ttsLanguage) {
-        env.VOICE_TTS_PYTHON_LANGUAGE = runtime.ttsLanguage;
-      }
-      if (runtime.ttsMode) {
-        env.VOICE_TTS_PYTHON_MODE = runtime.ttsMode;
-      }
-      if (runtime.ttsSpeaker) {
-        env.VOICE_TTS_PYTHON_SPEAKER = runtime.ttsSpeaker;
-      }
-
-      return env;
-    }
-
-    if (selectedBundle.asr) {
-      env.VOICE_ASR_PROVIDER = 'sherpa-onnx';
-      env.VOICE_ASR_SHERPA_MODEL = selectedBundle.asr.modelPath;
-      env.VOICE_ASR_SHERPA_TOKENS = selectedBundle.asr.tokensPath;
-      env.VOICE_ASR_SHERPA_MODEL_KIND = selectedBundle.asr.modelKind;
-      env.VOICE_ASR_SHERPA_EXECUTION_PROVIDER = selectedBundle.asr.executionProvider;
-    }
-
-    if (selectedBundle.tts) {
-      const runtimeTts = resolveRuntimeTtsBundle(selectedBundle.tts);
-      env.VOICE_TTS_PROVIDER = 'sherpa-onnx';
-      env.VOICE_TTS_SHERPA_MODEL_KIND = runtimeTts.modelKind;
-      env.VOICE_TTS_SHERPA_MODEL = runtimeTts.modelPath;
-      env.VOICE_TTS_SHERPA_VOICES = runtimeTts.voicesPath;
-      env.VOICE_TTS_SHERPA_TOKENS = runtimeTts.tokensPath;
-      env.VOICE_TTS_SHERPA_EXECUTION_PROVIDER = resolveRuntimeTtsExecutionProvider(runtimeTts);
-      if (runtimeTts.lexiconPath) {
-        env.VOICE_TTS_SHERPA_LEXICON = runtimeTts.lexiconPath;
-      }
-      if (runtimeTts.dataDir) {
-        env.VOICE_TTS_SHERPA_DATA_DIR = runtimeTts.dataDir;
-      }
-      if (runtimeTts.lang) {
-        env.VOICE_TTS_SHERPA_LANG = runtimeTts.lang;
-      }
-      if (runtimeTts.sid) {
-        env.VOICE_TTS_SHERPA_SID = runtimeTts.sid;
-      }
-      if (runtimeTts.speed) {
-        env.VOICE_TTS_SHERPA_SPEED = runtimeTts.speed;
-      }
-      if (!sanitizeText(env.VOICE_TTS_SHERPA_ENABLE_EXTERNAL_BUFFER)) {
-        env.VOICE_TTS_SHERPA_ENABLE_EXTERNAL_BUFFER = '0';
+        if (runtime.ttsTokenizerDir) {
+          env.VOICE_TTS_PYTHON_TOKENIZER_DIR = runtime.ttsTokenizerDir;
+        }
+        if (runtime.ttsLanguage) {
+          env.VOICE_TTS_PYTHON_LANGUAGE = runtime.ttsLanguage;
+        }
+        if (runtime.ttsMode) {
+          env.VOICE_TTS_PYTHON_MODE = runtime.ttsMode;
+        }
+        if (runtime.ttsSpeaker) {
+          env.VOICE_TTS_PYTHON_SPEAKER = runtime.ttsSpeaker;
+        }
+      } else if (selectedTtsBundle.tts) {
+        const runtimeTts = resolveRuntimeTtsBundle(selectedTtsBundle.tts);
+        env.VOICE_TTS_PROVIDER = 'sherpa-onnx';
+        env.VOICE_TTS_SHERPA_MODEL_KIND = runtimeTts.modelKind;
+        env.VOICE_TTS_SHERPA_MODEL = runtimeTts.modelPath;
+        env.VOICE_TTS_SHERPA_VOICES = runtimeTts.voicesPath;
+        env.VOICE_TTS_SHERPA_TOKENS = runtimeTts.tokensPath;
+        env.VOICE_TTS_SHERPA_EXECUTION_PROVIDER = resolveRuntimeTtsExecutionProvider(runtimeTts);
+        if (runtimeTts.lexiconPath) {
+          env.VOICE_TTS_SHERPA_LEXICON = runtimeTts.lexiconPath;
+        }
+        if (runtimeTts.dataDir) {
+          env.VOICE_TTS_SHERPA_DATA_DIR = runtimeTts.dataDir;
+        }
+        if (runtimeTts.lang) {
+          env.VOICE_TTS_SHERPA_LANG = runtimeTts.lang;
+        }
+        if (runtimeTts.sid) {
+          env.VOICE_TTS_SHERPA_SID = runtimeTts.sid;
+        }
+        if (runtimeTts.speed) {
+          env.VOICE_TTS_SHERPA_SPEED = runtimeTts.speed;
+        }
+        if (!sanitizeText(env.VOICE_TTS_SHERPA_ENABLE_EXTERNAL_BUFFER)) {
+          env.VOICE_TTS_SHERPA_ENABLE_EXTERNAL_BUFFER = '0';
+        }
       }
     }
 
@@ -1634,7 +1881,7 @@ class VoiceModelLibrary {
 
     this.state.bundles = this.state.bundles.filter((item) => item.id !== bundleRecord.id);
     this.state.bundles.unshift(bundleRecord);
-    this.state.selectedBundleId = bundleRecord.id;
+    this.selectInstalledBundleCapabilities(bundleRecord);
     await this.persistState();
 
     emitProgress({
@@ -1647,8 +1894,7 @@ class VoiceModelLibrary {
 
     return {
       bundle: bundleRecord,
-      selectedBundleId: this.state.selectedBundleId,
-      bundles: this.state.bundles.map((item) => ({ ...item })),
+      ...this.listBundles(),
     };
   }
 

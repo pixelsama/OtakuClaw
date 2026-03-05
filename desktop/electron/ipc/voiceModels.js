@@ -34,7 +34,11 @@ function registerVoiceModelsIpc({
   ipcMain.handle('voice-models:install-catalog', async (_event, payload = {}) => {
     try {
       const result = await voiceModelLibrary.installCatalogBundle(
-        { catalogId: payload.catalogId },
+        {
+          catalogId: payload.catalogId,
+          installAsr: payload.installAsr,
+          installTts: payload.installTts,
+        },
         {
           onProgress: (progressPayload) => {
             if (typeof emitDownloadProgress === 'function') {
@@ -58,7 +62,7 @@ function registerVoiceModelsIpc({
 
   ipcMain.handle('voice-models:select', async (_event, payload = {}) => {
     try {
-      await voiceModelLibrary.selectBundle(payload.bundleId);
+      await voiceModelLibrary.selectBundles(payload);
       return {
         ok: true,
         ...voiceModelLibrary.listBundles(),

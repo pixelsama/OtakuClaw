@@ -642,6 +642,40 @@ export const desktopBridge = {
       }
       return api.voice.listSegmentTrace({ sessionId, limit });
     },
+    async runAsrDiagnostics({
+      pcmChunk,
+      sampleRate = 16000,
+      channels = 1,
+      sampleFormat = 'pcm_s16le',
+      timeoutMs = 120000,
+    } = {}) {
+      const api = getDesktopApi();
+      if (!api?.voice?.runAsrDiagnostics) {
+        return { ok: false, reason: 'desktop_voice_unavailable' };
+      }
+      return api.voice.runAsrDiagnostics({
+        pcmChunk,
+        sampleRate,
+        channels,
+        sampleFormat,
+        timeoutMs,
+      });
+    },
+    async runTtsDiagnostics({
+      text,
+      timeoutMs = 180000,
+      includeAudio = false,
+    } = {}) {
+      const api = getDesktopApi();
+      if (!api?.voice?.runTtsDiagnostics) {
+        return { ok: false, reason: 'desktop_voice_unavailable' };
+      }
+      return api.voice.runTtsDiagnostics({
+        text,
+        timeoutMs,
+        includeAudio,
+      });
+    },
     onEvent(handler) {
       const api = getDesktopApi();
       if (!api?.voice?.onEvent || typeof handler !== 'function') {
@@ -674,13 +708,15 @@ export const desktopBridge = {
         return {
           ok: false,
           bundles: [],
+          selectedAsrBundleId: '',
+          selectedTtsBundleId: '',
           selectedBundleId: '',
           rootDir: '',
         };
       }
       return api.voiceModels.list();
     },
-    async installCatalog(catalogId) {
+    async installCatalog(catalogId, options = {}) {
       const api = getDesktopApi();
       if (!api?.voiceModels?.installCatalog) {
         return {
@@ -691,9 +727,13 @@ export const desktopBridge = {
           },
         };
       }
-      return api.voiceModels.installCatalog({ catalogId });
+      return api.voiceModels.installCatalog({
+        catalogId,
+        installAsr: options.installAsr,
+        installTts: options.installTts,
+      });
     },
-    async select(bundleId) {
+    async select({ bundleId, asrBundleId, ttsBundleId } = {}) {
       const api = getDesktopApi();
       if (!api?.voiceModels?.select) {
         return {
@@ -704,7 +744,7 @@ export const desktopBridge = {
           },
         };
       }
-      return api.voiceModels.select({ bundleId });
+      return api.voiceModels.select({ bundleId, asrBundleId, ttsBundleId });
     },
     async download(payload = {}) {
       const api = getDesktopApi();

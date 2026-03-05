@@ -49,12 +49,12 @@ def download_model(model_id, local_dir, source='auto'):
 
 def parse_args():
   parser = argparse.ArgumentParser(description='Bootstrap Python runtime for OpenClaw voice stack')
-  parser.add_argument('--asr-model-id', required=True)
-  parser.add_argument('--tts-model-id', required=True)
+  parser.add_argument('--asr-model-id', default='')
+  parser.add_argument('--tts-model-id', default='')
   parser.add_argument('--tts-tokenizer-model-id', default='')
 
-  parser.add_argument('--asr-model-dir', required=True)
-  parser.add_argument('--tts-model-dir', required=True)
+  parser.add_argument('--asr-model-dir', default='')
+  parser.add_argument('--tts-model-dir', default='')
   parser.add_argument('--tts-tokenizer-dir', default='')
 
   parser.add_argument('--source', default='auto', choices=['auto', 'huggingface', 'modelscope'])
@@ -65,27 +65,38 @@ def parse_args():
 def main():
   args = parse_args()
 
-  asr_dir = Path(args.asr_model_dir)
-  tts_dir = Path(args.tts_model_dir)
+  has_asr = bool((args.asr_model_id or '').strip())
+  has_tts = bool((args.tts_model_id or '').strip())
+  if not has_asr and not has_tts:
+    raise SystemExit('--asr-model-id or --tts-model-id is required')
+  if has_asr and not (args.asr_model_dir or '').strip():
+    raise SystemExit('--asr-model-dir is required when --asr-model-id is set')
+  if has_tts and not (args.tts_model_dir or '').strip():
+    raise SystemExit('--tts-model-dir is required when --tts-model-id is set')
+
+  asr_dir = Path(args.asr_model_dir) if has_asr else None
+  tts_dir = Path(args.tts_model_dir) if has_tts else None
   tokenizer_dir = Path(args.tts_tokenizer_dir) if args.tts_tokenizer_dir else None
 
-  asr_dir.mkdir(parents=True, exist_ok=True)
-  tts_dir.mkdir(parents=True, exist_ok=True)
-  if tokenizer_dir:
+  if asr_dir:
+    asr_dir.mkdir(parents=True, exist_ok=True)
+  if tts_dir:
+    tts_dir.mkdir(parents=True, exist_ok=True)
+  if tokenizer_dir and has_tts:
     tokenizer_dir.mkdir(parents=True, exist_ok=True)
 
   try:
-    asr_source = download_model(args.asr_model_id, str(asr_dir), args.source)
-    tts_source = download_model(args.tts_model_id, str(tts_dir), args.source)
+    asr_source = download_model(args.asr_model_id, str(asr_dir), args.source) if has_asr else ''
+    tts_source = download_model(args.tts_model_id, str(tts_dir), args.source) if has_tts else ''
 
     tokenizer_source = ''
-    if args.tts_tokenizer_model_id and tokenizer_dir:
+    if has_tts and args.tts_tokenizer_model_id and tokenizer_dir:
       tokenizer_source = download_model(args.tts_tokenizer_model_id, str(tokenizer_dir), args.source)
 
     payload = {
-        'asrModelDir': str(asr_dir),
-        'ttsModelDir': str(tts_dir),
-        'ttsTokenizerDir': str(tokenizer_dir) if tokenizer_dir else '',
+        'asrModelDir': str(asr_dir) if asr_dir else '',
+        'ttsModelDir': str(tts_dir) if tts_dir else '',
+        'ttsTokenizerDir': str(tokenizer_dir) if (tokenizer_dir and has_tts) else '',
         'source': {
             'asr': asr_source,
             'tts': tts_source,
