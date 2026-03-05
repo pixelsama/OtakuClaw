@@ -306,7 +306,6 @@ function registerVoiceSessionIpc({
   createAsrServiceImpl = createAsrService,
   createTtsServiceImpl = createTtsService,
   onAsrFinal,
-  autoTtsOnAsrFinal = false,
   resolveVoiceEnv,
   ttsBackpressureTimeoutMs = DEFAULT_TTS_BACKPRESSURE_TIMEOUT_MS,
 }) {
@@ -518,7 +517,6 @@ function registerVoiceSessionIpc({
       env,
       asrService: cachedAsrService,
       ttsService: cachedTtsService,
-      autoTtsOnAsrFinal: isTruthyEnv(env?.VOICE_TTS_AUTO_ON_ASR_FINAL, autoTtsOnAsrFinal),
     };
   };
 
@@ -1149,19 +1147,6 @@ function registerVoiceSessionIpc({
         await onAsrFinal({
           sessionId,
           text: finalText,
-        });
-      }
-
-      if (runtime.autoTtsOnAsrFinal && finalText) {
-        await synthesizeTts({
-          sessionId,
-          text: finalText,
-          ttsService: runtime.ttsService,
-          sendEvent,
-          sendDone,
-          sendError,
-          sessionState,
-          ttsBackpressureTimeoutMs: safeTtsBackpressureTimeoutMs,
         });
       }
 

@@ -74,7 +74,7 @@ test('downloadBundle persists bundle and resolves runtime env', async () => {
   const runtimeEnv = library.getRuntimeEnv({});
   assert.equal(runtimeEnv.VOICE_ASR_PROVIDER, 'sherpa-onnx');
   assert.equal(runtimeEnv.VOICE_TTS_PROVIDER, 'sherpa-onnx');
-  assert.equal(runtimeEnv.VOICE_TTS_AUTO_ON_ASR_FINAL, '1');
+  assert.equal(runtimeEnv.VOICE_TTS_AUTO_ON_ASR_FINAL, undefined);
   assert.ok(await fs.stat(runtimeEnv.VOICE_ASR_SHERPA_MODEL));
   assert.ok(await fs.stat(runtimeEnv.VOICE_TTS_SHERPA_MODEL));
 });
@@ -244,5 +244,5 @@ test('getRuntimeEnv maps python runtime bundle into python provider env', async 
   assert.equal(runtimeEnv.VOICE_TTS_PYTHON_TOKENIZER_DIR, ttsTokenizerDir);
   assert.equal(runtimeEnv.VOICE_TTS_PYTHON_MODE, 'custom_voice');
   assert.equal(runtimeEnv.VOICE_TTS_PYTHON_SPEAKER, 'Vivian');
-  assert.equal(runtimeEnv.VOICE_TTS_AUTO_ON_ASR_FINAL, '1');
+  assert.equal(runtimeEnv.VOICE_TTS_AUTO_ON_ASR_FINAL, undefined);
 });

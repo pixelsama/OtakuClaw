@@ -1369,9 +1369,6 @@ class VoiceModelLibrary {
         env.VOICE_TTS_PYTHON_SPEAKER = runtime.ttsSpeaker;
       }
 
-      if (!sanitizeText(env.VOICE_TTS_AUTO_ON_ASR_FINAL)) {
-        env.VOICE_TTS_AUTO_ON_ASR_FINAL = '1';
-      }
       return env;
     }
 
@@ -1409,10 +1406,6 @@ class VoiceModelLibrary {
       if (!sanitizeText(env.VOICE_TTS_SHERPA_ENABLE_EXTERNAL_BUFFER)) {
         env.VOICE_TTS_SHERPA_ENABLE_EXTERNAL_BUFFER = '0';
       }
-    }
-
-    if (selectedBundle.asr && selectedBundle.tts && !sanitizeText(env.VOICE_TTS_AUTO_ON_ASR_FINAL)) {
-      env.VOICE_TTS_AUTO_ON_ASR_FINAL = '1';
     }
 
     return env;

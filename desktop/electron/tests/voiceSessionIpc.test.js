@@ -223,14 +223,11 @@ test('voice tts backpressure pauses and resumes chunk delivery', async () => {
   const emitted = [];
   const flowEvents = [];
 
-  registerVoiceSessionIpc({
+  const voiceControl = registerVoiceSessionIpc({
     ipcMain,
     emitEvent: (event) => emitted.push(event),
     emitFlowControl: (event) => flowEvents.push(event),
-    autoTtsOnAsrFinal: true,
-    createAsrServiceImpl: () => ({
-      transcribe: async () => ({ text: 'hello world' }),
-    }),
+    createAsrServiceImpl: () => ({ warmup: async () => {}, transcribe: async () => ({ text: '' }) }),
     createTtsServiceImpl: () => ({
       synthesize: async ({ signal, onChunk }) => {
         await onChunk({
@@ -260,21 +257,26 @@ test('voice tts backpressure pauses and resumes chunk delivery', async () => {
     sessionId: 's4',
     mode: 'vad',
   });
-  await ipcMain.invoke('voice:audio:chunk', {
-    sessionId: 's4',
-    seq: 1,
-    chunkId: 1,
-    pcmChunk: Buffer.from([1, 2, 3, 4]),
-    sampleRate: 16000,
-    channels: 1,
-    sampleFormat: 'pcm_s16le',
-    isSpeech: true,
-  });
 
-  const commitPromise = ipcMain.invoke('voice:input:commit', {
+  const enqueueResult = voiceControl.enqueueSegmentReady({
     sessionId: 's4',
-    finalSeq: 1,
+    turnId: 'turn-s4-1',
+    segmentId: 'turn-s4-1:0',
+    index: 0,
+    text: 'hello world',
+    final: true,
   });
+  assert.equal(enqueueResult.ok, true);
+  const markDoneResult = voiceControl.markTurnDone({
+    sessionId: 's4',
+    turnId: 'turn-s4-1',
+  });
+  assert.equal(markDoneResult.ok, true);
+
+  const queueDrainPromise = waitFor(
+    () => emitted.filter((event) => event.type === 'segment-tts-finished').length >= 1,
+    { timeoutMs: 2000 },
+  );
 
   await waitFor(() => emitted.filter((event) => event.type === 'tts-chunk').length >= 1);
   await ipcMain.invoke('voice:playback:ack', {
@@ -292,8 +294,7 @@ test('voice tts backpressure pauses and resumes chunk delivery', async () => {
     bufferedMs: 200,
   });
 
-  const committed = await commitPromise;
-  assert.equal(committed.ok, true);
+  await queueDrainPromise;
   const ttsChunkEvents = emitted.filter((event) => event.type === 'tts-chunk');
   assert.equal(ttsChunkEvents.length, 3);
   assert.equal(Buffer.isBuffer(ttsChunkEvents[0].audioChunk), false);
@@ -307,7 +308,7 @@ test('voice session survives event emitter exception during tts chunk delivery',
   const emitted = [];
   let throwOnFirstTtsChunk = true;
 
-  registerVoiceSessionIpc({
+  const voiceControl = registerVoiceSessionIpc({
     ipcMain,
     emitEvent: (event) => {
       emitted.push(event);
@@ -316,10 +317,7 @@ test('voice session survives event emitter exception during tts chunk delivery',
         throw new Error('renderer_send_failed');
       }
     },
-    autoTtsOnAsrFinal: true,
-    createAsrServiceImpl: () => ({
-      transcribe: async () => ({ text: 'hello' }),
-    }),
+    createAsrServiceImpl: () => ({ warmup: async () => {}, transcribe: async () => ({ text: '' }) }),
     createTtsServiceImpl: () => ({
       synthesize: async ({ onChunk }) => {
         await onChunk({
@@ -332,37 +330,36 @@ test('voice session survives event emitter exception during tts chunk delivery',
   });
 
   await ipcMain.invoke('voice:session:start', { sessionId: 's-emit-err', mode: 'vad' });
-  await ipcMain.invoke('voice:audio:chunk', {
+  const enqueueResult = voiceControl.enqueueSegmentReady({
     sessionId: 's-emit-err',
-    seq: 1,
-    chunkId: 1,
-    pcmChunk: Buffer.from([1, 2]),
-    sampleRate: 16000,
-    channels: 1,
-    sampleFormat: 'pcm_s16le',
-    isSpeech: true,
+    turnId: 'turn-emit-err-1',
+    segmentId: 'turn-emit-err-1:0',
+    index: 0,
+    text: 'hello',
+    final: true,
   });
+  assert.equal(enqueueResult.ok, true);
+  const markDoneResult = voiceControl.markTurnDone({
+    sessionId: 's-emit-err',
+    turnId: 'turn-emit-err-1',
+  });
+  assert.equal(markDoneResult.ok, true);
 
-  const committed = await ipcMain.invoke('voice:input:commit', {
-    sessionId: 's-emit-err',
-    finalSeq: 1,
-  });
-  assert.equal(committed.ok, true);
-  assert.equal(emitted.some((event) => event.type === 'done' && event.stage === 'transcribing'), true);
+  await waitFor(
+    () => emitted.some((event) => event.type === 'segment-tts-finished' && event.segmentId === 'turn-emit-err-1:0'),
+    { timeoutMs: 1500 },
+  );
 });
 
 test('voice tts emits timeout error when playback ack is missing', async () => {
   const ipcMain = createIpcMainMock();
   const emitted = [];
 
-  registerVoiceSessionIpc({
+  const voiceControl = registerVoiceSessionIpc({
     ipcMain,
     emitEvent: (event) => emitted.push(event),
-    autoTtsOnAsrFinal: true,
     ttsBackpressureTimeoutMs: 50,
-    createAsrServiceImpl: () => ({
-      transcribe: async () => ({ text: 'timeout check' }),
-    }),
+    createAsrServiceImpl: () => ({ warmup: async () => {}, transcribe: async () => ({ text: '' }) }),
     createTtsServiceImpl: () => ({
       synthesize: async ({ signal, onChunk }) => {
         await onChunk({
@@ -386,43 +383,39 @@ test('voice tts emits timeout error when playback ack is missing', async () => {
   });
 
   await ipcMain.invoke('voice:session:start', { sessionId: 's5', mode: 'vad' });
-  await ipcMain.invoke('voice:audio:chunk', {
-    sessionId: 's5',
-    seq: 1,
-    chunkId: 1,
-    pcmChunk: Buffer.from([1, 2]),
-    sampleRate: 16000,
-    channels: 1,
-    sampleFormat: 'pcm_s16le',
-    isSpeech: true,
-  });
 
-  const committed = await ipcMain.invoke('voice:input:commit', {
+  const enqueueResult = voiceControl.enqueueSegmentReady({
     sessionId: 's5',
-    finalSeq: 1,
+    turnId: 'turn-s5-1',
+    segmentId: 'turn-s5-1:0',
+    index: 0,
+    text: 'timeout check',
+    final: true,
   });
-  assert.equal(committed.ok, true);
+  assert.equal(enqueueResult.ok, true);
+  const markDoneResult = voiceControl.markTurnDone({
+    sessionId: 's5',
+    turnId: 'turn-s5-1',
+  });
+  assert.equal(markDoneResult.ok, true);
 
   await waitFor(
-    () => emitted.some((event) => event.type === 'error' && event.code === 'voice_tts_backpressure_timeout'),
+    () => emitted.some((event) => event.type === 'segment-tts-failed' && event.code === 'voice_tts_backpressure_timeout'),
     { timeoutMs: 1200 },
   );
 
-  const timeoutError = emitted.find((event) => event.type === 'error' && event.code === 'voice_tts_backpressure_timeout');
-  assert.equal(timeoutError?.stage, 'speaking');
+  const timeoutError = emitted.find((event) => event.type === 'segment-tts-failed' && event.code === 'voice_tts_backpressure_timeout');
+  assert.equal(timeoutError?.segmentId, 'turn-s5-1:0');
 });
 
 test('voice tts stop aborts speaking without emitting error', async () => {
   const ipcMain = createIpcMainMock();
   const emitted = [];
 
-  registerVoiceSessionIpc({
+  const voiceControl = registerVoiceSessionIpc({
     ipcMain,
     emitEvent: (event) => emitted.push(event),
-    autoTtsOnAsrFinal: true,
-    createAsrServiceImpl: () => ({
-      transcribe: async () => ({ text: 'manual stop' }),
-    }),
+    createAsrServiceImpl: () => ({ warmup: async () => {}, transcribe: async () => ({ text: '' }) }),
     createTtsServiceImpl: () => ({
       synthesize: async ({ signal, onChunk }) => {
         await onChunk({
@@ -446,31 +439,32 @@ test('voice tts stop aborts speaking without emitting error', async () => {
   });
 
   await ipcMain.invoke('voice:session:start', { sessionId: 's6', mode: 'vad' });
-  await ipcMain.invoke('voice:audio:chunk', {
+  const enqueueResult = voiceControl.enqueueSegmentReady({
     sessionId: 's6',
-    seq: 1,
-    chunkId: 1,
-    pcmChunk: Buffer.from([1, 2]),
-    sampleRate: 16000,
-    channels: 1,
-    sampleFormat: 'pcm_s16le',
-    isSpeech: true,
+    turnId: 'turn-s6-1',
+    segmentId: 'turn-s6-1:0',
+    index: 0,
+    text: 'manual stop',
+    final: true,
   });
-
-  const commitPromise = ipcMain.invoke('voice:input:commit', {
+  assert.equal(enqueueResult.ok, true);
+  const markDoneResult = voiceControl.markTurnDone({
     sessionId: 's6',
-    finalSeq: 1,
+    turnId: 'turn-s6-1',
   });
+  assert.equal(markDoneResult.ok, true);
 
-  await waitFor(() => emitted.some((event) => event.type === 'tts-chunk'));
+  await waitFor(() => emitted.some((event) => event.type === 'tts-chunk' && event.segmentId === 'turn-s6-1:0'));
   const stopResult = await ipcMain.invoke('voice:tts:stop', {
     sessionId: 's6',
     reason: 'manual',
   });
   assert.equal(stopResult.ok, true);
 
-  const committed = await commitPromise;
-  assert.equal(committed.ok, true);
+  await waitFor(
+    () => emitted.some((event) => event.type === 'segment-tts-failed' && event.segmentId === 'turn-s6-1:0'),
+    { timeoutMs: 1500 },
+  );
 
   const hasSpeakingError = emitted.some(
     (event) => event.type === 'error' && event.stage === 'speaking',
