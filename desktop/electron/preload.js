@@ -128,6 +128,9 @@ const voice = {
   sendPlaybackAck(request) {
     return ipcRenderer.invoke('voice:playback:ack', request);
   },
+  listSegmentTrace(request) {
+    return ipcRenderer.invoke('voice:segment:trace:list', request);
+  },
   onEvent(handler) {
     return onChannel('voice:event', handler);
   },

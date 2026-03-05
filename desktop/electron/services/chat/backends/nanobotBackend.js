@@ -36,6 +36,33 @@ function createNanobotError(code, message, status) {
   return error;
 }
 
+const TOOL_CALL_PREFIX_REGEX = /^\s*(?:tool\s+call:\s*)?/i;
+const TOOL_CALL_NAME_REGEX = /^(read_file|write_file|list_dir|edit_file|exec|spawn|web_search|web_fetch)\s*\(/i;
+
+function sanitizeNanobotDisplayText(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  const lines = value.split(/\r?\n/);
+  const kept = [];
+  for (const line of lines) {
+    const normalized = line.trim();
+    if (!normalized) {
+      continue;
+    }
+
+    const strippedPrefix = normalized.replace(TOOL_CALL_PREFIX_REGEX, '');
+    if (TOOL_CALL_NAME_REGEX.test(strippedPrefix)) {
+      continue;
+    }
+
+    kept.push(line);
+  }
+
+  return kept.join('\n').trim();
+}
+
 class NanobotBackendAdapter extends ChatBackendAdapter {
   constructor({ bridgeClient, resolveRuntime } = {}) {
     super('nanobot');
@@ -75,10 +102,19 @@ class NanobotBackendAdapter extends ChatBackendAdapter {
         }
 
         const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
+        const isTextDelta = event.type === 'text-delta';
+        const sanitizedContent = isTextDelta
+          ? sanitizeNanobotDisplayText(payload.content)
+          : payload.content;
+        if (isTextDelta && !sanitizedContent) {
+          return;
+        }
+
         onEvent({
           ...event,
           payload: {
             ...payload,
+            ...(isTextDelta ? { content: sanitizedContent } : {}),
             source: payload.source || 'nanobot',
           },
         });
@@ -118,4 +154,5 @@ class NanobotBackendAdapter extends ChatBackendAdapter {
 module.exports = {
   NanobotBackendAdapter,
   normalizeNanobotConfig,
+  sanitizeNanobotDisplayText,
 };

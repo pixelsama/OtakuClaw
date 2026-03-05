@@ -10,6 +10,7 @@ const TTS_PAUSE_HIGH_WATERMARK_MS = 2000;
 const TTS_RESUME_LOW_WATERMARK_MS = 800;
 const DEFAULT_TTS_BACKPRESSURE_TIMEOUT_MS = 5000;
 const TTS_ACK_WATCHDOG_INTERVAL_MS = 200;
+const SEGMENT_TRACE_LIMIT = 20;
 
 function createAbortError() {
   const error = new Error('aborted');
@@ -310,9 +311,11 @@ function registerVoiceSessionIpc({
   ttsBackpressureTimeoutMs = DEFAULT_TTS_BACKPRESSURE_TIMEOUT_MS,
 }) {
   const sessionMap = new Map();
+  const segmentTracesBySession = new Map();
   let cachedAsrService = null;
   let cachedTtsService = null;
   let cachedEnvFingerprint = '';
+  const segmentDebugEnabled = isTruthyEnv(process.env.VOICE_SEGMENT_DEBUG, false);
 
   const sendEvent = (event) => {
     try {
@@ -363,6 +366,134 @@ function registerVoiceSessionIpc({
     ttsBackpressureTimeoutMs,
     DEFAULT_TTS_BACKPRESSURE_TIMEOUT_MS,
   );
+
+  const normalizeTraceLimit = (value) => {
+    const parsed = normalizePositiveInteger(value, SEGMENT_TRACE_LIMIT);
+    return Math.min(parsed, 200);
+  };
+
+  const getSessionTraceList = (sessionId) => {
+    const key = normalizeSessionId(sessionId);
+    if (!key) {
+      return [];
+    }
+
+    const existing = segmentTracesBySession.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const created = [];
+    segmentTracesBySession.set(key, created);
+    return created;
+  };
+
+  const upsertSegmentTrace = (segment = {}, patch = {}) => {
+    const sessionId = normalizeSessionId(segment.sessionId || patch.sessionId);
+    const segmentId = normalizeSegmentId(segment.segmentId || patch.segmentId);
+    if (!sessionId || !segmentId) {
+      return null;
+    }
+
+    const traces = getSessionTraceList(sessionId);
+    const index = traces.findIndex((item) => item.segmentId === segmentId);
+    const now = Date.now();
+    const base = index >= 0
+      ? traces[index]
+      : {
+          sessionId,
+          turnId: normalizeTurnId(segment.turnId),
+          segmentId,
+          index: normalizeSeq(segment.index),
+          text: normalizeSegmentText(segment.text),
+          source: typeof segment.source === 'string' ? segment.source : '',
+          lang: typeof segment.lang === 'string' ? segment.lang : '',
+          readyAt: 0,
+          startedAt: 0,
+          finishedAt: 0,
+          failedAt: 0,
+          status: 'ready',
+          code: '',
+          message: '',
+          retriable: false,
+          aborted: false,
+          reason: '',
+          updatedAt: 0,
+        };
+
+    const next = {
+      ...base,
+      ...(segment.turnId ? { turnId: normalizeTurnId(segment.turnId) } : {}),
+      ...(typeof segment.index === 'number' ? { index: normalizeSeq(segment.index) } : {}),
+      ...(segment.text ? { text: normalizeSegmentText(segment.text) } : {}),
+      ...(segment.source ? { source: String(segment.source) } : {}),
+      ...(segment.lang ? { lang: String(segment.lang) } : {}),
+      ...patch,
+      updatedAt: now,
+    };
+
+    if (index >= 0) {
+      traces[index] = next;
+    } else {
+      traces.push(next);
+      if (traces.length > SEGMENT_TRACE_LIMIT) {
+        traces.splice(0, traces.length - SEGMENT_TRACE_LIMIT);
+      }
+    }
+
+    return next;
+  };
+
+  const createTimingPayload = (trace) => {
+    if (!trace) {
+      return {};
+    }
+
+    const queueDelayMs =
+      trace.readyAt > 0 && trace.startedAt > 0
+        ? Math.max(0, trace.startedAt - trace.readyAt)
+        : undefined;
+    const ttsDurationMs =
+      trace.startedAt > 0 && trace.finishedAt > 0
+        ? Math.max(0, trace.finishedAt - trace.startedAt)
+        : undefined;
+    return {
+      readyAt: trace.readyAt || undefined,
+      startedAt: trace.startedAt || undefined,
+      finishedAt: trace.finishedAt || undefined,
+      failedAt: trace.failedAt || undefined,
+      queueDelayMs,
+      ttsDurationMs,
+    };
+  };
+
+  const debugSegmentTrace = (label, trace) => {
+    if (!segmentDebugEnabled || !trace) {
+      return;
+    }
+
+    const timing = createTimingPayload(trace);
+    console.info(
+      `[voice-segment] ${label} session=${trace.sessionId} turn=${trace.turnId} segment=${trace.segmentId} status=${trace.status} queue=${timing.queueDelayMs ?? 'n/a'}ms tts=${timing.ttsDurationMs ?? 'n/a'}ms`,
+    );
+  };
+
+  const listSegmentTraceItems = ({ sessionId = '', limit = SEGMENT_TRACE_LIMIT } = {}) => {
+    const safeLimit = normalizeTraceLimit(limit);
+    const normalizedSessionId = normalizeSessionId(sessionId);
+
+    if (normalizedSessionId) {
+      const items = (segmentTracesBySession.get(normalizedSessionId) || []).slice(-safeLimit);
+      return items;
+    }
+
+    const merged = [];
+    for (const traces of segmentTracesBySession.values()) {
+      merged.push(...traces);
+    }
+    merged.sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
+    return merged.slice(-safeLimit);
+  };
 
   const resolveRuntime = () => {
     const env =
@@ -442,6 +573,12 @@ function registerVoiceSessionIpc({
       source: typeof payload.source === 'string' ? payload.source : undefined,
       lang: typeof payload.lang === 'string' ? payload.lang : undefined,
       createdAt: typeof payload.createdAt === 'number' ? payload.createdAt : undefined,
+      readyAt:
+        typeof payload.readyAt === 'number'
+          ? payload.readyAt
+          : typeof payload.createdAt === 'number'
+            ? payload.createdAt
+            : Date.now(),
     };
   };
 
@@ -450,6 +587,33 @@ function registerVoiceSessionIpc({
       return;
     }
 
+    const now = Date.now();
+    const tracePatch = {};
+    if (type === 'segment-tts-started') {
+      tracePatch.status = 'started';
+      tracePatch.startedAt = now;
+    } else if (type === 'segment-tts-finished') {
+      tracePatch.status = 'finished';
+      tracePatch.finishedAt = now;
+      tracePatch.code = '';
+      tracePatch.message = '';
+      tracePatch.retriable = false;
+      tracePatch.aborted = false;
+      tracePatch.reason = '';
+    } else if (type === 'segment-tts-failed') {
+      tracePatch.status = 'failed';
+      tracePatch.failedAt = now;
+      tracePatch.code = typeof extra.code === 'string' ? extra.code : '';
+      tracePatch.message = typeof extra.message === 'string' ? extra.message : '';
+      tracePatch.retriable = Boolean(extra.retriable);
+      tracePatch.aborted = Boolean(extra.aborted);
+      tracePatch.reason = typeof extra.reason === 'string' ? extra.reason : '';
+    }
+
+    const trace = upsertSegmentTrace(segment, tracePatch);
+    const timing = createTimingPayload(trace);
+    debugSegmentTrace(type, trace);
+
     sendEvent({
       type,
       sessionId: segment.sessionId,
@@ -457,6 +621,7 @@ function registerVoiceSessionIpc({
       segmentId: segment.segmentId,
       index: segment.index,
       text: segment.text,
+      ...timing,
       ...extra,
     });
   };
@@ -665,6 +830,11 @@ function registerVoiceSessionIpc({
 
     turnState.segmentIds.add(segment.segmentId);
     turnState.segments.push(segment);
+    const trace = upsertSegmentTrace(segment, {
+      status: 'ready',
+      readyAt: typeof segment.readyAt === 'number' ? segment.readyAt : Date.now(),
+    });
+    debugSegmentTrace('segment-ready', trace);
     void drainSegmentPlaybackQueue(sessionState);
 
     return {
@@ -1125,6 +1295,14 @@ function registerVoiceSessionIpc({
     };
   });
 
+  ipcMain.handle('voice:segment:trace:list', async (_event, request = {}) => ({
+    ok: true,
+    items: listSegmentTraceItems({
+      sessionId: request?.sessionId,
+      limit: request?.limit,
+    }),
+  }));
+
   const dispose = () => {
     for (const [, sessionState] of sessionMap.entries()) {
       sessionState.asrController?.abort();
@@ -1156,6 +1334,7 @@ function registerVoiceSessionIpc({
     ipcMain.removeHandler('voice:session:stop');
     ipcMain.removeHandler('voice:tts:stop');
     ipcMain.removeHandler('voice:playback:ack');
+    ipcMain.removeHandler('voice:segment:trace:list');
   };
 
   dispose.enqueueSegmentReady = (payload = {}) => enqueueSegmentReady(payload);

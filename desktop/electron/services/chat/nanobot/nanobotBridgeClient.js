@@ -39,6 +39,31 @@ function normalizeString(value, fallback = '') {
   return value.trim();
 }
 
+function isTruthyEnv(value, fallback = false) {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on') {
+    return true;
+  }
+
+  if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off') {
+    return false;
+  }
+
+  return fallback;
+}
+
 function resolveDefaultPythonBin(env = process.env) {
   const configured = normalizeString(env.NANOBOT_PYTHON_BIN);
   if (configured) {
@@ -68,6 +93,7 @@ function createNanobotBridgeClient({
   let readyPromise = null;
   let processPromise = null;
   let stdoutBuffer = '';
+  const bridgeDebugEnabled = isTruthyEnv(env?.NANOBOT_BRIDGE_DEBUG, false);
   const pendingStreamRequests = new Map();
   const pendingTestRequests = new Map();
 
@@ -249,6 +275,9 @@ function createNanobotBridgeClient({
 
       child.stdout?.on('data', pushStdout);
       child.stderr?.on('data', (chunk) => {
+        if (!bridgeDebugEnabled) {
+          return;
+        }
         const text = chunk.toString('utf-8').trim();
         if (text) {
           console.warn(`[nanobot-bridge] ${text}`);

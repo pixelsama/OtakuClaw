@@ -637,3 +637,59 @@ test('voice:tts:stop aborts current and pending segment playback with failed ter
   assert.equal(failedById.get('turn-stop-1:0')?.aborted, true);
   assert.equal(failedById.get('turn-stop-1:1')?.aborted, true);
 });
+
+test('voice segment trace list returns lifecycle timing for latest segments', async () => {
+  const ipcMain = createIpcMainMock();
+  const emitted = [];
+
+  const voiceControl = registerVoiceSessionIpc({
+    ipcMain,
+    emitEvent: (event) => emitted.push(event),
+    createTtsServiceImpl: () => ({
+      synthesize: async ({ onChunk }) => {
+        await onChunk({
+          audioChunk: Buffer.from([1, 2, 3, 4]),
+          codec: 'pcm_s16le',
+          sampleRate: 24000,
+        });
+      },
+    }),
+  });
+
+  await ipcMain.invoke('voice:session:start', { sessionId: 'trace-s1', mode: 'vad' });
+  voiceControl.enqueueSegmentReady({
+    sessionId: 'trace-s1',
+    turnId: 'trace-turn-1',
+    segmentId: 'trace-turn-1:0',
+    index: 0,
+    text: '第一句。',
+    final: true,
+  });
+  voiceControl.markTurnDone({
+    sessionId: 'trace-s1',
+    turnId: 'trace-turn-1',
+  });
+
+  await waitFor(
+    () => emitted.some((event) => event.type === 'segment-tts-finished' && event.segmentId === 'trace-turn-1:0'),
+    { timeoutMs: 1500 },
+  );
+
+  const tracesResult = await ipcMain.invoke('voice:segment:trace:list', {
+    sessionId: 'trace-s1',
+    limit: 20,
+  });
+  assert.equal(tracesResult.ok, true);
+  assert.ok(Array.isArray(tracesResult.items));
+  assert.equal(tracesResult.items.length >= 1, true);
+
+  const trace = tracesResult.items.find((item) => item.segmentId === 'trace-turn-1:0');
+  assert.ok(Boolean(trace));
+  assert.equal(trace.status, 'finished');
+  assert.equal(typeof trace.readyAt, 'number');
+  assert.equal(typeof trace.startedAt, 'number');
+  assert.equal(typeof trace.finishedAt, 'number');
+  assert.equal(trace.readyAt > 0, true);
+  assert.equal(trace.startedAt >= trace.readyAt, true);
+  assert.equal(trace.finishedAt >= trace.startedAt, true);
+});

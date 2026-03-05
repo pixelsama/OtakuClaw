@@ -234,6 +234,20 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
     [],
   );
 
+  const listSegmentTrace = useCallback(
+    async ({ limit = 20 } = {}) => {
+      if (!desktopMode) {
+        return { ok: false, reason: 'desktop_only', items: [] };
+      }
+
+      return desktopBridge.voice.listSegmentTrace({
+        sessionId: sessionIdRef.current,
+        limit,
+      });
+    },
+    [desktopMode],
+  );
+
   const onEvent = useCallback((handler) => {
     if (typeof handler !== 'function') {
       return () => {};
@@ -261,6 +275,7 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
       stopSession,
       stopTts,
       sendPlaybackAck,
+      listSegmentTrace,
       onEvent,
     }),
     [
@@ -278,6 +293,7 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
       stopSession,
       stopTts,
       sendPlaybackAck,
+      listSegmentTrace,
       onEvent,
     ],
   );

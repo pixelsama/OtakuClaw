@@ -635,6 +635,13 @@ export const desktopBridge = {
       }
       return api.voice.sendPlaybackAck({ sessionId, ackSeq, bufferedMs });
     },
+    async listSegmentTrace({ sessionId = '', limit = 20 } = {}) {
+      const api = getDesktopApi();
+      if (!api?.voice?.listSegmentTrace) {
+        return { ok: false, reason: 'desktop_voice_unavailable', items: [] };
+      }
+      return api.voice.listSegmentTrace({ sessionId, limit });
+    },
     onEvent(handler) {
       const api = getDesktopApi();
       if (!api?.voice?.onEvent || typeof handler !== 'function') {
