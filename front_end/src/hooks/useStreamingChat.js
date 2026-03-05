@@ -3,6 +3,7 @@ import { desktopBridge } from '../services/desktopBridge.js';
 import { parseSseChunk } from '../services/sseClient.js';
 
 const deltaHandlers = new Set();
+const segmentHandlers = new Set();
 const doneHandlers = new Set();
 const errorHandlers = new Set();
 const statusHandlers = new Set();
@@ -99,6 +100,11 @@ const resolveDesktopPending = (streamId, pending, endedBy, payload = null) => {
 };
 
 const handleDesktopEvent = (streamId, type, payload, pending) => {
+  if (type === 'segment-ready') {
+    notifyHandlers(segmentHandlers, payload || {});
+    return;
+  }
+
   if (type === 'text-delta') {
     if (payload?.content) {
       notifyHandlers(deltaHandlers, payload.content);
@@ -122,7 +128,7 @@ const shouldAdoptDesktopEvent = (streamId, type) => {
     return false;
   }
 
-  if (type !== 'text-delta' && type !== 'done' && type !== 'error') {
+  if (type !== 'segment-ready' && type !== 'text-delta' && type !== 'done' && type !== 'error') {
     return false;
   }
 
@@ -146,6 +152,18 @@ const createAdoptedDesktopPending = (streamId) => ({
 
 const processSseEvent = (eventType, data, emitDone) => {
   if (!data && eventType !== 'done') {
+    return;
+  }
+
+  if (eventType === 'segment-ready' || eventType === 'segment.ready') {
+    try {
+      const parsed = JSON.parse(data);
+      if (parsed && typeof parsed === 'object') {
+        notifyHandlers(segmentHandlers, parsed);
+      }
+    } catch (error) {
+      console.error('Failed to parse segment-ready payload:', error, data);
+    }
     return;
   }
 
@@ -370,6 +388,13 @@ const onDelta = (handler) => {
   return () => deltaHandlers.delete(handler);
 };
 
+const onSegmentReady = (handler) => {
+  if (typeof handler === 'function') {
+    segmentHandlers.add(handler);
+  }
+  return () => segmentHandlers.delete(handler);
+};
+
 const onDone = (handler) => {
   if (typeof handler === 'function') {
     doneHandlers.add(handler);
@@ -400,6 +425,7 @@ export function useStreamingChat() {
     startStreaming,
     cancelStreaming,
     onDelta,
+    onSegmentReady,
     onDone,
     onError,
   };

@@ -41,10 +41,12 @@ test('chat stream emits text-delta and done events', async () => {
 
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  assert.equal(emitted.length, 2);
-  assert.equal(emitted[0].type, 'text-delta');
+  assert.deepEqual(
+    emitted.map((event) => event.type),
+    ['text-delta', 'segment-ready', 'done'],
+  );
   assert.equal(emitted[0].payload.content, 'hello');
-  assert.equal(emitted[1].type, 'done');
+  assert.equal(emitted[1].payload.text, 'hello');
 });
 
 test('chat stream abort emits done with aborted flag', async () => {
@@ -143,4 +145,32 @@ test('chat stream respects explicit backend override', async () => {
   assert.equal(emitted.length, 1);
   assert.equal(emitted[0].type, 'done');
   assert.equal(emitted[0].payload.source, 'nanobot');
+});
+
+test('chat stream segment-ready follows sentence boundaries across deltas', async () => {
+  const ipcMain = createIpcMainMock();
+  const emitted = [];
+
+  registerChatStreamIpc({
+    ipcMain,
+    getSettings: () => ({ baseUrl: 'http://example.com', token: 'x', agentId: 'main' }),
+    emitEvent: (event) => emitted.push(event),
+    startStream: async ({ onEvent }) => {
+      onEvent({ type: 'text-delta', payload: { content: '你好。世界' } });
+      onEvent({ type: 'text-delta', payload: { content: '！' } });
+      onEvent({ type: 'done', payload: { source: 'openclaw' } });
+    },
+  });
+
+  await ipcMain.invoke('chat:stream:start', {
+    sessionId: 's1',
+    content: 'hello',
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const segments = emitted
+    .filter((event) => event.type === 'segment-ready')
+    .map((event) => event.payload.text);
+  assert.deepEqual(segments, ['你好。', '世界！']);
 });

@@ -1,5 +1,6 @@
 const { randomUUID } = require('node:crypto');
 const { createChatBackendManager } = require('../services/chat/backendManager');
+const { createChatSegmentEmitter } = require('../services/chat/segmenter');
 
 function registerChatStreamIpc({
   ipcMain,
@@ -40,6 +41,13 @@ function registerChatStreamIpc({
 
   const runStream = async (streamId, request, state) => {
     let source = 'openclaw';
+    const segmentEmitter = createChatSegmentEmitter({
+      streamId,
+      sessionId: request.sessionId,
+      emitReady: (payload) => {
+        sendEvent(streamId, 'segment-ready', payload);
+      },
+    });
 
     try {
       const settings = getSettings();
@@ -72,6 +80,7 @@ function registerChatStreamIpc({
           }
 
           if (event.type === 'done') {
+            segmentEmitter.flushRemaining({ source });
             completeStream(streamId, event.payload || { source });
             return;
           }
@@ -88,11 +97,18 @@ function registerChatStreamIpc({
           }
 
           if (event.type === 'text-delta') {
-            sendEvent(streamId, 'text-delta', event.payload || {});
+            const payload = event.payload || {};
+            sendEvent(streamId, 'text-delta', payload);
+            if (typeof payload.content === 'string' && payload.content) {
+              segmentEmitter.ingestDelta(payload.content, {
+                source: payload.source || source,
+              });
+            }
           }
         },
       });
 
+      segmentEmitter.flushRemaining({ source });
       completeStream(streamId, { source });
     } catch (error) {
       if (state.aborted || error?.name === 'AbortError') {

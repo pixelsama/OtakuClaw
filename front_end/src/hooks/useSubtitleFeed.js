@@ -15,6 +15,11 @@ export function useSubtitleFeed() {
     setIsStreaming(true);
   }, []);
 
+  const setSegmentText = useCallback((text) => {
+    setSubtitleText(text || '');
+    setIsStreaming(true);
+  }, []);
+
   const replaceText = useCallback((text) => {
     setSubtitleText(text || '');
     setIsStreaming(false);
@@ -34,6 +39,7 @@ export function useSubtitleFeed() {
     isStreaming,
     beginStream,
     appendDelta,
+    setSegmentText,
     replaceText,
     finishStream,
     clearSubtitle,

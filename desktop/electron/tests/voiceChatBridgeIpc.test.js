@@ -98,8 +98,9 @@ test('asr-final automatically starts chat stream through shared ipc pipeline', a
   assert.equal(autoStarts[0].text, 'hello voice');
 
   const chatEventTypes = chatEvents.map((event) => event.type);
-  assert.deepEqual(chatEventTypes, ['text-delta', 'done']);
+  assert.deepEqual(chatEventTypes, ['text-delta', 'segment-ready', 'done']);
   assert.equal(chatEvents[0].payload.content, 'echo:hello voice');
+  assert.equal(chatEvents[1].payload.text, 'echo:hello voice');
 
   const hasAsrFinalEvent = voiceEvents.some(
     (event) => event.type === 'asr-final' && event.text === 'hello voice',

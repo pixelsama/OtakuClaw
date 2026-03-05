@@ -36,8 +36,9 @@ function AppContent({ desktopMode }) {
   const [expressions, setExpressions] = useState([]);
   const platform = usePlatformInfo({ desktopMode });
 
-  const { subtitleText, appendDelta, finishStream, clearSubtitle, beginStream } = useSubtitleFeed();
-  const { startStreaming, cancelStreaming, onDelta, onDone, onError, isStreaming } = useStreamingChat();
+  const { subtitleText, appendDelta, setSegmentText, finishStream, clearSubtitle, beginStream } = useSubtitleFeed();
+  const { startStreaming, cancelStreaming, onDelta, onSegmentReady, onDone, onError, isStreaming } =
+    useStreamingChat();
 
   const normalizeError = useCallback((error) => normalizeErrorMessage(error, t), [t]);
   const {
@@ -130,9 +131,11 @@ function AppContent({ desktopMode }) {
 
   useStreamingSubtitleBridge({
     appendDelta,
+    setSegmentText,
     finishStream,
     clearSubtitle,
     onDelta,
+    onSegmentReady,
     onDone,
     onError,
     normalizeError,
