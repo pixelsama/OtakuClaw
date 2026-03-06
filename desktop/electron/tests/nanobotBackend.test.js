@@ -4,6 +4,8 @@ const test = require('node:test');
 const {
   NanobotBackendAdapter,
   sanitizeNanobotDisplayText,
+  sliceIncrementalNanobotText,
+  shouldForwardNanobotProgress,
 } = require('../services/chat/backends/nanobotBackend');
 
 test('nanobot backend validates required settings', () => {
@@ -218,6 +220,105 @@ test('nanobot backend emits debug logs for request, sanitize and forward stages'
   assert.equal(startRequest?.details?.config?.apiKey, '[redacted]');
 });
 
+test('nanobot backend forwards progress before final reply and avoids duplicate overlap', async () => {
+  const backend = new NanobotBackendAdapter({
+    bridgeClient: {
+      start: async (payload) => {
+        payload.onEvent({
+          type: 'progress',
+          payload: {
+            content: '我来看看喵。',
+          },
+        });
+        payload.onEvent({
+          type: 'text-delta',
+          payload: {
+            content: '我来看看喵。你现在有 5 个工具可用。',
+          },
+        });
+        payload.onEvent({
+          type: 'done',
+          payload: {},
+        });
+      },
+      testConnection: async () => ({ ok: true }),
+      dispose: async () => {},
+    },
+  });
+
+  const events = [];
+  await backend.startStream({
+    settings: {
+      nanobot: {
+        enabled: true,
+        provider: 'openrouter',
+        model: 'anthropic/claude-opus-4-5',
+        apiKey: 'sk-or-test',
+      },
+    },
+    sessionId: 's-progress',
+    content: '帮我看看',
+    signal: new AbortController().signal,
+    onEvent: (event) => events.push(event),
+  });
+
+  assert.deepEqual(
+    events.map((event) => [event.type, event.payload.content || '']),
+    [
+      ['text-delta', '我来看看喵。'],
+      ['text-delta', '你现在有 5 个工具可用。'],
+      ['done', ''],
+    ],
+  );
+});
+
+test('nanobot backend hides tool hints from user-facing stream', async () => {
+  const backend = new NanobotBackendAdapter({
+    bridgeClient: {
+      start: async (payload) => {
+        payload.onEvent({
+          type: 'tool-hint',
+          payload: {
+            content: 'read_file("MEMORY.md")',
+          },
+        });
+        payload.onEvent({
+          type: 'text-delta',
+          payload: {
+            content: '我先看看你的资料。',
+          },
+        });
+        payload.onEvent({
+          type: 'done',
+          payload: {},
+        });
+      },
+      testConnection: async () => ({ ok: true }),
+      dispose: async () => {},
+    },
+  });
+
+  const events = [];
+  await backend.startStream({
+    settings: {
+      nanobot: {
+        enabled: true,
+        provider: 'openrouter',
+        model: 'anthropic/claude-opus-4-5',
+        apiKey: 'sk-or-test',
+      },
+    },
+    sessionId: 's-tool-hint',
+    content: 'hello',
+    signal: new AbortController().signal,
+    onEvent: (event) => events.push(event),
+  });
+
+  assert.equal(events.length, 2);
+  assert.equal(events[0].type, 'text-delta');
+  assert.equal(events[0].payload.content, '我先看看你的资料。');
+});
+
 test('sanitizeNanobotDisplayText keeps regular content and removes known tool-call lines', () => {
   const input = [
     '  Tool call: list_dir({"path":"./memory"})',
@@ -228,4 +329,20 @@ test('sanitizeNanobotDisplayText keeps regular content and removes known tool-ca
 
   const output = sanitizeNanobotDisplayText(input);
   assert.equal(output, '你好，这是正文。\n第二行正文');
+});
+
+test('sliceIncrementalNanobotText removes overlapping prefix already visible to user', () => {
+  assert.equal(
+    sliceIncrementalNanobotText('我来看看喵。', '我来看看喵。你现在有 5 个工具可用。'),
+    '你现在有 5 个工具可用。',
+  );
+  assert.equal(
+    sliceIncrementalNanobotText('你好', '我来帮你看看'),
+    '我来帮你看看',
+  );
+});
+
+test('shouldForwardNanobotProgress hides internal-looking progress blocks', () => {
+  assert.equal(shouldForwardNanobotProgress('Thinking [abc]: inspect memory'), false);
+  assert.equal(shouldForwardNanobotProgress('我来看看喵。'), true);
 });

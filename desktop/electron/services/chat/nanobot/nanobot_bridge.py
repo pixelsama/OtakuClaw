@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -26,6 +27,15 @@ class BridgeError(Exception):
 AGENT_CACHE_KEY: str | None = None
 AGENT_INSTANCE = None
 ACTIVE_TASKS: dict[str, asyncio.Task] = {}
+DESKTOP_PROMPT_PATCH_FLAG = "_openclaw_desktop_prompt_patched"
+
+DESKTOP_REALTIME_GUIDANCE = """## Desktop Realtime Conversation Guidance
+- You are speaking inside a realtime AI companion app.
+- When a user request may require tool calls or multi-step work, usually begin with one short natural reply to the user before starting tools.
+- That first reply should feel like spoken conversation and stay in character. Keep it brief.
+- Do not expose internal reasoning, chain-of-thought, tool names, function syntax, file paths, or execution details in user-facing progress replies.
+- If no tool is needed, answer directly instead of narrating actions.
+- If you send progress-style updates, keep them short, warm, and user-facing."""
 
 
 def emit(payload: dict[str, Any]) -> None:
@@ -77,6 +87,7 @@ def load_nanobot_modules() -> dict[str, Any]:
 
     try:
         from nanobot.agent.loop import AgentLoop
+        from nanobot.agent.context import ContextBuilder
         from nanobot.bus.queue import MessageBus
         from nanobot.config.schema import ExecToolConfig
         from nanobot.providers.custom_provider import CustomProvider
@@ -90,12 +101,30 @@ def load_nanobot_modules() -> dict[str, Any]:
 
     return {
         "AgentLoop": AgentLoop,
+        "ContextBuilder": ContextBuilder,
         "MessageBus": MessageBus,
         "ExecToolConfig": ExecToolConfig,
         "CustomProvider": CustomProvider,
         "LiteLLMProvider": LiteLLMProvider,
         "find_by_name": find_by_name,
     }
+
+
+def patch_context_builder(modules: dict[str, Any]) -> None:
+    context_builder_cls = modules["ContextBuilder"]
+    if getattr(context_builder_cls, DESKTOP_PROMPT_PATCH_FLAG, False):
+        return
+
+    original_get_identity = context_builder_cls._get_identity
+
+    def patched_get_identity(self):
+        base = original_get_identity(self)
+        if DESKTOP_REALTIME_GUIDANCE in base:
+            return base
+        return f"{base}\n\n{DESKTOP_REALTIME_GUIDANCE}"
+
+    context_builder_cls._get_identity = patched_get_identity
+    setattr(context_builder_cls, DESKTOP_PROMPT_PATCH_FLAG, True)
 
 
 def create_provider(modules: dict[str, Any], config: dict[str, Any]):
@@ -132,6 +161,7 @@ def create_provider(modules: dict[str, Any], config: dict[str, Any]):
 
 def create_agent(config: dict[str, Any]):
     modules = load_nanobot_modules()
+    patch_context_builder(modules)
 
     workspace = Path(config["workspace"]).expanduser().resolve()
     workspace.mkdir(parents=True, exist_ok=True)
@@ -190,6 +220,21 @@ def map_exception(exc: Exception) -> dict[str, Any]:
     }
 
 
+def first_progress_block(content: str) -> str:
+    normalized = normalize_string(content)
+    if not normalized:
+        return ""
+
+    blocks = [block.strip() for block in re.split(r"\n\s*\n", normalized) if block.strip()]
+    if not blocks:
+        return ""
+
+    first_block = blocks[0]
+    if first_block.lower().startswith("thinking ["):
+        return ""
+    return first_block
+
+
 async def handle_start(request_id: str, session_id: str, content: str, config: dict[str, Any]) -> None:
     try:
         if not content:
@@ -200,12 +245,55 @@ async def handle_start(request_id: str, session_id: str, content: str, config: d
             raise BridgeError("nanobot_missing_config", "Nanobot API Key is required.")
 
         agent = get_or_create_agent(normalized)
+        has_visible_progress = False
+
+        async def on_progress(progress_content: str, *, tool_hint: bool = False) -> None:
+            nonlocal has_visible_progress
+
+            if tool_hint:
+                hint = normalize_string(progress_content)
+                if not hint:
+                    return
+                emit(
+                    {
+                        "type": "event",
+                        "requestId": request_id,
+                        "event": {
+                            "type": "tool-hint",
+                            "payload": {
+                                "content": hint,
+                                "source": "nanobot",
+                            },
+                        },
+                    }
+                )
+                return
+
+            visible_text = first_progress_block(progress_content)
+            if not visible_text:
+                return
+
+            has_visible_progress = True
+            emit(
+                {
+                    "type": "event",
+                    "requestId": request_id,
+                    "event": {
+                        "type": "progress",
+                        "payload": {
+                            "content": visible_text,
+                            "source": "nanobot",
+                        },
+                    },
+                }
+            )
 
         response = await agent.process_direct(
             content=content,
             session_key=f"desktop:{session_id or 'default'}",
             channel="desktop",
             chat_id=session_id or "default",
+            on_progress=on_progress,
         )
 
         final_text = normalize_string(response)
@@ -219,6 +307,8 @@ async def handle_start(request_id: str, session_id: str, content: str, config: d
                         "payload": {
                             "content": final_text,
                             "source": "nanobot",
+                            "final": True,
+                            "hadProgress": has_visible_progress,
                         },
                     },
                 }

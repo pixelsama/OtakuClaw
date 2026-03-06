@@ -45,6 +45,7 @@ function redactNanobotConfig(config = {}) {
 
 const TOOL_CALL_PREFIX_REGEX = /^\s*(?:tool\s+call:\s*)?/i;
 const TOOL_CALL_NAME_REGEX = /^(read_file|write_file|list_dir|edit_file|exec|spawn|web_search|web_fetch)\s*\(/i;
+const INTERNAL_PROGRESS_PREFIX_REGEX = /^thinking\s*\[/i;
 
 function sanitizeNanobotDisplayText(value) {
   if (typeof value !== 'string') {
@@ -68,6 +69,39 @@ function sanitizeNanobotDisplayText(value) {
   }
 
   return kept.join('\n').trim();
+}
+
+function sliceIncrementalNanobotText(previousText, nextText) {
+  const previous = typeof previousText === 'string' ? previousText : '';
+  const next = typeof nextText === 'string' ? nextText : '';
+  if (!next) {
+    return '';
+  }
+  if (!previous) {
+    return next;
+  }
+
+  const overlapLimit = Math.min(previous.length, next.length);
+  for (let size = overlapLimit; size > 0; size -= 1) {
+    if (previous.slice(-size) === next.slice(0, size)) {
+      return next.slice(size);
+    }
+  }
+
+  return next;
+}
+
+function shouldForwardNanobotProgress(value) {
+  const normalized = sanitizeNanobotDisplayText(value);
+  if (!normalized) {
+    return false;
+  }
+
+  if (INTERNAL_PROGRESS_PREFIX_REGEX.test(normalized)) {
+    return false;
+  }
+
+  return true;
 }
 
 class NanobotBackendAdapter extends ChatBackendAdapter {
@@ -117,6 +151,7 @@ class NanobotBackendAdapter extends ChatBackendAdapter {
 
   async startStream({ settings, sessionId, content, signal, onEvent }) {
     const config = normalizeNanobotConfig(settings);
+    let visibleText = '';
     this.debug('start-request', 'Starting Nanobot stream.', {
       sessionId,
       content,
@@ -137,29 +172,60 @@ class NanobotBackendAdapter extends ChatBackendAdapter {
           eventType: event.type,
           payload,
         });
+        if (event.type === 'tool-hint') {
+          this.debug('tool-hint-hidden', 'Dropped Nanobot tool hint from user-facing stream.', {
+            content: payload.content || '',
+          });
+          return;
+        }
+
+        const isProgress = event.type === 'progress';
         const isTextDelta = event.type === 'text-delta';
-        const sanitizedContent = isTextDelta
+        const isVisibleTextEvent = isProgress || isTextDelta;
+        const sanitizedContent = isVisibleTextEvent
           ? sanitizeNanobotDisplayText(payload.content)
           : payload.content;
-        if (isTextDelta && !sanitizedContent) {
+        if (isProgress && !shouldForwardNanobotProgress(sanitizedContent)) {
+          this.debug('progress-hidden', 'Dropped non-displayable Nanobot progress update.', {
+            originalContent: payload.content || '',
+          });
+          return;
+        }
+
+        if (isVisibleTextEvent && !sanitizedContent) {
           this.debug('text-delta-dropped', 'Dropped text-delta containing only tool-call traces.', {
             originalContent: payload.content || '',
           });
           return;
         }
 
-        if (isTextDelta && sanitizedContent !== payload.content) {
+        if (isVisibleTextEvent && sanitizedContent !== payload.content) {
           this.debug('text-delta-sanitized', 'Sanitized text-delta before forwarding to app.', {
             originalContent: payload.content || '',
             sanitizedContent,
           });
         }
 
+        const incrementalContent = isVisibleTextEvent
+          ? sliceIncrementalNanobotText(visibleText, sanitizedContent)
+          : sanitizedContent;
+        if (isVisibleTextEvent && !incrementalContent) {
+          this.debug('text-delta-covered', 'Dropped Nanobot text already covered by earlier progress.', {
+            originalContent: sanitizedContent,
+          });
+          return;
+        }
+
+        if (isVisibleTextEvent) {
+          visibleText += incrementalContent;
+        }
+
         const forwardedEvent = {
           ...event,
+          type: isProgress ? 'text-delta' : event.type,
           payload: {
             ...payload,
-            ...(isTextDelta ? { content: sanitizedContent } : {}),
+            ...(isVisibleTextEvent ? { content: incrementalContent } : {}),
             source: payload.source || 'nanobot',
           },
         };
@@ -205,4 +271,6 @@ module.exports = {
   NanobotBackendAdapter,
   normalizeNanobotConfig,
   sanitizeNanobotDisplayText,
+  sliceIncrementalNanobotText,
+  shouldForwardNanobotProgress,
 };
