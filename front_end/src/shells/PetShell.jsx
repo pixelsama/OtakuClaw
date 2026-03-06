@@ -10,10 +10,10 @@ import EdgeComposer from '../components/chat/EdgeComposer.jsx';
 import { useI18n } from '../i18n/I18nContext.jsx';
 import { STORAGE_KEYS } from '../components/controls/constants.js';
 
-const PET_DEFAULT_MODEL_SCALE = 0.7;
+const PET_DEFAULT_MODEL_SCALE = 0.31;
 
 function normalizeModelScale(scale) {
-  const rounded = Math.round(scale * 10) / 10;
+  const rounded = Math.round(scale * 100) / 100;
   return Math.max(0.1, Math.min(3, rounded));
 }
 
@@ -170,7 +170,7 @@ export default function PetShell({
           : typeof manager.currentScale === 'number'
             ? manager.currentScale
             : 1.0;
-      const scaleStep = 0.08;
+      const scaleStep = 0.03;
       const direction = event.deltaY < 0 ? 1 : -1;
       const nextScale = normalizeModelScale(currentScale + direction * scaleStep);
       manager.setModelScale(nextScale);
