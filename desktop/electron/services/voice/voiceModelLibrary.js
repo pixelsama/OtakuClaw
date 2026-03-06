@@ -7,6 +7,9 @@ const path = require('node:path');
 const { pipeline } = require('node:stream/promises');
 const { promisify } = require('node:util');
 
+const { PythonRuntimeManager } = require('../python/pythonRuntimeManager');
+const { PythonEnvManager } = require('../python/pythonEnvManager');
+const { getDefaultPythonVersion } = require('../python/pythonRuntimeCatalog');
 const { getBuiltInVoiceModelCatalog } = require('./voiceModelCatalog');
 
 const ROOT_DIR_NAME = 'voice-models';
@@ -16,6 +19,7 @@ const MAX_REDIRECTS = 5;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 const PYTHON_BRIDGE_SCRIPT_NAME = 'voice_bridge.py';
 const PYTHON_BOOTSTRAP_SCRIPT_NAME = 'bootstrap_runtime.py';
+const PYTHON_RUNTIME_SCRIPTS_DIR_NAME = 'python-scripts';
 const PYTHON_STEP_TIMEOUT_MS = 20 * 60 * 1000;
 const PYTHON_MODEL_DOWNLOAD_TIMEOUT_MS = 120 * 60 * 1000;
 const PYTHON_EXEC_MAX_BUFFER = 20 * 1024 * 1024;
@@ -134,13 +138,17 @@ function normalizeBundleRecord(bundle = {}) {
       return null;
     }
 
+    const pythonEnvId = sanitizeText(bundle.runtime.pythonEnvId);
     const pythonExecutablePath = sanitizeText(bundle.runtime.pythonExecutablePath);
-    if (!pythonExecutablePath) {
+    if (!pythonEnvId && !pythonExecutablePath) {
       return null;
     }
 
     return {
       kind: runtimeKind,
+      pythonEnvId,
+      pythonEnvProfile: sanitizeText(bundle.runtime.pythonEnvProfile),
+      pythonVersion: sanitizeText(bundle.runtime.pythonVersion),
       pythonExecutablePath,
       bridgeScriptPath: sanitizeText(bundle.runtime.bridgeScriptPath),
       bootstrapScriptPath: sanitizeText(bundle.runtime.bootstrapScriptPath),
@@ -444,70 +452,6 @@ function resolveCatalogTtsLabel(item = {}) {
   return sanitizeText(item.name) || 'TTS';
 }
 
-function resolveRuntimePlatformKey() {
-  return `${process.platform}-${process.arch}`;
-}
-
-function resolvePythonRuntimePackage(runtime = {}) {
-  const packages = runtime?.packages && typeof runtime.packages === 'object' ? runtime.packages : {};
-  const platformKey = resolveRuntimePlatformKey();
-  const selected = packages[platformKey];
-  if (!selected || typeof selected !== 'object') {
-    throw createVoiceModelError(
-      'voice_python_runtime_platform_unsupported',
-      `No built-in Python runtime package for ${platformKey}.`,
-    );
-  }
-
-  const archiveUrl = sanitizeText(selected.archiveUrl);
-  if (!archiveUrl) {
-    throw createVoiceModelError(
-      'voice_python_runtime_catalog_invalid',
-      `Missing Python runtime archive URL for ${platformKey}.`,
-    );
-  }
-
-  return {
-    platformKey,
-    archiveUrl,
-  };
-}
-
-function resolvePythonExecutableCandidates(runtimeRootDir) {
-  if (process.platform === 'win32') {
-    return [
-      path.join(runtimeRootDir, 'python.exe'),
-      path.join(runtimeRootDir, 'install', 'python.exe'),
-      path.join(runtimeRootDir, 'python', 'python.exe'),
-      path.join(runtimeRootDir, 'python', 'install', 'python.exe'),
-    ];
-  }
-
-  return [
-    path.join(runtimeRootDir, 'bin', 'python3'),
-    path.join(runtimeRootDir, 'bin', 'python'),
-    path.join(runtimeRootDir, 'python', 'bin', 'python3'),
-    path.join(runtimeRootDir, 'python', 'bin', 'python'),
-    path.join(runtimeRootDir, 'install', 'bin', 'python3'),
-    path.join(runtimeRootDir, 'install', 'bin', 'python'),
-    path.join(runtimeRootDir, 'python', 'install', 'bin', 'python3'),
-    path.join(runtimeRootDir, 'python', 'install', 'bin', 'python'),
-  ];
-}
-
-function resolvePythonExecutablePath(runtimeRootDir) {
-  const candidates = resolvePythonExecutableCandidates(runtimeRootDir);
-  const found = candidates.find((candidatePath) => fs.existsSync(candidatePath));
-  if (!found) {
-    throw createVoiceModelError(
-      'voice_python_runtime_executable_missing',
-      `Python executable not found under ${runtimeRootDir}.`,
-    );
-  }
-
-  return found;
-}
-
 async function copyPythonBridgeScripts({ destinationDir }) {
   await fsp.mkdir(destinationDir, { recursive: true });
   const sourceDir = path.join(__dirname, 'providers', 'python');
@@ -537,20 +481,6 @@ async function copyPythonBridgeScripts({ destinationDir }) {
     bridgeScriptPath,
     bootstrapScriptPath,
   };
-}
-
-async function runPythonCommand(pythonExecutable, args, { timeoutMs = PYTHON_STEP_TIMEOUT_MS } = {}) {
-  try {
-    return await execFileAsync(pythonExecutable, args, {
-      timeout: timeoutMs,
-      maxBuffer: PYTHON_EXEC_MAX_BUFFER,
-    });
-  } catch (error) {
-    const stderr = sanitizeText(stripAnsiCodes(error?.stderr));
-    const stdout = sanitizeText(stripAnsiCodes(error?.stdout));
-    const message = stderr || stdout || error?.message || 'Python command failed.';
-    throw createVoiceModelError('voice_python_runtime_command_failed', message);
-  }
 }
 
 async function runPythonCommandStreaming(
@@ -820,9 +750,24 @@ async function downloadFileFromUrl({ url, destinationPath, onProgress }) {
 }
 
 class VoiceModelLibrary {
-  constructor(app, { downloadFileImpl = downloadFileFromUrl } = {}) {
+  constructor(
+    app,
+    {
+      downloadFileImpl = downloadFileFromUrl,
+      pythonRuntimeManager = null,
+      pythonEnvManager = null,
+    } = {},
+  ) {
     this.app = app;
     this.downloadFileImpl = downloadFileImpl;
+    this.pythonRuntimeManager =
+      pythonRuntimeManager instanceof PythonRuntimeManager
+        ? pythonRuntimeManager
+        : (pythonRuntimeManager || new PythonRuntimeManager(app, { downloadFileImpl }));
+    this.pythonEnvManager =
+      pythonEnvManager instanceof PythonEnvManager
+        ? pythonEnvManager
+        : (pythonEnvManager || new PythonEnvManager(app, { pythonRuntimeManager: this.pythonRuntimeManager }));
 
     this.rootDir = path.join(this.app.getPath('userData'), ROOT_DIR_NAME);
     this.bundlesDir = path.join(this.rootDir, BUNDLES_DIR_NAME);
@@ -831,6 +776,8 @@ class VoiceModelLibrary {
   }
 
   async init() {
+    await this.pythonRuntimeManager.init();
+    await this.pythonEnvManager.init();
     await fsp.mkdir(this.bundlesDir, { recursive: true });
 
     try {
@@ -1180,18 +1127,16 @@ class VoiceModelLibrary {
       );
     }
 
-    const { archiveUrl } = resolvePythonRuntimePackage(runtime);
-
     const id = createBundleId(catalogEntry.name);
     const name = catalogEntry.name;
     const bundleDir = path.join(this.bundlesDir, id);
-    const runtimeDir = path.join(bundleDir, 'runtime');
-    const scriptDir = path.join(bundleDir, 'runtime-scripts');
+    const scriptDir = path.join(bundleDir, PYTHON_RUNTIME_SCRIPTS_DIR_NAME);
     const modelsDir = path.join(bundleDir, 'models');
     const asrModelDir = path.join(modelsDir, 'asr');
     const ttsModelDir = path.join(modelsDir, 'tts');
     const ttsTokenizerDir = path.join(modelsDir, 'tts-tokenizer');
-    const runtimeArchivePath = path.join(bundleDir, 'python-runtime.tar.gz');
+    const pythonVersion = sanitizeOptionalText(runtime.pythonVersion, getDefaultPythonVersion());
+    const pythonEnvProfile = sanitizeOptionalText(runtime.pythonEnvProfile, 'voice-default');
     const pipPackages = Array.isArray(runtime.pipPackages)
       ? runtime.pipPackages.map((item) => sanitizeText(item)).filter(Boolean)
       : [];
@@ -1208,7 +1153,7 @@ class VoiceModelLibrary {
     await fsp.mkdir(bundleDir, { recursive: true });
     await fsp.mkdir(modelsDir, { recursive: true });
 
-    const totalTasks = 3 + (pipPackages.length ? 1 : 0) + (needsModelDownload ? 1 : 0);
+    const totalTasks = 2 + (needsModelDownload ? 1 : 0);
     let completedTasks = 0;
     const emitProgress = ({
       phase,
@@ -1245,23 +1190,18 @@ class VoiceModelLibrary {
     });
 
     try {
-      await this.downloadFileImpl({
-        url: archiveUrl,
-        destinationPath: runtimeArchivePath,
-        onProgress: ({ downloadedBytes, totalBytes, bytesPerSecond, estimatedRemainingSeconds }) => {
-          const downloadRatio =
-            Number.isFinite(totalBytes) && totalBytes > 0 ? Math.min(1, downloadedBytes / totalBytes) : 0;
-          const progress = (completedTasks + downloadRatio) / totalTasks;
+      const envRecord = await this.pythonEnvManager.ensureEnv({
+        profile: pythonEnvProfile,
+        pythonVersion,
+        runtimePackages: runtime.packages,
+        pipPackages,
+        onProgress: (payload = {}) => {
+          const progress = typeof payload.overallProgress === 'number'
+            ? (payload.overallProgress / totalTasks)
+            : (completedTasks / totalTasks);
           emitProgress({
-            phase: 'running',
-            currentFile: path.basename(archiveUrl),
-            fileDownloadedBytes: downloadedBytes,
-            fileTotalBytes: totalBytes,
-            downloadSpeedBytesPerSec: Number.isFinite(bytesPerSecond) ? bytesPerSecond : 0,
-            estimatedRemainingSeconds:
-              Number.isFinite(estimatedRemainingSeconds) && estimatedRemainingSeconds >= 0
-                ? estimatedRemainingSeconds
-                : null,
+            phase: payload.phase || 'running',
+            currentFile: payload.currentFile || '正在准备共享 Python 运行时',
             overallProgress: progress,
           });
         },
@@ -1269,67 +1209,19 @@ class VoiceModelLibrary {
       completedTasks += 1;
       emitProgress({
         phase: 'running',
-        currentFile: '已下载 Python 运行时',
+        currentFile: '共享 Python 运行时和 env 已准备完成',
         overallProgress: completedTasks / totalTasks,
       });
 
-      emitProgress({
-        phase: 'extracting',
-        currentFile: '正在解压 Python 运行时',
-        overallProgress: (completedTasks + 0.5) / totalTasks,
-      });
-      await extractTarArchive({
-        archivePath: runtimeArchivePath,
-        destinationDir: runtimeDir,
-      });
-      await fsp.rm(runtimeArchivePath, { force: true });
-      completedTasks += 1;
-      emitProgress({
-        phase: 'running',
-        currentFile: '已解压 Python 运行时',
-        overallProgress: completedTasks / totalTasks,
-      });
-
-      const pythonExecutablePath = resolvePythonExecutablePath(runtimeDir);
       const { bridgeScriptPath, bootstrapScriptPath } = await copyPythonBridgeScripts({
         destinationDir: scriptDir,
       });
-
-      emitProgress({
-        phase: 'running',
-        currentFile: '正在升级 Python pip',
-        overallProgress: (completedTasks + 0.5) / totalTasks,
-      });
-      await runPythonCommand(
-        pythonExecutablePath,
-        ['-m', 'pip', 'install', '--upgrade', 'pip'],
-        { timeoutMs: PYTHON_STEP_TIMEOUT_MS },
-      );
       completedTasks += 1;
       emitProgress({
         phase: 'running',
-        currentFile: 'pip 升级完成',
+        currentFile: '语音桥接脚本已同步',
         overallProgress: completedTasks / totalTasks,
       });
-
-      if (pipPackages.length) {
-        emitProgress({
-          phase: 'running',
-          currentFile: '正在安装 Python 语音依赖',
-          overallProgress: (completedTasks + 0.5) / totalTasks,
-        });
-        await runPythonCommand(
-          pythonExecutablePath,
-          ['-m', 'pip', 'install', '--upgrade', ...pipPackages],
-          { timeoutMs: PYTHON_STEP_TIMEOUT_MS },
-        );
-        completedTasks += 1;
-        emitProgress({
-          phase: 'running',
-          currentFile: 'Python 语音依赖安装完成',
-          overallProgress: completedTasks / totalTasks,
-        });
-      }
 
       let resolvedAsrModelDir = '';
       let resolvedTtsModelDir = '';
@@ -1454,7 +1346,7 @@ class VoiceModelLibrary {
         };
 
         const bootstrapResult = await runPythonCommandStreaming(
-          pythonExecutablePath,
+          envRecord.envPythonExecutable,
           bootstrapArgs,
           {
             timeoutMs: PYTHON_MODEL_DOWNLOAD_TIMEOUT_MS,
@@ -1525,7 +1417,9 @@ class VoiceModelLibrary {
         createdAt: new Date().toISOString(),
         runtime: {
           kind: 'python',
-          pythonExecutablePath,
+          pythonEnvId: envRecord.envId,
+          pythonEnvProfile,
+          pythonVersion,
           bridgeScriptPath,
           bootstrapScriptPath,
           asrModelDir: shouldInstallAsr ? resolvedAsrModelDir : '',
@@ -1704,12 +1598,27 @@ class VoiceModelLibrary {
         return null;
       }
       const runtime = bundle.runtime;
-      return sanitizeText(runtime.pythonExecutablePath) ? runtime : null;
+      if (sanitizeText(runtime.pythonEnvId)) {
+        const pythonEnv = this.pythonEnvManager.getEnvById(runtime.pythonEnvId);
+        if (pythonEnv?.envPythonExecutable) {
+          return {
+            ...runtime,
+            resolvedPythonExecutable: pythonEnv.envPythonExecutable,
+          };
+        }
+      }
+      if (sanitizeText(runtime.pythonExecutablePath)) {
+        return {
+          ...runtime,
+          resolvedPythonExecutable: runtime.pythonExecutablePath,
+        };
+      }
+      return null;
     };
 
     const pythonRuntime = resolvePythonRuntime(selectedTtsBundle) || resolvePythonRuntime(selectedAsrBundle);
     if (pythonRuntime) {
-      env.VOICE_PYTHON_EXECUTABLE = pythonRuntime.pythonExecutablePath;
+      env.VOICE_PYTHON_EXECUTABLE = pythonRuntime.resolvedPythonExecutable;
       if (pythonRuntime.bridgeScriptPath) {
         env.VOICE_PYTHON_BRIDGE_SCRIPT = pythonRuntime.bridgeScriptPath;
       }

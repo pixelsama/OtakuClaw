@@ -7,6 +7,10 @@ const { execFile } = require('node:child_process');
 const { pipeline } = require('node:stream/promises');
 const { promisify } = require('node:util');
 
+const { PythonRuntimeManager } = require('../../python/pythonRuntimeManager');
+const { PythonEnvManager } = require('../../python/pythonEnvManager');
+const { getDefaultPythonVersion } = require('../../python/pythonRuntimeCatalog');
+
 const execFileAsync = promisify(execFile);
 
 const NANOBOT_RUNTIME_ROOT_DIR = 'nanobot-runtime';
@@ -37,6 +41,15 @@ function isTruthyEnv(value) {
 
 function resolveDefaultPythonBin() {
   return process.platform === 'win32' ? 'python' : 'python3';
+}
+
+function pathLooksLikeVoiceBundlePython(pythonExecutable) {
+  const normalized = sanitizeText(pythonExecutable);
+  if (!normalized) {
+    return false;
+  }
+
+  return normalized.includes(`${path.sep}voice-models${path.sep}`) && normalized.includes(`${path.sep}bundles${path.sep}`);
 }
 
 function resolveHttpModule(protocol) {
@@ -207,7 +220,8 @@ class NanobotRuntimeManager {
     app,
     {
       env = process.env,
-      resolveVoiceEnv,
+      pythonRuntimeManager = null,
+      pythonEnvManager = null,
       downloadFileImpl = downloadFileFromUrl,
       extractArchiveImpl = extractTarArchive,
       runCommandImpl = runCommand,
@@ -215,7 +229,14 @@ class NanobotRuntimeManager {
   ) {
     this.app = app;
     this.env = env;
-    this.resolveVoiceEnv = typeof resolveVoiceEnv === 'function' ? resolveVoiceEnv : () => env;
+    this.pythonRuntimeManager =
+      pythonRuntimeManager instanceof PythonRuntimeManager
+        ? pythonRuntimeManager
+        : (pythonRuntimeManager || new PythonRuntimeManager(app));
+    this.pythonEnvManager =
+      pythonEnvManager instanceof PythonEnvManager
+        ? pythonEnvManager
+        : (pythonEnvManager || new PythonEnvManager(app, { pythonRuntimeManager: this.pythonRuntimeManager }));
     this.downloadFileImpl = downloadFileImpl;
     this.extractArchiveImpl = extractArchiveImpl;
     this.runCommandImpl = runCommandImpl;
@@ -228,6 +249,7 @@ class NanobotRuntimeManager {
 
     this.state = {
       repoPath: '',
+      pythonEnvId: '',
       pythonExecutable: '',
       source: '',
       installedAt: '',
@@ -236,17 +258,29 @@ class NanobotRuntimeManager {
   }
 
   async init() {
+    await this.pythonRuntimeManager.init();
+    await this.pythonEnvManager.init();
     await fsp.mkdir(this.rootDir, { recursive: true });
 
     try {
       const raw = await fsp.readFile(this.stateFilePath, 'utf-8');
       const parsed = JSON.parse(raw);
+      const pythonExecutable = sanitizeText(parsed?.pythonExecutable);
+      const pythonEnvId = sanitizeText(parsed?.pythonEnvId);
+      const shouldClearLegacyBundlePath =
+        pythonExecutable
+        && pathLooksLikeVoiceBundlePython(pythonExecutable)
+        && !fs.existsSync(pythonExecutable);
       this.state = {
         repoPath: sanitizeText(parsed?.repoPath),
-        pythonExecutable: sanitizeText(parsed?.pythonExecutable),
+        pythonEnvId,
+        pythonExecutable: shouldClearLegacyBundlePath ? '' : pythonExecutable,
         source: sanitizeText(parsed?.source),
         installedAt: sanitizeText(parsed?.installedAt),
       };
+      if (shouldClearLegacyBundlePath) {
+        await this.persistState();
+      }
     } catch (error) {
       if (error?.code !== 'ENOENT') {
         console.warn('Failed to load nanobot runtime state:', error);
@@ -284,24 +318,23 @@ class NanobotRuntimeManager {
     return this.resolveInstalledRepoPath() || null;
   }
 
-  resolvePythonExecutable() {
+  resolvePythonExecutable({ allowDefault = true } = {}) {
     const configured = sanitizeText(this.env.NANOBOT_PYTHON_BIN);
     if (configured) {
       return configured;
     }
 
+    const envRecord = this.pythonEnvManager.getEnvById(this.state.pythonEnvId);
+    if (envRecord?.envPythonExecutable) {
+      return envRecord.envPythonExecutable;
+    }
+
     const fromState = sanitizeText(this.state.pythonExecutable);
-    if (fromState) {
+    if (fromState && fs.existsSync(fromState)) {
       return fromState;
     }
 
-    const voiceEnv = this.resolveVoiceEnv() || {};
-    const fromVoice = sanitizeText(voiceEnv.VOICE_PYTHON_EXECUTABLE || voiceEnv.VOICE_PYTHON_BIN);
-    if (fromVoice) {
-      return fromVoice;
-    }
-
-    return resolveDefaultPythonBin();
+    return allowDefault ? resolveDefaultPythonBin() : '';
   }
 
   getStatus() {
@@ -313,6 +346,7 @@ class NanobotRuntimeManager {
       installed: Boolean(repo?.path),
       repoPath: repo?.path || '',
       source: repo?.source || '',
+      pythonEnvId: sanitizeText(this.state.pythonEnvId),
       pythonExecutable,
       archiveUrl: this.resolveArchiveUrl(),
       managedByApp: repo?.source === 'downloaded',
@@ -321,11 +355,20 @@ class NanobotRuntimeManager {
   }
 
   resolveLaunchConfig() {
-    const status = this.getStatus();
+    const status = {
+      ...this.getStatus(),
+      pythonExecutable: this.resolvePythonExecutable({ allowDefault: false }),
+    };
     if (!status.installed || !status.repoPath) {
       throw createRuntimeError(
         'nanobot_runtime_not_ready',
         'Nanobot 运行时未安装，请在设置里先下载 Nanobot 运行时。',
+      );
+    }
+    if (!sanitizeText(status.pythonExecutable)) {
+      throw createRuntimeError(
+        'nanobot_runtime_not_ready',
+        'Nanobot Python env 未准备好，请重新安装 Nanobot 运行时。',
       );
     }
 
@@ -382,11 +425,17 @@ class NanobotRuntimeManager {
     };
 
     const existingStatus = this.getStatus();
-    if (existingStatus.installed && existingStatus.managedByApp && !force) {
+    if (
+      existingStatus.installed
+      && existingStatus.managedByApp
+      && sanitizeText(this.resolvePythonExecutable({ allowDefault: false }))
+      && !force
+    ) {
       return existingStatus;
     }
 
-    const totalTasks = 4;
+    const useExternalPython = Boolean(sanitizeText(this.env.NANOBOT_PYTHON_BIN));
+    const totalTasks = useExternalPython ? 4 : 5;
     emitProgress({
       phase: 'started',
       completedTasks: 0,
@@ -395,8 +444,44 @@ class NanobotRuntimeManager {
       overallProgress: 0,
     });
 
-    const pythonExecutable = this.resolvePythonExecutable();
-    await this.verifyPythonExecutable(pythonExecutable);
+    let pythonExecutable = '';
+    let pythonEnvId = '';
+    if (useExternalPython) {
+      pythonExecutable = this.resolvePythonExecutable();
+      await this.verifyPythonExecutable(pythonExecutable);
+    } else {
+      const pythonVersion =
+        sanitizeText(this.env.NANOBOT_PYTHON_VERSION)
+        || getDefaultPythonVersion();
+      const envProfile = sanitizeText(this.env.NANOBOT_PYTHON_ENV_PROFILE) || 'nanobot-default';
+      const envRecord = await this.pythonEnvManager.ensureEnv({
+        profile: envProfile,
+        pythonVersion,
+        pipPackages: [],
+        onProgress: (payload = {}) => {
+          emitProgress({
+            phase: payload.phase || 'running',
+            completedTasks: 0,
+            totalTasks,
+            currentFile: payload.currentFile || '正在准备共享 Python 运行时',
+            overallProgress:
+              typeof payload.overallProgress === 'number'
+                ? Math.min(1 / totalTasks, payload.overallProgress / totalTasks)
+                : 0,
+          });
+        },
+      });
+      pythonExecutable = envRecord.envPythonExecutable;
+      pythonEnvId = envRecord.envId;
+      await this.verifyPythonExecutable(pythonExecutable);
+      emitProgress({
+        phase: 'running',
+        completedTasks: 1,
+        totalTasks,
+        currentFile: '共享 Python 运行时和 env 已准备完成',
+        overallProgress: 1 / totalTasks,
+      });
+    }
 
     const archiveUrl = this.resolveArchiveUrl();
     const installId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -409,22 +494,23 @@ class NanobotRuntimeManager {
     try {
       emitProgress({
         phase: 'running',
-        completedTasks: 0,
+        completedTasks: useExternalPython ? 0 : 1,
         totalTasks,
         currentFile: path.basename(archiveUrl),
-        overallProgress: 0,
+        overallProgress: useExternalPython ? 0 : 1 / totalTasks,
       });
       await this.downloadFileImpl({
         url: archiveUrl,
         destinationPath: archivePath,
         onProgress: ({ downloadedBytes, totalBytes, bytesPerSecond, estimatedRemainingSeconds }) => {
           const ratio = totalBytes > 0 ? Math.min(1, downloadedBytes / totalBytes) : 0;
+          const baseTasks = useExternalPython ? 0 : 1;
           emitProgress({
             phase: 'running',
-            completedTasks: 0,
+            completedTasks: baseTasks,
             totalTasks,
             currentFile: path.basename(archiveUrl),
-            overallProgress: (0 + ratio) / totalTasks,
+            overallProgress: (baseTasks + ratio) / totalTasks,
             fileDownloadedBytes: downloadedBytes,
             fileTotalBytes: totalBytes,
             downloadSpeedBytesPerSec: bytesPerSecond,
@@ -435,10 +521,10 @@ class NanobotRuntimeManager {
 
       emitProgress({
         phase: 'extracting',
-        completedTasks: 1,
+        completedTasks: useExternalPython ? 1 : 2,
         totalTasks,
         currentFile: path.basename(archivePath),
-        overallProgress: 1 / totalTasks,
+        overallProgress: (useExternalPython ? 1 : 2) / totalTasks,
       });
       await fsp.rm(stagePath, { recursive: true, force: true });
       await fsp.mkdir(stagePath, { recursive: true });
@@ -454,10 +540,10 @@ class NanobotRuntimeManager {
 
       emitProgress({
         phase: 'running',
-        completedTasks: 2,
+        completedTasks: useExternalPython ? 2 : 3,
         totalTasks,
         currentFile: 'moving runtime files',
-        overallProgress: 2 / totalTasks,
+        overallProgress: (useExternalPython ? 2 : 3) / totalTasks,
       });
       await fsp.rm(this.repoDir, { recursive: true, force: true });
       await fsp.rename(extractedRepoPath, this.repoDir);
@@ -465,10 +551,10 @@ class NanobotRuntimeManager {
 
       emitProgress({
         phase: 'installing',
-        completedTasks: 3,
+        completedTasks: useExternalPython ? 3 : 4,
         totalTasks,
         currentFile: 'pip install -e nanobot',
-        overallProgress: 3 / totalTasks,
+        overallProgress: (useExternalPython ? 3 : 4) / totalTasks,
       });
       await this.runCommandImpl(
         pythonExecutable,
@@ -478,7 +564,8 @@ class NanobotRuntimeManager {
 
       this.state = {
         repoPath: this.repoDir,
-        pythonExecutable,
+        pythonEnvId,
+        pythonExecutable: useExternalPython ? pythonExecutable : '',
         source: 'downloaded',
         installedAt: new Date().toISOString(),
       };

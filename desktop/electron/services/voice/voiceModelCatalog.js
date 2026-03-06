@@ -1,21 +1,7 @@
-const PYTHON_RUNTIME_PACKAGES = {
-  'darwin-arm64': {
-    archiveUrl:
-      'https://github.com/astral-sh/python-build-standalone/releases/download/20260303/cpython-3.11.15%2B20260303-aarch64-apple-darwin-install_only_stripped.tar.gz',
-  },
-  'darwin-x64': {
-    archiveUrl:
-      'https://github.com/astral-sh/python-build-standalone/releases/download/20260303/cpython-3.11.15%2B20260303-x86_64-apple-darwin-install_only_stripped.tar.gz',
-  },
-  'linux-x64': {
-    archiveUrl:
-      'https://github.com/astral-sh/python-build-standalone/releases/download/20260303/cpython-3.11.15%2B20260303-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz',
-  },
-  'win32-x64': {
-    archiveUrl:
-      'https://github.com/astral-sh/python-build-standalone/releases/download/20260303/cpython-3.11.15%2B20260303-x86_64-pc-windows-msvc-install_only_stripped.tar.gz',
-  },
-};
+const { getDefaultPythonVersion, getPythonRuntimePackages } = require('../python/pythonRuntimeCatalog');
+
+const DEFAULT_PYTHON_VERSION = getDefaultPythonVersion();
+const DEFAULT_PYTHON_PACKAGES = getPythonRuntimePackages(DEFAULT_PYTHON_VERSION);
 
 const BUILT_IN_VOICE_MODEL_CATALOG = [
   {
@@ -38,13 +24,14 @@ const BUILT_IN_VOICE_MODEL_CATALOG = [
     id: 'builtin-asr-qwen3-0.6b-4bit-v1',
     name: 'Qwen3-ASR-0.6B-4bit（MLX）',
     description:
-      '内置 Python 3.11 + mlx-audio + mlx-community/Qwen3-ASR-0.6B-4bit（Apple Silicon 本地 ASR）',
+      '共享 Python 3.12 + 隔离 env + mlx-audio + mlx-community/Qwen3-ASR-0.6B-4bit（Apple Silicon 本地 ASR）',
     hasAsr: true,
     hasTts: false,
     runtime: {
       kind: 'python',
-      pythonVersion: '3.11.15',
-      packages: PYTHON_RUNTIME_PACKAGES,
+      pythonVersion: DEFAULT_PYTHON_VERSION,
+      packages: DEFAULT_PYTHON_PACKAGES,
+      pythonEnvProfile: 'asr-qwen3-mlx',
       pipPackages: [
         'mlx-audio>=0.3.1',
         'huggingface_hub[cli]>=0.31.0',
@@ -61,13 +48,14 @@ const BUILT_IN_VOICE_MODEL_CATALOG = [
     id: 'builtin-tts-qwen3-0.6b-8bit-v1',
     name: 'Qwen3-TTS-0.6B-8bit（MLX）',
     description:
-      '内置 Python 3.11 + mlx-audio + mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit（Apple Silicon 本地 TTS）',
+      '共享 Python 3.12 + 隔离 env + mlx-audio + mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit（Apple Silicon 本地 TTS）',
     hasAsr: false,
     hasTts: true,
     runtime: {
       kind: 'python',
-      pythonVersion: '3.11.15',
-      packages: PYTHON_RUNTIME_PACKAGES,
+      pythonVersion: DEFAULT_PYTHON_VERSION,
+      packages: DEFAULT_PYTHON_PACKAGES,
+      pythonEnvProfile: 'tts-qwen3-mlx',
       pipPackages: [
         'mlx-audio>=0.3.1',
         'huggingface_hub[cli]>=0.31.0',
@@ -87,13 +75,14 @@ const BUILT_IN_VOICE_MODEL_CATALOG = [
     id: 'builtin-tts-edge-v1',
     name: 'Edge TTS（在线自然女声）',
     description:
-      '内置 Python 3.11 + edge-tts（zh-CN-XiaoxiaoNeural，自然女声云端 TTS）',
+      '共享 Python 3.12 + 隔离 env + edge-tts（zh-CN-XiaoxiaoNeural，自然女声云端 TTS）',
     hasAsr: false,
     hasTts: true,
     runtime: {
       kind: 'python',
-      pythonVersion: '3.11.15',
-      packages: PYTHON_RUNTIME_PACKAGES,
+      pythonVersion: DEFAULT_PYTHON_VERSION,
+      packages: DEFAULT_PYTHON_PACKAGES,
+      pythonEnvProfile: 'tts-edge',
       pipPackages: [
         'edge-tts>=7.2.7',
         'numpy>=1.26.0',

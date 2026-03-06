@@ -12,6 +12,8 @@ const { NanobotBackendAdapter } = require('./services/chat/backends/nanobotBacke
 const { OpenClawBackendAdapter } = require('./services/chat/backends/openclawBackend');
 const { NanobotRuntimeManager } = require('./services/chat/nanobot/nanobotRuntimeManager');
 const { Live2DModelLibrary, MODEL_PROTOCOL } = require('./services/live2dModelLibrary');
+const { PythonEnvManager } = require('./services/python/pythonEnvManager');
+const { PythonRuntimeManager } = require('./services/python/pythonRuntimeManager');
 const { SettingsStore } = require('./services/settingsStore');
 const { VoiceModelLibrary } = require('./services/voice/voiceModelLibrary');
 const { WindowModeManager } = require('./window/windowModeManager');
@@ -43,6 +45,8 @@ let settingsStore = null;
 let windowModeManager = null;
 let trayManager = null;
 let live2dModelLibrary = null;
+let pythonRuntimeManager = null;
+let pythonEnvManager = null;
 let voiceModelLibrary = null;
 let nanobotRuntimeManager = null;
 let isQuitting = false;
@@ -220,15 +224,20 @@ async function bootstrap() {
   await settingsStore.init();
   live2dModelLibrary = new Live2DModelLibrary(app);
   await live2dModelLibrary.init();
-  voiceModelLibrary = new VoiceModelLibrary(app);
+  pythonRuntimeManager = new PythonRuntimeManager(app);
+  await pythonRuntimeManager.init();
+  pythonEnvManager = new PythonEnvManager(app, {
+    pythonRuntimeManager,
+  });
+  await pythonEnvManager.init();
+  voiceModelLibrary = new VoiceModelLibrary(app, {
+    pythonRuntimeManager,
+    pythonEnvManager,
+  });
   await voiceModelLibrary.init();
   nanobotRuntimeManager = new NanobotRuntimeManager(app, {
-    resolveVoiceEnv: () => {
-      if (!voiceModelLibrary) {
-        return process.env;
-      }
-      return voiceModelLibrary.getRuntimeEnv(process.env);
-    },
+    pythonRuntimeManager,
+    pythonEnvManager,
   });
   await nanobotRuntimeManager.init();
   chatBackendManager = createChatBackendManager({
@@ -448,6 +457,9 @@ app.on('before-quit', () => {
     void chatBackendManager.dispose();
     chatBackendManager = null;
   }
+  pythonRuntimeManager = null;
+  pythonEnvManager = null;
+  voiceModelLibrary = null;
   nanobotRuntimeManager = null;
 
   ipcMain.removeHandler('window:get-platform');

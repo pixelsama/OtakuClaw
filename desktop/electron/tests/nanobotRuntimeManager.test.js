@@ -8,6 +8,8 @@ const { NanobotRuntimeManager } = require('../services/chat/nanobot/nanobotRunti
 
 async function createTestManager({
   env = {},
+  pythonRuntimeManager = null,
+  pythonEnvManager = null,
   downloadFileImpl,
   extractArchiveImpl,
   runCommandImpl,
@@ -27,7 +29,8 @@ async function createTestManager({
 
   const manager = new NanobotRuntimeManager(app, {
     env,
-    resolveVoiceEnv: () => env,
+    pythonRuntimeManager,
+    pythonEnvManager,
     downloadFileImpl,
     extractArchiveImpl,
     runCommandImpl,
@@ -97,4 +100,93 @@ test('nanobot runtime manager installs runtime into app data', async () => {
     runCommands[1],
     ['/usr/bin/python3', '-m', 'pip', 'install', '--upgrade', '-e', path.join(tmpDir, 'nanobot-runtime', 'repo')],
   );
+});
+
+test('nanobot runtime manager uses managed python env when available', async () => {
+  const runCommands = [];
+  const managedEnv = {
+    envId: 'nanobot-default-py312-abcd1234',
+    envPythonExecutable: '/tmp/python-envs/nanobot/bin/python3',
+  };
+  const { manager, tmpDir } = await createTestManager({
+    env: {
+      NANOBOT_RUNTIME_ARCHIVE_URL: 'https://example.com/nanobot.tar.gz',
+    },
+    pythonRuntimeManager: {
+      init: async () => {},
+    },
+    pythonEnvManager: {
+      init: async () => {},
+      async ensureEnv() {
+        return managedEnv;
+      },
+      getEnvById(envId) {
+        return envId === managedEnv.envId ? managedEnv : null;
+      },
+    },
+    downloadFileImpl: async ({ destinationPath }) => {
+      await fs.mkdir(path.dirname(destinationPath), { recursive: true });
+      await fs.writeFile(destinationPath, 'archive');
+    },
+    extractArchiveImpl: async ({ destinationDir }) => {
+      const extractedRoot = path.join(destinationDir, 'nanobot-main');
+      await fs.mkdir(path.join(extractedRoot, 'nanobot'), { recursive: true });
+      await fs.writeFile(path.join(extractedRoot, 'pyproject.toml'), '[project]\nname="nanobot-ai"\n');
+    },
+    runCommandImpl: async (executable, args) => {
+      runCommands.push([executable, ...args]);
+    },
+  });
+
+  const installed = await manager.installRuntime();
+  assert.equal(installed.pythonEnvId, managedEnv.envId);
+  assert.equal(installed.pythonExecutable, managedEnv.envPythonExecutable);
+  assert.deepEqual(runCommands[0], [managedEnv.envPythonExecutable, '--version']);
+  assert.deepEqual(
+    runCommands[1],
+    [managedEnv.envPythonExecutable, '-m', 'pip', 'install', '--upgrade', '-e', path.join(tmpDir, 'nanobot-runtime', 'repo')],
+  );
+});
+
+test('nanobot runtime manager clears missing legacy voice bundle python path', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nanobot-runtime-migrate-test-'));
+  const app = {
+    getPath(key) {
+      if (key === 'userData') {
+        return tmpDir;
+      }
+      return tmpDir;
+    },
+    getAppPath() {
+      return tmpDir;
+    },
+  };
+  const stateDir = path.join(tmpDir, 'nanobot-runtime');
+  await fs.mkdir(stateDir, { recursive: true });
+  await fs.writeFile(
+    path.join(stateDir, 'state.json'),
+    JSON.stringify({
+      repoPath: path.join(tmpDir, 'nanobot-runtime', 'repo'),
+      pythonExecutable: path.join(tmpDir, 'voice-models', 'bundles', 'old', 'runtime', 'python', 'bin', 'python3'),
+      source: 'downloaded',
+      installedAt: '2026-03-06T00:00:00.000Z',
+    }),
+    'utf-8',
+  );
+
+  const manager = new NanobotRuntimeManager(app, {
+    pythonRuntimeManager: {
+      init: async () => {},
+    },
+    pythonEnvManager: {
+      init: async () => {},
+      getEnvById() {
+        return null;
+      },
+    },
+    runCommandImpl: async () => {},
+  });
+  await manager.init();
+
+  assert.equal(manager.state.pythonExecutable, '');
 });

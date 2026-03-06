@@ -6,7 +6,7 @@ const test = require('node:test');
 
 const { VoiceModelLibrary } = require('../services/voice/voiceModelLibrary');
 
-async function createLibraryForTest() {
+async function createLibraryForTest({ pythonRuntimeManager = null, pythonEnvManager = null } = {}) {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-model-library-test-'));
   const app = {
     getPath() {
@@ -28,7 +28,11 @@ async function createLibraryForTest() {
     await fs.writeFile(destinationPath, payload);
   };
 
-  const library = new VoiceModelLibrary(app, { downloadFileImpl });
+  const library = new VoiceModelLibrary(app, {
+    downloadFileImpl,
+    pythonRuntimeManager,
+    pythonEnvManager,
+  });
   await library.init();
 
   return {
@@ -233,19 +237,105 @@ test('installCatalogBundle rejects unknown catalog id', async () => {
   );
 });
 
-test('getRuntimeEnv maps python runtime bundle into python provider env', async () => {
-  const { library, tmpDir } = await createLibraryForTest();
+test('installCatalogBundle stores python env id for built-in edge tts', async () => {
+  const ensuredEnv = {
+    envId: 'tts-edge-py312-abcd1234',
+    envPythonExecutable: '/tmp/python-envs/tts-edge/bin/python3',
+  };
+  const { library } = await createLibraryForTest({
+    pythonRuntimeManager: {
+      init: async () => {},
+    },
+    pythonEnvManager: {
+      init: async () => {},
+      async ensureEnv() {
+        return ensuredEnv;
+      },
+      getEnvById(envId) {
+        return envId === ensuredEnv.envId ? ensuredEnv : null;
+      },
+    },
+  });
 
-  const pythonExecutablePath = path.join(tmpDir, 'runtime', 'python3');
+  const result = await library.installCatalogBundle({
+    catalogId: 'builtin-tts-edge-v1',
+  });
+
+  assert.equal(result.bundle.runtime.pythonEnvId, ensuredEnv.envId);
+  assert.equal(result.bundle.runtime.pythonEnvProfile, 'tts-edge');
+  assert.equal(result.bundle.runtime.pythonVersion, '3.12.12');
+  assert.equal(library.getRuntimeEnv({}).VOICE_PYTHON_EXECUTABLE, ensuredEnv.envPythonExecutable);
+});
+
+test('getRuntimeEnv falls back to legacy python executable path', async () => {
+  const { library, tmpDir } = await createLibraryForTest({
+    pythonRuntimeManager: {
+      init: async () => {},
+    },
+    pythonEnvManager: {
+      init: async () => {},
+      getEnvById() {
+        return null;
+      },
+    },
+  });
+
+  const pythonExecutablePath = path.join(tmpDir, 'runtime', 'python', 'bin', 'python3');
+  const bridgeScriptPath = path.join(tmpDir, 'runtime', 'voice_bridge.py');
+  const ttsModelDir = path.join(tmpDir, 'models', 'tts');
+  await fs.mkdir(path.dirname(pythonExecutablePath), { recursive: true });
+  await fs.mkdir(ttsModelDir, { recursive: true });
+  await fs.writeFile(pythonExecutablePath, '');
+  await fs.writeFile(bridgeScriptPath, '');
+
+  library.state = {
+    selectedAsrBundleId: '',
+    selectedTtsBundleId: 'legacy-python-runtime',
+    bundles: [
+      {
+        id: 'legacy-python-runtime',
+        name: 'legacy-python-runtime',
+        runtime: {
+          kind: 'python',
+          pythonExecutablePath,
+          bridgeScriptPath,
+          ttsEngine: 'qwen3-mlx',
+          ttsModelDir,
+        },
+      },
+    ],
+  };
+
+  const runtimeEnv = library.getRuntimeEnv({});
+  assert.equal(runtimeEnv.VOICE_PYTHON_EXECUTABLE, pythonExecutablePath);
+  assert.equal(runtimeEnv.VOICE_TTS_PROVIDER, 'python');
+});
+
+test('getRuntimeEnv maps python runtime bundle into python provider env', async () => {
+  const envRecord = {
+    envId: 'tts-qwen3-mlx-py312-test',
+    envPythonExecutable: '/tmp/shared/python-env/bin/python3',
+  };
+  const { library, tmpDir } = await createLibraryForTest({
+    pythonRuntimeManager: {
+      init: async () => {},
+    },
+    pythonEnvManager: {
+      init: async () => {},
+      getEnvById(envId) {
+        return envId === envRecord.envId ? envRecord : null;
+      },
+    },
+  });
+
   const bridgeScriptPath = path.join(tmpDir, 'runtime', 'voice_bridge.py');
   const asrModelDir = path.join(tmpDir, 'models', 'asr');
   const ttsModelDir = path.join(tmpDir, 'models', 'tts');
   const ttsTokenizerDir = path.join(tmpDir, 'models', 'tts-tokenizer');
-  await fs.mkdir(path.dirname(pythonExecutablePath), { recursive: true });
+  await fs.mkdir(path.dirname(bridgeScriptPath), { recursive: true });
   await fs.mkdir(asrModelDir, { recursive: true });
   await fs.mkdir(ttsModelDir, { recursive: true });
   await fs.mkdir(ttsTokenizerDir, { recursive: true });
-  await fs.writeFile(pythonExecutablePath, '');
   await fs.writeFile(bridgeScriptPath, '');
 
   library.state = {
@@ -259,7 +349,7 @@ test('getRuntimeEnv maps python runtime bundle into python provider env', async 
         tts: null,
         runtime: {
           kind: 'python',
-          pythonExecutablePath,
+          pythonEnvId: envRecord.envId,
           bridgeScriptPath,
           asrModelDir,
           ttsModelDir,
@@ -278,7 +368,7 @@ test('getRuntimeEnv maps python runtime bundle into python provider env', async 
   const runtimeEnv = library.getRuntimeEnv({});
   assert.equal(runtimeEnv.VOICE_ASR_PROVIDER, 'python');
   assert.equal(runtimeEnv.VOICE_TTS_PROVIDER, 'python');
-  assert.equal(runtimeEnv.VOICE_PYTHON_EXECUTABLE, pythonExecutablePath);
+  assert.equal(runtimeEnv.VOICE_PYTHON_EXECUTABLE, envRecord.envPythonExecutable);
   assert.equal(runtimeEnv.VOICE_PYTHON_BRIDGE_SCRIPT, bridgeScriptPath);
   assert.equal(runtimeEnv.VOICE_ASR_PYTHON_MODEL_DIR, asrModelDir);
   assert.equal(runtimeEnv.VOICE_TTS_PYTHON_ENGINE, 'qwen3-mlx');
@@ -290,12 +380,24 @@ test('getRuntimeEnv maps python runtime bundle into python provider env', async 
 });
 
 test('getRuntimeEnv supports edge tts python runtime without local model dir', async () => {
-  const { library, tmpDir } = await createLibraryForTest();
+  const envRecord = {
+    envId: 'tts-edge-py312-test',
+    envPythonExecutable: '/tmp/shared/edge-env/bin/python3',
+  };
+  const { library, tmpDir } = await createLibraryForTest({
+    pythonRuntimeManager: {
+      init: async () => {},
+    },
+    pythonEnvManager: {
+      init: async () => {},
+      getEnvById(envId) {
+        return envId === envRecord.envId ? envRecord : null;
+      },
+    },
+  });
 
-  const pythonExecutablePath = path.join(tmpDir, 'runtime', 'python', 'bin', 'python3');
   const bridgeScriptPath = path.join(tmpDir, 'runtime', 'voice_bridge.py');
-  await fs.mkdir(path.dirname(pythonExecutablePath), { recursive: true });
-  await fs.writeFile(pythonExecutablePath, '');
+  await fs.mkdir(path.dirname(bridgeScriptPath), { recursive: true });
   await fs.writeFile(bridgeScriptPath, '');
 
   library.state = {
@@ -309,7 +411,7 @@ test('getRuntimeEnv supports edge tts python runtime without local model dir', a
         tts: null,
         runtime: {
           kind: 'python',
-          pythonExecutablePath,
+          pythonEnvId: envRecord.envId,
           bridgeScriptPath,
           ttsEngine: 'edge',
           ttsLanguage: 'Chinese',
