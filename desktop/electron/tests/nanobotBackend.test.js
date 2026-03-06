@@ -174,6 +174,50 @@ test('nanobot backend drops text delta when payload only contains tool-call trac
   assert.equal(events[0].type, 'done');
 });
 
+test('nanobot backend emits debug logs for request, sanitize and forward stages', async () => {
+  const debugLogs = [];
+  const backend = new NanobotBackendAdapter({
+    emitDebugLog: (payload) => debugLogs.push(payload),
+    bridgeClient: {
+      start: async (payload) => {
+        payload.onEvent({
+          type: 'text-delta',
+          payload: {
+            content: 'Tool call: read_file({"path":"x"})\n这是回复正文。',
+          },
+        });
+        payload.onEvent({
+          type: 'done',
+          payload: {},
+        });
+      },
+      testConnection: async () => ({ ok: true }),
+      dispose: async () => {},
+    },
+  });
+
+  await backend.startStream({
+    settings: {
+      nanobot: {
+        enabled: true,
+        provider: 'openrouter',
+        model: 'anthropic/claude-opus-4-5',
+        apiKey: 'sk-or-test',
+      },
+    },
+    sessionId: 's4',
+    content: 'hello nanobot',
+    signal: new AbortController().signal,
+    onEvent: () => {},
+  });
+
+  assert.ok(debugLogs.some((entry) => entry.stage === 'start-request'));
+  assert.ok(debugLogs.some((entry) => entry.stage === 'text-delta-sanitized'));
+  assert.ok(debugLogs.some((entry) => entry.stage === 'event-forwarded'));
+  const startRequest = debugLogs.find((entry) => entry.stage === 'start-request');
+  assert.equal(startRequest?.details?.config?.apiKey, '[redacted]');
+});
+
 test('sanitizeNanobotDisplayText keeps regular content and removes known tool-call lines', () => {
   const input = [
     '  Tool call: list_dir({"path":"./memory"})',

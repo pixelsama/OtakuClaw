@@ -245,6 +245,15 @@ async function bootstrap() {
       new OpenClawBackendAdapter(),
       new NanobotBackendAdapter({
         resolveRuntime: () => nanobotRuntimeManager.resolveLaunchConfig(),
+        emitDebugLog: (payload = {}) => {
+          if (!mainWindow || mainWindow.isDestroyed()) {
+            return;
+          }
+          mainWindow.webContents.send('nanobot-debug:log', {
+            timestamp: new Date().toISOString(),
+            ...payload,
+          });
+        },
       }),
     ],
   });
@@ -310,6 +319,15 @@ async function bootstrap() {
     ipcMain,
     getSettings: () => settingsStore.getForMain(),
     backendManager: chatBackendManager,
+    emitDebugLog: (payload = {}) => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+      }
+      mainWindow.webContents.send('nanobot-debug:log', {
+        timestamp: new Date().toISOString(),
+        ...payload,
+      });
+    },
     emitEvent: (payload) => {
       if (disposeVoiceSessionHandlers && typeof disposeVoiceSessionHandlers.enqueueSegmentReady === 'function') {
         if (payload?.type === 'segment-ready' && payload?.payload) {

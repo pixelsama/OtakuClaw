@@ -7,12 +7,16 @@
   - `ipc/voiceSession.js` — voice session lifecycle/audio commit/TTS flow-control IPC (`voice:*`).
   - `ipc/voiceModels.js` — voice model library IPC (`voice-models:*`).
   - `services/live2dModelLibrary.js` — Live2D ZIP import, model discovery, and custom protocol path resolution.
-  - `services/voice/voiceModelCatalog.js` — built-in voice model catalog (sherpa bundle + Python runtime bundle).
-  - `services/voice/voiceModelLibrary.js` — model/runtime download, extraction, selection, runtime env mapping.
+  - `services/python/pythonRuntimeManager.js` — shared app-level Python runtime download/install/verification.
+  - `services/python/pythonEnvManager.js` — isolated Python env creation and dependency installation by profile/lock.
+  - `services/python/pythonRuntimeCatalog.js` — built-in shared Python runtime package catalog (default Python `3.12`).
+  - `services/voice/voiceModelCatalog.js` — built-in voice model catalog (Sherpa bundles + Python-backed ASR/TTS entries with env profiles).
+  - `services/voice/voiceModelLibrary.js` — model artifact download, bundle selection, shared runtime/env resolution, legacy state compatibility.
   - `services/voice/asrService.js`, `ttsService.js` — provider resolution with worker-first execution.
   - `services/voice/asrWorkerClient.js`, `asrWorkerProcess.js` — ASR worker process isolation (Python path).
   - `services/voice/ttsWorkerClient.js`, `ttsWorkerProcess.js` — TTS worker process and chunk ACK backpressure.
-  - `services/voice/providers/python/` — Python bridge/bootstrap/resident worker scripts.
+  - `services/voice/providers/python/` — Python bridge/bootstrap/resident worker scripts (`tts_resident_worker.py` provides Qwen3 MLX streaming TTS).
+  - `services/chat/nanobot/nanobotRuntimeManager.js` — Nanobot repo install/launch config, now resolved against shared Python runtime/env instead of voice bundles.
   - `ipc/live2dModels.js` — model library IPC (`live2d-models:list`, `live2d-models:import-zip`).
 - `front_end/` — React + Vite renderer (`src/`, `tests/`, `package.json`).
   - `src/components/config/VoiceSettingsPanel.jsx` — voice session controls + model catalog install/select UI.
@@ -37,13 +41,28 @@
 - Providers currently supported in main process:
   - ASR: `mock`, `sherpa-onnx`, `python`
   - TTS: `mock`, `sherpa-onnx`, `python`
+- Python runtime architecture:
+  - Python is no longer bundled inside voice model bundles.
+  - Shared runtime lives under app data `python-runtime/`.
+  - Isolated dependency envs live under app data `python-envs/<env-id>/`.
+  - Voice/Nanobot resources store env references (`pythonEnvId`), not bundled interpreter paths.
 - Worker strategy:
   - ASR Python path prefers `asrWorkerClient` + child process; on worker-level failures, `asrService` falls back to direct provider.
   - TTS non-mock providers run through `ttsWorkerClient` + chunk ACK protocol to avoid uncontrolled buffering.
+  - `qwen3-mlx` TTS uses a resident Python worker for true streaming chunk output; keep that path intact unless explicitly changing streaming behavior.
 - Built-in catalog includes:
-  - `builtin-zh-int8-zipformer-kokoro-v1`
-  - `builtin-python-funasr-qwen3tts-v1` (embedded Python runtime + model bootstrap)
+  - `builtin-asr-zh-int8-zipformer-v1`
+  - `builtin-asr-qwen3-0.6b-4bit-v1`
+  - `builtin-tts-qwen3-0.6b-8bit-v1`
+  - `builtin-tts-edge-v1`
+- Current Python-backed built-in profiles:
+  - `asr-qwen3-mlx`
+  - `tts-qwen3-mlx`
+  - `tts-edge`
+- Default shared Python version:
+  - `3.12.12`
 - Runtime env is resolved by `VoiceModelLibrary#getRuntimeEnv(...)` and injected into voice session via `registerVoiceSessionIpc({ resolveVoiceEnv })`.
+- Nanobot runtime is resolved independently by `NanobotRuntimeManager#resolveLaunchConfig()` and should not depend on selected voice bundles.
 - Keep event contracts stable for renderer integration:
   - `voice:event` (`state`, `asr-partial`, `asr-final`, `tts-chunk`, `done`, `error`)
   - `voice:flow-control` (`pause` / `resume`)
@@ -70,11 +89,13 @@
   - stream abort behavior
   - voice session state transitions and commit serialization
   - TTS chunk ACK backpressure pause/resume and timeout handling
+  - shared Python runtime/env resolution and legacy path migration
   - ASR worker warmup/fallback behavior
   - voice-to-chat bridge on `asr-final`
   - settings persistence and token handling
   - SSE parsing robustness
-  - voice model catalog install + runtime env mapping (sherpa/python)
+  - voice model catalog install + runtime/env mapping (sherpa/python)
+  - nanobot runtime install + shared Python env resolution
   - Live2D custom protocol URL resolution compatibility:
     - `openclaw-model:///folder/file`
     - `openclaw-model://folder/file`

@@ -1,9 +1,12 @@
 import { useEffect, useRef } from 'react';
+import { computeSyntheticSubtitleDurationMs } from './subtitleTiming.js';
 
 const SEGMENT_READY_FALLBACK_DELAY_MS = 350;
 const TTS_STARTED_BUFFER_TTL_MS = 10000;
 const DEFAULT_TTS_FINISH_HOLD_MS = 280;
 const DEFAULT_TTS_FAILED_HOLD_MS = 1200;
+const SYNTHETIC_STREAMING_IDLE_HOLD_MS = 800;
+const SYNTHETIC_STREAM_DONE_HOLD_MS = 500;
 const TTS_FINISH_HOLD_MS = DEFAULT_TTS_FINISH_HOLD_MS;
 const TTS_FAILED_HOLD_MS = DEFAULT_TTS_FAILED_HOLD_MS;
 
@@ -39,11 +42,34 @@ export function useStreamingSubtitleBridge({
   useEffect(() => {
     const pendingSegments = new Map();
     const startedBeforeReady = new Map();
+    const syntheticQueue = [];
     let clearTimer = null;
+    let syntheticPlaybackTimer = null;
+    let activeSyntheticSegmentId = '';
+    let streamDone = false;
+    let sawTtsLifecycle = false;
 
     const clearPendingTimer = (entry) => {
       if (entry?.fallbackTimer) {
         clearTimeout(entry.fallbackTimer);
+      }
+    };
+
+    const clearSyntheticPlaybackTimer = () => {
+      if (syntheticPlaybackTimer) {
+        clearTimeout(syntheticPlaybackTimer);
+        syntheticPlaybackTimer = null;
+      }
+    };
+
+    const removeSyntheticQueueEntry = (segmentId) => {
+      if (!segmentId) {
+        return;
+      }
+
+      const index = syntheticQueue.findIndex((item) => item.segmentId === segmentId);
+      if (index >= 0) {
+        syntheticQueue.splice(index, 1);
       }
     };
 
@@ -75,6 +101,9 @@ export function useStreamingSubtitleBridge({
       }
       pendingSegments.clear();
       startedBeforeReady.clear();
+      syntheticQueue.length = 0;
+      activeSyntheticSegmentId = '';
+      clearSyntheticPlaybackTimer();
       clearSubtitleClearTimer();
     };
 
@@ -96,6 +125,65 @@ export function useStreamingSubtitleBridge({
           startedBeforeReady.delete(segmentId);
         }
       }
+    };
+
+    const maybeStartSyntheticPlayback = () => {
+      if (sawTtsLifecycle || activeSyntheticSegmentId) {
+        return;
+      }
+
+      const next = syntheticQueue.shift();
+      if (!next) {
+        if (streamDone) {
+          scheduleSubtitleClear(SYNTHETIC_STREAM_DONE_HOLD_MS);
+        } else if (segmentModeRef.current) {
+          scheduleSubtitleClear(SYNTHETIC_STREAMING_IDLE_HOLD_MS);
+        }
+        return;
+      }
+
+      clearSubtitleClearTimer();
+      activeSyntheticSegmentId = next.segmentId;
+      applySegmentText(next.text);
+
+      syntheticPlaybackTimer = setTimeout(() => {
+        syntheticPlaybackTimer = null;
+        const currentEntry = pendingSegments.get(next.segmentId);
+        if (currentEntry) {
+          pendingSegments.delete(next.segmentId);
+        }
+        activeSyntheticSegmentId = '';
+        maybeStartSyntheticPlayback();
+      }, computeSyntheticSubtitleDurationMs(next.text));
+    };
+
+    const enqueueSyntheticSegment = (segmentId, text) => {
+      const safeText = typeof text === 'string' ? text.trim() : '';
+      if (!segmentId || !safeText || sawTtsLifecycle) {
+        return;
+      }
+
+      if (
+        activeSyntheticSegmentId === segmentId
+        || syntheticQueue.some((item) => item.segmentId === segmentId)
+      ) {
+        return;
+      }
+
+      const entry = pendingSegments.get(segmentId);
+      if (entry) {
+        if (entry.ttsStarted || entry.syntheticQueued) {
+          return;
+        }
+
+        entry.syntheticQueued = true;
+        entry.fallbackShown = true;
+        entry.fallbackTimer = null;
+        pendingSegments.set(segmentId, entry);
+      }
+
+      syntheticQueue.push({ segmentId, text: safeText });
+      maybeStartSyntheticPlayback();
     };
 
     const detachSegment = onSegmentReady((segment = {}) => {
@@ -131,6 +219,7 @@ export function useStreamingSubtitleBridge({
         ttsStarted: false,
         fallbackShown: false,
         fallbackTimer: null,
+        syntheticQueued: false,
       };
       entry.fallbackTimer = setTimeout(() => {
         const current = pendingSegments.get(segmentId);
@@ -141,7 +230,12 @@ export function useStreamingSubtitleBridge({
         current.fallbackShown = true;
         current.fallbackTimer = null;
         pendingSegments.set(segmentId, current);
-        applySegmentText(current.text);
+        if (sawTtsLifecycle) {
+          applySegmentText(current.text);
+          return;
+        }
+
+        enqueueSyntheticSegment(segmentId, current.text);
       }, SEGMENT_READY_FALLBACK_DELAY_MS);
       pendingSegments.set(segmentId, entry);
     });
@@ -154,6 +248,27 @@ export function useStreamingSubtitleBridge({
     });
 
     const detachDone = onDone(() => {
+      streamDone = true;
+
+      if (!sawTtsLifecycle) {
+        for (const [segmentId, entry] of pendingSegments.entries()) {
+          clearPendingTimer(entry);
+          if (entry.ttsStarted) {
+            continue;
+          }
+
+          enqueueSyntheticSegment(segmentId, entry.text);
+        }
+
+        if (!activeSyntheticSegmentId && syntheticQueue.length === 0) {
+          scheduleSubtitleClear(SYNTHETIC_STREAM_DONE_HOLD_MS);
+        }
+
+        segmentModeRef.current = false;
+        finishStream();
+        return;
+      }
+
       let lastFallbackText = '';
       for (const [segmentId, entry] of pendingSegments.entries()) {
         clearPendingTimer(entry);
@@ -197,6 +312,17 @@ export function useStreamingSubtitleBridge({
       const entry = pendingSegments.get(segmentId);
 
       if (event.type === 'segment-tts-started') {
+        if (!sawTtsLifecycle) {
+          sawTtsLifecycle = true;
+          syntheticQueue.length = 0;
+          activeSyntheticSegmentId = '';
+          clearSyntheticPlaybackTimer();
+          clearSubtitleClearTimer();
+          for (const pendingEntry of pendingSegments.values()) {
+            pendingEntry.syntheticQueued = false;
+          }
+        }
+
         if (!entry) {
           startedBeforeReady.set(segmentId, {
             text: typeof event.text === 'string' ? event.text.trim() : '',
@@ -207,8 +333,10 @@ export function useStreamingSubtitleBridge({
 
         clearPendingTimer(entry);
         entry.ttsStarted = true;
+        entry.syntheticQueued = false;
         entry.fallbackTimer = null;
         pendingSegments.set(segmentId, entry);
+        removeSyntheticQueueEntry(segmentId);
         applySegmentText(
           typeof event.text === 'string' && event.text.trim() ? event.text : entry.text,
         );

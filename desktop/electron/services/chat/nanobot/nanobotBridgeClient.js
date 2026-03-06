@@ -80,12 +80,32 @@ function resolveDefaultNanobotRepoPath(env = process.env) {
   return path.resolve(process.cwd(), '../nanobot');
 }
 
+function sanitizeDebugPayload(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeDebugPayload(item));
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const result = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key.toLowerCase().includes('apikey') || key.toLowerCase() === 'apikey') {
+      result[key] = item ? '[redacted]' : '';
+      continue;
+    }
+    result[key] = sanitizeDebugPayload(item);
+  }
+  return result;
+}
+
 function createNanobotBridgeClient({
   spawnImpl = spawn,
   pythonBin,
   scriptPath = path.join(__dirname, 'nanobot_bridge.py'),
   env = process.env,
   resolveLaunchConfig,
+  emitDebugLog,
 } = {}) {
   let child = null;
   let disposed = false;
@@ -96,6 +116,17 @@ function createNanobotBridgeClient({
   const bridgeDebugEnabled = isTruthyEnv(env?.NANOBOT_BRIDGE_DEBUG, false);
   const pendingStreamRequests = new Map();
   const pendingTestRequests = new Map();
+  const debug = (stage, message, details = undefined) => {
+    if (typeof emitDebugLog !== 'function') {
+      return;
+    }
+    emitDebugLog({
+      source: 'bridge',
+      stage,
+      message,
+      details: sanitizeDebugPayload(details),
+    });
+  };
 
   const settleAllPending = (error) => {
     for (const [, pending] of pendingStreamRequests.entries()) {
@@ -128,6 +159,7 @@ function createNanobotBridgeClient({
     }
 
     if (message.type === 'ready') {
+      debug('bridge-ready', 'Nanobot bridge reported ready.');
       return;
     }
 
@@ -137,6 +169,11 @@ function createNanobotBridgeClient({
     }
 
     if (message.type === 'event') {
+      debug('bridge-event', 'Bridge emitted stream event.', {
+        requestId,
+        eventType: message.event?.type || '',
+        payload: message.event?.payload || null,
+      });
       const pending = pendingStreamRequests.get(requestId);
       if (!pending) {
         return;
@@ -175,6 +212,12 @@ function createNanobotBridgeClient({
     }
 
     if (message.type === 'test-result') {
+      debug('bridge-test-result', 'Bridge returned test result.', {
+        requestId,
+        ok: Boolean(message.ok),
+        latencyMs: Number.isFinite(message.latencyMs) ? Math.floor(message.latencyMs) : undefined,
+        error: message.error || null,
+      });
       const pending = pendingTestRequests.get(requestId);
       if (!pending) {
         return;
@@ -220,6 +263,7 @@ function createNanobotBridgeClient({
       throw createBridgeError('nanobot_unreachable', 'Nanobot bridge is unavailable.');
     }
 
+    debug('bridge-send', 'Sending message to bridge.', payload);
     child.stdin.write(`${JSON.stringify(payload)}\n`);
   };
 
@@ -255,6 +299,11 @@ function createNanobotBridgeClient({
         PYTHONUNBUFFERED: '1',
         NANOBOT_REPO_PATH: resolvedRepoPath,
       };
+      debug('bridge-launch', 'Launching Nanobot bridge process.', {
+        pythonBin: resolvedPythonBin,
+        repoPath: resolvedRepoPath,
+        scriptPath,
+      });
 
       const scriptExists = fs.existsSync(scriptPath);
       if (!scriptExists) {
@@ -275,16 +324,22 @@ function createNanobotBridgeClient({
 
       child.stdout?.on('data', pushStdout);
       child.stderr?.on('data', (chunk) => {
+        const text = chunk.toString('utf-8').trim();
+        if (text) {
+          debug('bridge-stderr', 'Bridge stderr.', { text });
+        }
         if (!bridgeDebugEnabled) {
           return;
         }
-        const text = chunk.toString('utf-8').trim();
         if (text) {
           console.warn(`[nanobot-bridge] ${text}`);
         }
       });
 
       child.on('error', (error) => {
+        debug('bridge-error', 'Nanobot bridge process emitted error.', {
+          message: error?.message || 'unknown error',
+        });
         const bridgeError = createBridgeError(
           'nanobot_boot_failed',
           `Nanobot bridge process error: ${error?.message || 'unknown error'}`,
@@ -293,6 +348,10 @@ function createNanobotBridgeClient({
       });
 
       child.on('exit', (code, signal) => {
+        debug('bridge-exit', 'Nanobot bridge process exited.', {
+          code,
+          signal: signal || 'none',
+        });
         const reason = `Nanobot bridge exited (code=${code}, signal=${signal || 'none'}).`;
         const bridgeError = createBridgeError('nanobot_unreachable', reason);
         child = null;
@@ -302,6 +361,7 @@ function createNanobotBridgeClient({
 
       readyPromise = new Promise((resolve, reject) => {
         const timeoutId = setTimeout(() => {
+          debug('bridge-timeout', 'Nanobot bridge init timeout.');
           reject(createBridgeError('nanobot_boot_failed', 'Nanobot bridge init timeout.'));
         }, 5000);
 
@@ -327,6 +387,7 @@ function createNanobotBridgeClient({
             }
 
             if (message?.type === 'ready') {
+              debug('bridge-ready', 'Nanobot bridge ready handshake completed.');
               clearTimeout(timeoutId);
               child?.stdout?.off('data', onReadyData);
               child?.stdout?.on('data', pushStdout);
@@ -368,6 +429,12 @@ function createNanobotBridgeClient({
     await ensureReady();
 
     const requestId = nextRequestId();
+    debug('bridge-start', 'Creating Nanobot stream request.', {
+      requestId,
+      sessionId,
+      content,
+      config,
+    });
     return new Promise((resolve, reject) => {
       const onAbort = () => {
         try {
@@ -424,6 +491,10 @@ function createNanobotBridgeClient({
     await ensureReady();
 
     const requestId = nextRequestId();
+    debug('bridge-test', 'Creating Nanobot test request.', {
+      requestId,
+      config,
+    });
     return new Promise((resolve, reject) => {
       const onAbort = () => {
         try {
@@ -482,6 +553,7 @@ function createNanobotBridgeClient({
     const error = createBridgeError('nanobot_runtime_not_ready', 'Nanobot bridge client disposed.');
     settleAllPending(error);
 
+    debug('bridge-dispose', 'Disposing Nanobot bridge client.');
     if (child && !child.killed) {
       child.kill();
     }

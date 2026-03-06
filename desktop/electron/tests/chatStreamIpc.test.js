@@ -207,3 +207,32 @@ test('chat stream forwards request input source metadata', async () => {
   assert.equal(deltaEvent?.payload?.inputSource, 'voice-asr');
   assert.equal(doneEvent?.payload?.inputSource, 'voice-asr');
 });
+
+test('chat stream emits nanobot debug logs when using nanobot backend', async () => {
+  const ipcMain = createIpcMainMock();
+  const debugLogs = [];
+
+  registerChatStreamIpc({
+    ipcMain,
+    getSettings: () => ({ chatBackend: 'nanobot' }),
+    emitEvent: () => {},
+    emitDebugLog: (payload) => debugLogs.push(payload),
+    startStream: async ({ backend, onEvent }) => {
+      assert.equal(backend, 'nanobot');
+      onEvent({ type: 'text-delta', payload: { content: '你好', source: 'nanobot' } });
+      onEvent({ type: 'done', payload: { source: 'nanobot' } });
+    },
+  });
+
+  await ipcMain.invoke('chat:stream:start', {
+    sessionId: 'nanobot-session',
+    content: 'hello',
+    backend: 'nanobot',
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.ok(debugLogs.some((entry) => entry.stage === 'stream-start'));
+  assert.ok(debugLogs.some((entry) => entry.stage === 'text-delta-forward'));
+  assert.ok(debugLogs.some((entry) => entry.stage === 'stream-done'));
+});

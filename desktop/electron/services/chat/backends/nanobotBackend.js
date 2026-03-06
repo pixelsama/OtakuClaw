@@ -36,6 +36,13 @@ function createNanobotError(code, message, status) {
   return error;
 }
 
+function redactNanobotConfig(config = {}) {
+  return {
+    ...config,
+    apiKey: config?.apiKey ? '[redacted]' : '',
+  };
+}
+
 const TOOL_CALL_PREFIX_REGEX = /^\s*(?:tool\s+call:\s*)?/i;
 const TOOL_CALL_NAME_REGEX = /^(read_file|write_file|list_dir|edit_file|exec|spawn|web_search|web_fetch)\s*\(/i;
 
@@ -64,9 +71,25 @@ function sanitizeNanobotDisplayText(value) {
 }
 
 class NanobotBackendAdapter extends ChatBackendAdapter {
-  constructor({ bridgeClient, resolveRuntime } = {}) {
+  constructor({ bridgeClient, resolveRuntime, emitDebugLog } = {}) {
     super('nanobot');
-    this.bridgeClient = bridgeClient || createNanobotBridgeClient({ resolveLaunchConfig: resolveRuntime });
+    this.emitDebugLog = typeof emitDebugLog === 'function' ? emitDebugLog : null;
+    this.bridgeClient = bridgeClient || createNanobotBridgeClient({
+      resolveLaunchConfig: resolveRuntime,
+      emitDebugLog,
+    });
+  }
+
+  debug(stage, message, details = undefined) {
+    if (typeof this.emitDebugLog !== 'function') {
+      return;
+    }
+    this.emitDebugLog({
+      source: 'backend',
+      stage,
+      message,
+      details,
+    });
   }
 
   validateSettings(settings) {
@@ -86,11 +109,19 @@ class NanobotBackendAdapter extends ChatBackendAdapter {
 
   async testConnection({ settings }) {
     const config = normalizeNanobotConfig(settings);
+    this.debug('test-request', 'Testing Nanobot connection.', {
+      config: redactNanobotConfig(config),
+    });
     return this.bridgeClient.testConnection({ config });
   }
 
   async startStream({ settings, sessionId, content, signal, onEvent }) {
     const config = normalizeNanobotConfig(settings);
+    this.debug('start-request', 'Starting Nanobot stream.', {
+      sessionId,
+      content,
+      config: redactNanobotConfig(config),
+    });
     return this.bridgeClient.start({
       sessionId,
       content,
@@ -102,22 +133,41 @@ class NanobotBackendAdapter extends ChatBackendAdapter {
         }
 
         const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
+        this.debug('bridge-event-received', 'Received event from Nanobot bridge.', {
+          eventType: event.type,
+          payload,
+        });
         const isTextDelta = event.type === 'text-delta';
         const sanitizedContent = isTextDelta
           ? sanitizeNanobotDisplayText(payload.content)
           : payload.content;
         if (isTextDelta && !sanitizedContent) {
+          this.debug('text-delta-dropped', 'Dropped text-delta containing only tool-call traces.', {
+            originalContent: payload.content || '',
+          });
           return;
         }
 
-        onEvent({
+        if (isTextDelta && sanitizedContent !== payload.content) {
+          this.debug('text-delta-sanitized', 'Sanitized text-delta before forwarding to app.', {
+            originalContent: payload.content || '',
+            sanitizedContent,
+          });
+        }
+
+        const forwardedEvent = {
           ...event,
           payload: {
             ...payload,
             ...(isTextDelta ? { content: sanitizedContent } : {}),
             source: payload.source || 'nanobot',
           },
+        };
+        this.debug('event-forwarded', 'Forwarding Nanobot event to chat stream.', {
+          eventType: forwardedEvent.type,
+          payload: forwardedEvent.payload,
         });
+        onEvent(forwardedEvent);
       },
     });
   }

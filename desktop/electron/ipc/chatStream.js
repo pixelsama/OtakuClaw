@@ -5,11 +5,21 @@ const { createChatSegmentEmitter } = require('../services/chat/segmenter');
 function registerChatStreamIpc({
   ipcMain,
   emitEvent,
+  emitDebugLog,
   getSettings,
   startStream,
   backendManager = createChatBackendManager(),
 }) {
   const streamMap = new Map();
+  const debug = (payload = {}) => {
+    if (typeof emitDebugLog !== 'function') {
+      return;
+    }
+    emitDebugLog({
+      source: 'chat-stream',
+      ...payload,
+    });
+  };
   const normalizeInputSource = (value) => {
     if (typeof value !== 'string') {
       return 'text-composer';
@@ -75,6 +85,18 @@ function registerChatStreamIpc({
       });
       state.backend = backend;
       source = state.backend || source;
+      if (backend === 'nanobot') {
+        debug({
+          stage: 'stream-start',
+          message: 'Chat stream started with Nanobot backend.',
+          details: {
+            streamId,
+            sessionId: request.sessionId,
+            inputSource,
+            content: request.content,
+          },
+        });
+      }
 
       const streamRunner =
         typeof startStream === 'function'
@@ -96,9 +118,30 @@ function registerChatStreamIpc({
           if (state.settled) {
             return;
           }
+          if (backend === 'nanobot') {
+            debug({
+              stage: 'backend-event',
+              message: 'Chat stream received backend event.',
+              details: {
+                streamId,
+                eventType: event?.type || '',
+                payload: event?.payload || null,
+              },
+            });
+          }
 
           if (event.type === 'done') {
             segmentEmitter.flushRemaining({ source });
+            if (backend === 'nanobot') {
+              debug({
+                stage: 'stream-done',
+                message: 'Chat stream completed with done event.',
+                details: {
+                  streamId,
+                  payload: event.payload || {},
+                },
+              });
+            }
             completeStream(
               streamId,
               buildTurnPayload(event.payload || { source }),
@@ -107,6 +150,16 @@ function registerChatStreamIpc({
           }
 
           if (event.type === 'error') {
+            if (backend === 'nanobot') {
+              debug({
+                stage: 'stream-error',
+                message: 'Chat stream received error event.',
+                details: {
+                  streamId,
+                  payload: event.payload || null,
+                },
+              });
+            }
             failStream(
               streamId,
               buildTurnPayload(
@@ -121,6 +174,16 @@ function registerChatStreamIpc({
 
           if (event.type === 'text-delta') {
             const payload = event.payload || {};
+            if (backend === 'nanobot') {
+              debug({
+                stage: 'text-delta-forward',
+                message: 'Forwarding text-delta to renderer.',
+                details: {
+                  streamId,
+                  payload,
+                },
+              });
+            }
             sendEvent(
               streamId,
               'text-delta',
@@ -131,17 +194,50 @@ function registerChatStreamIpc({
                 source: payload.source || source,
                 inputSource,
               });
+              if (backend === 'nanobot') {
+                debug({
+                  stage: 'segment-ingest',
+                  message: 'Segmenter ingested Nanobot text-delta.',
+                  details: {
+                    streamId,
+                    content: payload.content,
+                  },
+                });
+              }
             }
           }
         },
       });
 
       segmentEmitter.flushRemaining({ source, inputSource });
+      if (backend === 'nanobot') {
+        debug({
+          stage: 'stream-finalize',
+          message: 'Chat stream finalized after backend returned.',
+          details: {
+            streamId,
+            source,
+            inputSource,
+          },
+        });
+      }
       completeStream(
         streamId,
         buildTurnPayload({ source }),
       );
     } catch (error) {
+      if (state.backend === 'nanobot') {
+        debug({
+          stage: 'stream-catch',
+          message: 'Chat stream caught terminal error.',
+          details: {
+            streamId,
+            code: error?.code || '',
+            name: error?.name || '',
+            message: error?.message || '',
+          },
+        });
+      }
       if (state.aborted || error?.name === 'AbortError') {
         completeStream(
           streamId,

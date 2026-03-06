@@ -64,6 +64,12 @@ const nanobotRuntime = {
   },
 };
 
+const nanobotDebug = {
+  onLog(handler) {
+    return onChannel('nanobot-debug:log', handler);
+  },
+};
+
 const windowMode = {
   setMode(mode) {
     return ipcRenderer.invoke('pet:set-mode', { mode });
@@ -181,6 +187,7 @@ contextBridge.exposeInMainWorld('desktop', {
   chatStream,
   settings,
   nanobotRuntime,
+  nanobotDebug,
   windowMode,
   windowControls,
   voice,

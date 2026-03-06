@@ -35,6 +35,7 @@ function AppContent({ desktopMode }) {
   const [currentModelPath, setCurrentModelPath] = useState(DEFAULT_MODEL);
   const [motions, setMotions] = useState([]);
   const [expressions, setExpressions] = useState([]);
+  const [nanobotDebugLogs, setNanobotDebugLogs] = useState([]);
   const platform = usePlatformInfo({ desktopMode });
 
   const { subtitleText, appendDelta, setSegmentText, finishStream, clearSubtitle, beginStream } = useSubtitleFeed();
@@ -101,12 +102,64 @@ function AppContent({ desktopMode }) {
         payload,
       });
     });
+    const offNanobotDebugLog = desktopBridge.nanobotDebug.onLog((payload = {}) => {
+      setNanobotDebugLogs((current) => {
+        const next = [
+          ...current,
+          {
+            id: `${payload.timestamp || Date.now()}-${current.length}`,
+            timestamp: payload.timestamp || new Date().toISOString(),
+            source: payload.source || '',
+            stage: payload.stage || '',
+            message: payload.message || '',
+            details: payload.details,
+          },
+        ];
+        return next.slice(-200);
+      });
+    });
 
     return () => {
       offVoiceModelProgress?.();
       offNanobotRuntimeProgress?.();
+      offNanobotDebugLog?.();
     };
   }, [desktopMode, handleDownloadProgress, t]);
+
+  useEffect(() => {
+    if (!desktopMode) {
+      return () => {};
+    }
+
+    return desktopBridge.chat.onEvent((event = {}) => {
+      const payload = event?.payload && typeof event.payload === 'object' ? event.payload : {};
+      if (payload.source !== 'nanobot') {
+        return;
+      }
+
+      setNanobotDebugLogs((current) => {
+        const next = [
+          ...current,
+          {
+            id: `renderer-${Date.now()}-${current.length}`,
+            timestamp: new Date().toISOString(),
+            source: 'renderer',
+            stage: `chat-event:${event.type || 'unknown'}`,
+            message: 'Renderer received chat stream event.',
+            details: {
+              streamId: event.streamId || '',
+              payload,
+            },
+          },
+        ];
+        return next.slice(-200);
+      });
+    });
+  }, [desktopMode]);
+
+  const clearNanobotDebugLogs = useCallback(() => {
+    setNanobotDebugLogs([]);
+  }, []);
 
   const handleInstallNanobotRuntime = useCallback(async () => {
     ensureDownloadTask({
@@ -309,6 +362,8 @@ function AppContent({ desktopMode }) {
         nanobotRuntimeStatus={nanobotRuntimeStatus}
         nanobotRuntimeInstalling={nanobotRuntimeInstalling}
         onInstallNanobotRuntime={handleInstallNanobotRuntime}
+        nanobotDebugLogs={nanobotDebugLogs}
+        onClearNanobotDebugLogs={clearNanobotDebugLogs}
         onOpenDownloadCenter={openDownloadTask}
       />
       <UnifiedDownloadDialog
