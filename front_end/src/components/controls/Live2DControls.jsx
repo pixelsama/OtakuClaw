@@ -579,7 +579,6 @@ export default function Live2DControls({
     manager.setAutoEyeBlinkEnable(autoEyeBlink);
     manager.setAutoBreathEnable(autoBreath);
     manager.setEyeTracking(eyeTracking);
-    manager.setModelScale(modelScale);
     updateAvailableClickAreas();
 
     if (isPetMode) {
@@ -587,6 +586,8 @@ export default function Live2DControls({
       manager.setBackgroundOpacity(backgroundOpacity);
       return;
     }
+
+    manager.setModelScale(modelScale);
 
     let cancelled = false;
     const restoreBackground = async () => {

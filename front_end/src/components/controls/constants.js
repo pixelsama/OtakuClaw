@@ -2,6 +2,7 @@ export const STORAGE_KEYS = {
   motionConfig: 'live2d-motion-config',
   expressionConfig: 'live2d_expression_config',
   modelConfig: 'live2d-model-config',
+  petModelScale: 'live2d-pet-model-scale',
   cachedBackgrounds: 'live2d_cached_backgrounds',
 };
 

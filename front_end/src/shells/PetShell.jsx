@@ -10,7 +10,7 @@ import EdgeComposer from '../components/chat/EdgeComposer.jsx';
 import { useI18n } from '../i18n/I18nContext.jsx';
 import { STORAGE_KEYS } from '../components/controls/constants.js';
 
-const PET_DEFAULT_MODEL_SCALE = 0.8;
+const PET_DEFAULT_MODEL_SCALE = 0.7;
 
 function normalizeModelScale(scale) {
   const rounded = Math.round(scale * 10) / 10;
@@ -23,8 +23,10 @@ function readStoredModelScale() {
   }
 
   try {
-    const stored = JSON.parse(window.localStorage.getItem(STORAGE_KEYS.modelConfig) || '{}');
-    return typeof stored?.modelScale === 'number' ? normalizeModelScale(stored.modelScale) : null;
+    const stored = window.localStorage.getItem(STORAGE_KEYS.petModelScale);
+    return typeof stored === 'string' && stored.trim()
+      ? normalizeModelScale(Number(stored))
+      : null;
   } catch (error) {
     console.warn('Failed to read stored model scale for pet mode:', error);
     return null;
@@ -37,15 +39,7 @@ function persistModelScale(scale) {
   }
 
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEYS.modelConfig);
-    const stored = raw ? JSON.parse(raw) : {};
-    window.localStorage.setItem(
-      STORAGE_KEYS.modelConfig,
-      JSON.stringify({
-        ...stored,
-        modelScale: normalizeModelScale(scale),
-      }),
-    );
+    window.localStorage.setItem(STORAGE_KEYS.petModelScale, String(normalizeModelScale(scale)));
   } catch (error) {
     console.warn('Failed to persist pet mode model scale:', error);
   }
