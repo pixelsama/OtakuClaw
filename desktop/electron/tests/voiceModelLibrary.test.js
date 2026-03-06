@@ -154,9 +154,11 @@ test('listCatalog returns built-in model items', async () => {
 
   const catalog = library.listCatalog();
   assert.ok(Array.isArray(catalog));
-  assert.ok(catalog.length >= 1);
-  assert.ok(catalog.some((item) => item.id === 'builtin-zh-int8-zipformer-kokoro-v1'));
-  assert.ok(catalog.some((item) => item.id === 'builtin-python-funasr-qwen3tts-v1'));
+  assert.ok(catalog.length >= 4);
+  assert.ok(catalog.some((item) => item.id === 'builtin-asr-zh-int8-zipformer-v1'));
+  assert.ok(catalog.some((item) => item.id === 'builtin-asr-qwen3-0.6b-4bit-v1'));
+  assert.ok(catalog.some((item) => item.id === 'builtin-tts-kokoro-v1'));
+  assert.ok(catalog.some((item) => item.id === 'builtin-tts-qwen3tts-v1'));
 });
 
 test('getRuntimeEnv infers kokoro data dir and lexicon for legacy bundles', async () => {
@@ -283,4 +285,61 @@ test('getRuntimeEnv maps python runtime bundle into python provider env', async 
   assert.equal(runtimeEnv.VOICE_TTS_PYTHON_MODE, 'custom_voice');
   assert.equal(runtimeEnv.VOICE_TTS_PYTHON_SPEAKER, 'Vivian');
   assert.equal(runtimeEnv.VOICE_TTS_AUTO_ON_ASR_FINAL, undefined);
+});
+
+test('init migrates legacy sherpa+kohoro combined bundle into separate ASR/TTS catalog records', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-model-library-migrate-test-'));
+  const app = {
+    getPath() {
+      return tmpDir;
+    },
+  };
+  const stateDir = path.join(tmpDir, 'voice-models');
+  await fs.mkdir(stateDir, { recursive: true });
+  await fs.writeFile(
+    path.join(stateDir, 'state.json'),
+    JSON.stringify({
+      bundles: [
+        {
+          id: 'legacy-combo',
+          name: '中文 ASR + Kokoro TTS（内置推荐）',
+          catalogId: '',
+          createdAt: '2026-03-04T05:17:52.529Z',
+          asr: {
+            modelPath: '/tmp/legacy/asr/sherpa-onnx-streaming-zipformer-ctc-zh-int8-2025-06-30/model.int8.onnx',
+            tokensPath: '/tmp/legacy/asr/sherpa-onnx-streaming-zipformer-ctc-zh-int8-2025-06-30/tokens.txt',
+            modelKind: 'zipformer2ctc',
+            executionProvider: 'coreml',
+          },
+          tts: {
+            modelPath: '/tmp/legacy/tts/kokoro-multi-lang-v1_0/model.onnx',
+            voicesPath: '/tmp/legacy/tts/kokoro-multi-lang-v1_0/voices.bin',
+            tokensPath: '/tmp/legacy/tts/kokoro-multi-lang-v1_0/tokens.txt',
+            modelKind: 'kokoro',
+            executionProvider: 'coreml',
+          },
+          runtime: null,
+        },
+      ],
+      selectedAsrBundleId: '',
+      selectedTtsBundleId: '',
+    }),
+    'utf-8',
+  );
+
+  const library = new VoiceModelLibrary(app, {
+    downloadFileImpl: async () => {},
+  });
+  await library.init();
+
+  const listed = library.listBundles();
+  assert.equal(listed.bundles.length, 2);
+  assert.ok(listed.bundles.some((bundle) => bundle.catalogId === 'builtin-asr-zh-int8-zipformer-v1'));
+  assert.ok(listed.bundles.some((bundle) => bundle.catalogId === 'builtin-tts-kokoro-v1'));
+  assert.ok(!listed.bundles.some((bundle) => bundle.id === 'legacy-combo'));
+
+  const persisted = JSON.parse(await fs.readFile(path.join(stateDir, 'state.json'), 'utf-8'));
+  assert.equal(persisted.bundles.length, 2);
+  assert.ok(persisted.bundles.some((bundle) => bundle.catalogId === 'builtin-asr-zh-int8-zipformer-v1'));
+  assert.ok(persisted.bundles.some((bundle) => bundle.catalogId === 'builtin-tts-kokoro-v1'));
 });

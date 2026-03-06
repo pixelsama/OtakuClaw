@@ -77,11 +77,28 @@ def read_model_config_text(model_dir):
     return ''
 
 
+def read_model_json_text(model_dir):
+  try:
+    config_path = Path(model_dir) / 'config.json'
+    if not config_path.exists():
+      return ''
+    return config_path.read_text(encoding='utf-8', errors='ignore')
+  except Exception:  # pylint: disable=broad-except
+    return ''
+
+
 def is_sensevoice_model(model_dir):
   normalized = (model_dir or '').strip().lower()
   if 'sensevoice' in normalized:
     return True
   return 'sensevoice' in read_model_config_text(model_dir).lower()
+
+
+def is_qwen3_asr_model(model_dir):
+  normalized = (model_dir or '').strip().lower()
+  if 'qwen3-asr' in normalized:
+    return True
+  return 'qwen3_asr' in read_model_json_text(model_dir).lower()
 
 
 def normalize_asr_language(language):
@@ -104,6 +121,29 @@ def normalize_asr_language(language):
       'cantonese': 'yue',
       'yue': 'yue',
       'nospeech': 'nospeech',
+  }
+  return mapping.get(normalized, raw)
+
+
+def normalize_mlx_asr_language(language):
+  raw = (language or '').strip()
+  normalized = raw.lower()
+  if not normalized or normalized == 'auto':
+    return 'Chinese'
+
+  mapping = {
+      'chinese': 'Chinese',
+      '中文': 'Chinese',
+      'zh': 'Chinese',
+      'zh-cn': 'Chinese',
+      'english': 'English',
+      'en': 'English',
+      'japanese': 'Japanese',
+      'ja': 'Japanese',
+      'korean': 'Korean',
+      'ko': 'Korean',
+      'cantonese': 'Cantonese',
+      'yue': 'Cantonese',
   }
   return mapping.get(normalized, raw)
 
@@ -140,6 +180,11 @@ def load_audio_for_sensevoice(audio_path):
 
 
 def build_model(model_dir, requested_device):
+  if is_qwen3_asr_model(model_dir):
+    from mlx_audio.stt.utils import load_model
+
+    return load_model(model_dir), 'mlx'
+
   import torch
   from funasr import AutoModel
 
@@ -162,6 +207,14 @@ def build_model(model_dir, requested_device):
 
 
 def transcribe_once(model, model_dir, audio_path, language):
+  if is_qwen3_asr_model(model_dir):
+    result = model.generate(
+        audio_path,
+        language=normalize_mlx_asr_language(language),
+        verbose=False,
+    )
+    return str(getattr(result, 'text', '')).strip()
+
   is_sensevoice = is_sensevoice_model(model_dir)
   if is_sensevoice:
     audio_samples = load_audio_for_sensevoice(audio_path)

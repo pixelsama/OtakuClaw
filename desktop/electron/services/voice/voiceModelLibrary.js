@@ -204,11 +204,99 @@ function bundleSupportsTts(bundle = {}) {
   return false;
 }
 
-function normalizeState(raw = {}) {
+function isLegacySherpaKokoroBundle(bundle = {}) {
+  if (!bundle || typeof bundle !== 'object') {
+    return false;
+  }
+
+  if (sanitizeText(bundle.catalogId)) {
+    return false;
+  }
+
+  const asrModelPath = sanitizeText(bundle.asr?.modelPath);
+  const ttsModelPath = sanitizeText(bundle.tts?.modelPath);
+  return (
+    bundleSupportsAsr(bundle)
+    && bundleSupportsTts(bundle)
+    && asrModelPath.includes('sherpa-onnx-streaming-zipformer-ctc-zh-int8-2025-06-30')
+    && ttsModelPath.includes('kokoro-multi-lang-v1_0')
+  );
+}
+
+function splitLegacySherpaKokoroBundle(bundle = {}) {
+  const createdAt = sanitizeOptionalText(bundle.createdAt, new Date().toISOString());
+  const baseId = sanitizeText(bundle.id);
+  const asrBundle = normalizeBundleRecord({
+    id: `${baseId}-asr`,
+    name: '中文 ASR（Sherpa Zipformer）',
+    catalogId: 'builtin-asr-zh-int8-zipformer-v1',
+    createdAt,
+    asr: bundle.asr,
+  });
+  const ttsBundle = normalizeBundleRecord({
+    id: `${baseId}-tts`,
+    name: 'Kokoro TTS（内置推荐）',
+    catalogId: 'builtin-tts-kokoro-v1',
+    createdAt,
+    tts: bundle.tts,
+  });
+  return [asrBundle, ttsBundle].filter(Boolean);
+}
+
+function migrateLegacyState(raw = {}) {
   const source = raw && typeof raw === 'object' ? raw : {};
-  const bundles = Array.isArray(source.bundles)
+  const originalBundles = Array.isArray(source.bundles)
     ? source.bundles.map((item) => normalizeBundleRecord(item)).filter(Boolean)
     : [];
+  const bundles = [];
+  let migrated = false;
+  const selectedBundleId = sanitizeText(source.selectedBundleId);
+  let selectedAsrBundleId = sanitizeText(source.selectedAsrBundleId);
+  let selectedTtsBundleId = sanitizeText(source.selectedTtsBundleId);
+
+  for (const bundle of originalBundles) {
+    if (isLegacySherpaKokoroBundle(bundle)) {
+      const [asrBundle, ttsBundle] = splitLegacySherpaKokoroBundle(bundle);
+      if (asrBundle) {
+        bundles.push(asrBundle);
+      }
+      if (ttsBundle) {
+        bundles.push(ttsBundle);
+      }
+
+      if (selectedBundleId && selectedBundleId === bundle.id) {
+        selectedAsrBundleId = asrBundle?.id || selectedAsrBundleId;
+        selectedTtsBundleId = ttsBundle?.id || selectedTtsBundleId;
+      }
+      if (selectedAsrBundleId && selectedAsrBundleId === bundle.id) {
+        selectedAsrBundleId = asrBundle?.id || '';
+      }
+      if (selectedTtsBundleId && selectedTtsBundleId === bundle.id) {
+        selectedTtsBundleId = ttsBundle?.id || '';
+      }
+
+      migrated = true;
+      continue;
+    }
+
+    bundles.push(bundle);
+  }
+
+  return {
+    migrated,
+    rawState: {
+      bundles,
+      selectedBundleId,
+      selectedAsrBundleId,
+      selectedTtsBundleId,
+    },
+  };
+}
+
+function normalizeState(raw = {}) {
+  const migration = migrateLegacyState(raw);
+  const source = migration.rawState;
+  const bundles = Array.isArray(source.bundles) ? source.bundles : [];
   const idSet = new Set(bundles.map((item) => item.id));
   const asrIdSet = new Set(bundles.filter((item) => bundleSupportsAsr(item)).map((item) => item.id));
   const ttsIdSet = new Set(bundles.filter((item) => bundleSupportsTts(item)).map((item) => item.id));
@@ -220,6 +308,7 @@ function normalizeState(raw = {}) {
     bundles,
     selectedAsrBundleId: asrIdSet.has(selectedAsrCandidate) ? selectedAsrCandidate : '',
     selectedTtsBundleId: ttsIdSet.has(selectedTtsCandidate) ? selectedTtsCandidate : '',
+    migrated: migration.migrated,
   };
 }
 
@@ -724,11 +813,19 @@ class VoiceModelLibrary {
 
     try {
       const raw = await fsp.readFile(this.stateFilePath, 'utf-8');
-      this.state = normalizeState(JSON.parse(raw));
+      const normalizedState = normalizeState(JSON.parse(raw));
+      const { migrated, ...state } = normalizedState;
+      this.state = state;
+      if (migrated) {
+        await this.persistState();
+      }
     } catch (error) {
       if (error?.code !== 'ENOENT') {
         console.warn('Failed to load voice model state:', error);
       }
+      const normalizedState = normalizeState({});
+      const { migrated: _migrated, ...state } = normalizedState;
+      this.state = state;
       await this.persistState();
     }
   }

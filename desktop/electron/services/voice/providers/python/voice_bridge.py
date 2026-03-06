@@ -76,11 +76,28 @@ def read_model_config_text(model_dir):
     return ''
 
 
+def read_model_json_text(model_dir):
+  try:
+    config_path = Path(model_dir) / 'config.json'
+    if not config_path.exists():
+      return ''
+    return config_path.read_text(encoding='utf-8', errors='ignore')
+  except Exception:  # pylint: disable=broad-except
+    return ''
+
+
 def is_sensevoice_model(model_dir):
   normalized = (model_dir or '').strip().lower()
   if 'sensevoice' in normalized:
     return True
   return 'sensevoice' in read_model_config_text(model_dir).lower()
+
+
+def is_qwen3_asr_model(model_dir):
+  normalized = (model_dir or '').strip().lower()
+  if 'qwen3-asr' in normalized:
+    return True
+  return 'qwen3_asr' in read_model_json_text(model_dir).lower()
 
 
 def normalize_asr_language(language):
@@ -103,6 +120,29 @@ def normalize_asr_language(language):
       'cantonese': 'yue',
       'yue': 'yue',
       'nospeech': 'nospeech',
+  }
+  return mapping.get(normalized, raw)
+
+
+def normalize_mlx_asr_language(language):
+  raw = (language or '').strip()
+  normalized = raw.lower()
+  if not normalized or normalized == 'auto':
+    return 'Chinese'
+
+  mapping = {
+      'chinese': 'Chinese',
+      '中文': 'Chinese',
+      'zh': 'Chinese',
+      'zh-cn': 'Chinese',
+      'english': 'English',
+      'en': 'English',
+      'japanese': 'Japanese',
+      'ja': 'Japanese',
+      'korean': 'Korean',
+      'ko': 'Korean',
+      'cantonese': 'Cantonese',
+      'yue': 'Cantonese',
   }
   return mapping.get(normalized, raw)
 
@@ -180,6 +220,20 @@ def run_asr_once(args, device):
 
 
 def run_asr(args):
+  if is_qwen3_asr_model(args.model_dir):
+    from mlx_audio.stt.utils import load_model
+
+    model = load_model(args.model_dir)
+    result = model.generate(
+        args.audio_path,
+        language=normalize_mlx_asr_language(args.language),
+        verbose=False,
+    )
+    return {
+        'text': str(getattr(result, 'text', '')).strip(),
+        'deviceUsed': 'mlx',
+    }
+
   import torch
 
   candidates = resolve_device_candidates(args.device, torch)
