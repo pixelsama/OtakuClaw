@@ -3,10 +3,15 @@ const { spawn } = require('node:child_process');
 
 const DEFAULT_SAMPLE_RATE = 24000;
 const DEFAULT_CHUNK_MS = 120;
-const DEFAULT_SPEAKER = 'Vivian';
+const DEFAULT_ENGINE = 'qwen3-mlx';
+const DEFAULT_SPEAKER = 'vivian';
 const DEFAULT_LANGUAGE = 'Chinese';
 const DEFAULT_TTS_MODE = 'custom_voice';
 const DEFAULT_DEVICE = 'auto';
+const DEFAULT_EDGE_VOICE = 'zh-CN-XiaoxiaoNeural';
+const DEFAULT_EDGE_RATE = '+0%';
+const DEFAULT_EDGE_PITCH = '+0Hz';
+const DEFAULT_EDGE_VOLUME = '+0%';
 
 function createAbortError() {
   const error = new Error('aborted');
@@ -215,12 +220,17 @@ function createPythonTtsProvider({ options = {} } = {}) {
 
       const pythonExecutable = normalizePath(options.pythonExecutable);
       const bridgeScriptPath = normalizePath(options.bridgeScriptPath);
+      const engine = normalizePath(options.engine) || DEFAULT_ENGINE;
       const modelDir = normalizePath(options.modelDir);
       const tokenizerDir = normalizePath(options.tokenizerDir);
       const ttsMode = normalizePath(options.ttsMode) || DEFAULT_TTS_MODE;
       const speaker = normalizePath(options.speaker) || DEFAULT_SPEAKER;
       const language = normalizePath(options.language) || DEFAULT_LANGUAGE;
       const instruct = normalizePath(options.instruct);
+      const edgeVoice = normalizePath(options.edgeVoice) || DEFAULT_EDGE_VOICE;
+      const edgeRate = normalizePath(options.edgeRate) || DEFAULT_EDGE_RATE;
+      const edgePitch = normalizePath(options.edgePitch) || DEFAULT_EDGE_PITCH;
+      const edgeVolume = normalizePath(options.edgeVolume) || DEFAULT_EDGE_VOLUME;
       const device = normalizePath(options.device) || DEFAULT_DEVICE;
       const chunkMs = Math.max(20, toPositiveInteger(options.chunkMs, DEFAULT_CHUNK_MS));
       const timeoutMs = Math.max(1_000, toPositiveInteger(options.timeoutMs, 180_000));
@@ -237,19 +247,21 @@ function createPythonTtsProvider({ options = {} } = {}) {
         'voice_tts_python_bridge_not_configured',
         'voice_tts_python_bridge_missing',
       );
-      ensurePathExists(
-        modelDir,
-        'VOICE_TTS_PYTHON_MODEL_DIR',
-        'voice_tts_model_not_configured',
-        'voice_tts_model_missing',
-      );
-      if (tokenizerDir) {
+      if (engine !== 'edge') {
         ensurePathExists(
-          tokenizerDir,
-          'VOICE_TTS_PYTHON_TOKENIZER_DIR',
-          'voice_tts_tokenizer_not_configured',
-          'voice_tts_tokenizer_missing',
+          modelDir,
+          'VOICE_TTS_PYTHON_MODEL_DIR',
+          'voice_tts_model_not_configured',
+          'voice_tts_model_missing',
         );
+        if (tokenizerDir) {
+          ensurePathExists(
+            tokenizerDir,
+            'VOICE_TTS_PYTHON_TOKENIZER_DIR',
+            'voice_tts_tokenizer_not_configured',
+            'voice_tts_tokenizer_missing',
+          );
+        }
       }
 
       const controller = new AbortController();
@@ -270,8 +282,8 @@ function createPythonTtsProvider({ options = {} } = {}) {
         const args = [
           '--task',
           'tts',
-          '--model-dir',
-          modelDir,
+          '--tts-engine',
+          engine,
           '--text',
           normalizedText,
           '--tts-mode',
@@ -283,11 +295,26 @@ function createPythonTtsProvider({ options = {} } = {}) {
           '--device',
           device,
         ];
+        if (modelDir) {
+          args.push('--model-dir', modelDir);
+        }
         if (tokenizerDir) {
           args.push('--tokenizer-dir', tokenizerDir);
         }
         if (instruct) {
           args.push('--instruct', instruct);
+        }
+        if (engine === 'edge') {
+          args.push(
+            '--edge-voice',
+            edgeVoice,
+            '--edge-rate',
+            edgeRate,
+            '--edge-pitch',
+            edgePitch,
+            '--edge-volume',
+            edgeVolume,
+          );
         }
 
         payload = await runPythonBridge({

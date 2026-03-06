@@ -51,11 +51,16 @@ test('buildPythonTtsOptionsFromEnv maps env values', () => {
   const options = buildPythonTtsOptionsFromEnv({
     VOICE_PYTHON_EXECUTABLE: '/tmp/python',
     VOICE_PYTHON_BRIDGE_SCRIPT: '/tmp/bridge.py',
+    VOICE_TTS_PYTHON_ENGINE: 'qwen3-mlx',
     VOICE_TTS_PYTHON_MODEL_DIR: '/tmp/tts',
     VOICE_TTS_PYTHON_TOKENIZER_DIR: '/tmp/tokenizer',
     VOICE_TTS_PYTHON_MODE: 'custom_voice',
-    VOICE_TTS_PYTHON_SPEAKER: 'Vivian',
+    VOICE_TTS_PYTHON_SPEAKER: 'vivian',
     VOICE_TTS_PYTHON_LANGUAGE: 'Chinese',
+    VOICE_TTS_PYTHON_EDGE_VOICE: 'zh-CN-XiaoxiaoNeural',
+    VOICE_TTS_PYTHON_EDGE_RATE: '+0%',
+    VOICE_TTS_PYTHON_EDGE_PITCH: '+0Hz',
+    VOICE_TTS_PYTHON_EDGE_VOLUME: '+0%',
     VOICE_PYTHON_DEVICE: 'cpu',
     VOICE_TTS_PYTHON_CHUNK_MS: '80',
     VOICE_TTS_PYTHON_TIMEOUT_MS: '120000',
@@ -63,11 +68,16 @@ test('buildPythonTtsOptionsFromEnv maps env values', () => {
 
   assert.equal(options.pythonExecutable, '/tmp/python');
   assert.equal(options.bridgeScriptPath, '/tmp/bridge.py');
+  assert.equal(options.engine, 'qwen3-mlx');
   assert.equal(options.modelDir, '/tmp/tts');
   assert.equal(options.tokenizerDir, '/tmp/tokenizer');
   assert.equal(options.ttsMode, 'custom_voice');
-  assert.equal(options.speaker, 'Vivian');
+  assert.equal(options.speaker, 'vivian');
   assert.equal(options.language, 'Chinese');
+  assert.equal(options.edgeVoice, 'zh-CN-XiaoxiaoNeural');
+  assert.equal(options.edgeRate, '+0%');
+  assert.equal(options.edgePitch, '+0Hz');
+  assert.equal(options.edgeVolume, '+0%');
   assert.equal(options.device, 'cpu');
   assert.equal(options.chunkMs, '80');
   assert.equal(options.timeoutMs, '120000');

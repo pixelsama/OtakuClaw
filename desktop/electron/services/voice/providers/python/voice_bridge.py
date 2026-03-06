@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
+import asyncio
 import argparse
 import base64
+import io
 import json
 import sys
 from pathlib import Path
@@ -255,6 +257,98 @@ def run_asr(args):
 
 
 def run_tts_once(args, device):
+  tts_engine = (args.tts_engine or 'qwen3-mlx').strip().lower()
+  if tts_engine == 'edge':
+    return run_edge_tts_once(args)
+  if tts_engine == 'qwen3-mlx':
+    return run_qwen3_mlx_tts_once(args)
+  return run_legacy_qwen_tts_once(args, device)
+
+
+def run_qwen3_mlx_tts_once(args):
+  import numpy as np
+  from mlx_audio.tts.utils import load_model
+
+  model = load_model(args.model_dir)
+  sample_rate = 24000
+  audio_segments = []
+
+  for result in model.generate(
+      text=args.text,
+      voice=(args.speaker or 'vivian'),
+      instruct=args.instruct or '',
+      lang_code=args.language or 'Chinese',
+      verbose=False,
+  ):
+    sample_rate = int(getattr(result, 'sample_rate', sample_rate) or sample_rate)
+    audio = getattr(result, 'audio', None)
+    if audio is not None:
+      audio_segments.append(np.asarray(audio, dtype=np.float32))
+
+  if not audio_segments:
+    return {
+        'sampleRate': int(sample_rate),
+        'pcmS16LeBase64': '',
+    }
+
+  wav = np.concatenate(audio_segments, axis=0)
+  wav = np.clip(wav, -1.0, 1.0)
+  pcm = (wav * 32767.0).astype(np.int16).tobytes()
+
+  return {
+      'sampleRate': int(sample_rate),
+      'pcmS16LeBase64': base64.b64encode(pcm).decode('ascii'),
+  }
+
+
+async def run_edge_tts_once_async(args):
+  import numpy as np
+  import soundfile as sf
+  import edge_tts
+
+  voice = (args.edge_voice or 'zh-CN-XiaoxiaoNeural').strip() or 'zh-CN-XiaoxiaoNeural'
+  rate = (args.edge_rate or '+0%').strip() or '+0%'
+  pitch = (args.edge_pitch or '+0Hz').strip() or '+0Hz'
+  volume = (args.edge_volume or '+0%').strip() or '+0%'
+
+  communicate = edge_tts.Communicate(
+      text=args.text,
+      voice=voice,
+      rate=rate,
+      pitch=pitch,
+      volume=volume,
+  )
+
+  audio_chunks = []
+  async for chunk in communicate.stream():
+    if isinstance(chunk, dict) and chunk.get('type') == 'audio':
+      data = chunk.get('data')
+      if data:
+        audio_chunks.append(data)
+
+  if not audio_chunks:
+    return {
+        'sampleRate': 24000,
+        'pcmS16LeBase64': '',
+    }
+
+  audio, sample_rate = sf.read(io.BytesIO(b''.join(audio_chunks)), dtype='float32')
+  if getattr(audio, 'ndim', 1) > 1:
+    audio = np.mean(audio, axis=1)
+  audio = np.clip(np.asarray(audio, dtype=np.float32), -1.0, 1.0)
+  pcm = (audio * 32767.0).astype(np.int16).tobytes()
+
+  return {
+      'sampleRate': int(sample_rate),
+      'pcmS16LeBase64': base64.b64encode(pcm).decode('ascii'),
+  }
+
+
+def run_edge_tts_once(args):
+  return asyncio.run(run_edge_tts_once_async(args))
+
+
+def run_legacy_qwen_tts_once(args, device):
   import numpy as np
   import torch
   from qwen_tts import Qwen3TTSModel
@@ -300,6 +394,16 @@ def run_tts_once(args, device):
 
 
 def run_tts(args):
+  tts_engine = (args.tts_engine or 'qwen3-mlx').strip().lower()
+  if tts_engine == 'edge':
+    payload = run_edge_tts_once(args)
+    payload['deviceUsed'] = 'edge-cloud'
+    return payload
+  if tts_engine == 'qwen3-mlx':
+    payload = run_qwen3_mlx_tts_once(args)
+    payload['deviceUsed'] = 'mlx'
+    return payload
+
   import torch
 
   candidates = resolve_device_candidates(args.device, torch)
@@ -329,21 +433,25 @@ def parse_args():
   parser.add_argument('--language', default='auto')
 
   parser.add_argument('--text')
+  parser.add_argument('--tts-engine', default='qwen3-mlx')
   parser.add_argument('--tts-mode', default='custom_voice')
-  parser.add_argument('--speaker', default='Vivian')
+  parser.add_argument('--speaker', default='vivian')
   parser.add_argument('--instruct', default='')
+  parser.add_argument('--edge-voice', default='zh-CN-XiaoxiaoNeural')
+  parser.add_argument('--edge-rate', default='+0%')
+  parser.add_argument('--edge-pitch', default='+0Hz')
+  parser.add_argument('--edge-volume', default='+0%')
 
   return parser.parse_args()
 
 
 def validate_args(args):
   model_dir = (args.model_dir or '').strip()
-  if not model_dir:
-    raise ValueError('Missing --model-dir')
-  if not Path(model_dir).exists():
-    raise ValueError(f'Model directory does not exist: {model_dir}')
-
   if args.task == 'asr':
+    if not model_dir:
+      raise ValueError('Missing --model-dir')
+    if not Path(model_dir).exists():
+      raise ValueError(f'Model directory does not exist: {model_dir}')
     audio_path = (args.audio_path or '').strip()
     if not audio_path:
       raise ValueError('Missing --audio-path')
@@ -354,6 +462,12 @@ def validate_args(args):
     text = (args.text or '').strip()
     if not text:
       raise ValueError('Missing --text')
+    tts_engine = (args.tts_engine or 'qwen3-mlx').strip().lower()
+    if tts_engine != 'edge':
+      if not model_dir:
+        raise ValueError('Missing --model-dir')
+      if not Path(model_dir).exists():
+        raise ValueError(f'Model directory does not exist: {model_dir}')
 
 
 def main():

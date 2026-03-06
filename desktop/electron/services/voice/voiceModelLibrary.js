@@ -19,6 +19,10 @@ const PYTHON_BOOTSTRAP_SCRIPT_NAME = 'bootstrap_runtime.py';
 const PYTHON_STEP_TIMEOUT_MS = 20 * 60 * 1000;
 const PYTHON_MODEL_DOWNLOAD_TIMEOUT_MS = 120 * 60 * 1000;
 const PYTHON_EXEC_MAX_BUFFER = 20 * 1024 * 1024;
+const DEPRECATED_BUILT_IN_TTS_CATALOG_IDS = new Set([
+  'builtin-tts-kokoro-v1',
+  'builtin-tts-qwen3tts-v1',
+]);
 const execFileAsync = promisify(execFile);
 
 function createVoiceModelError(code, message) {
@@ -146,7 +150,12 @@ function normalizeBundleRecord(bundle = {}) {
       asrLanguage: sanitizeOptionalText(bundle.runtime.asrLanguage, 'auto'),
       ttsLanguage: sanitizeOptionalText(bundle.runtime.ttsLanguage, 'Chinese'),
       ttsMode: sanitizeOptionalText(bundle.runtime.ttsMode, 'custom_voice'),
-      ttsSpeaker: sanitizeOptionalText(bundle.runtime.ttsSpeaker, 'Vivian'),
+      ttsEngine: sanitizeOptionalText(bundle.runtime.ttsEngine, 'qwen3-mlx'),
+      ttsSpeaker: sanitizeOptionalText(bundle.runtime.ttsSpeaker, 'vivian'),
+      ttsVoice: sanitizeOptionalText(bundle.runtime.ttsVoice),
+      ttsRate: sanitizeOptionalText(bundle.runtime.ttsRate),
+      ttsPitch: sanitizeOptionalText(bundle.runtime.ttsPitch),
+      ttsVolume: sanitizeOptionalText(bundle.runtime.ttsVolume),
       modelSource: sanitizeOptionalText(bundle.runtime.modelSource, 'auto'),
       device: sanitizeOptionalText(bundle.runtime.device, 'auto'),
     };
@@ -198,7 +207,12 @@ function bundleSupportsTts(bundle = {}) {
   }
 
   if (bundle.runtime?.kind === 'python') {
-    return Boolean(sanitizeText(bundle.runtime.ttsModelDir));
+    const runtime = bundle.runtime;
+    const ttsEngine = sanitizeOptionalText(runtime.ttsEngine).toLowerCase();
+    if (ttsEngine === 'edge') {
+      return true;
+    }
+    return Boolean(sanitizeText(runtime.ttsModelDir));
   }
 
   return false;
@@ -296,7 +310,11 @@ function migrateLegacyState(raw = {}) {
 function normalizeState(raw = {}) {
   const migration = migrateLegacyState(raw);
   const source = migration.rawState;
-  const bundles = Array.isArray(source.bundles) ? source.bundles : [];
+  const bundles = Array.isArray(source.bundles)
+    ? source.bundles.filter(
+      (item) => !DEPRECATED_BUILT_IN_TTS_CATALOG_IDS.has(sanitizeText(item?.catalogId)),
+    )
+    : [];
   const idSet = new Set(bundles.map((item) => item.id));
   const asrIdSet = new Set(bundles.filter((item) => bundleSupportsAsr(item)).map((item) => item.id));
   const ttsIdSet = new Set(bundles.filter((item) => bundleSupportsTts(item)).map((item) => item.id));
@@ -414,6 +432,10 @@ function resolveCatalogAsrLabel(item = {}) {
 
 function resolveCatalogTtsLabel(item = {}) {
   if (item.runtime?.kind === 'python') {
+    const ttsEngine = sanitizeOptionalText(item.runtime.ttsEngine).toLowerCase();
+    if (ttsEngine === 'edge') {
+      return sanitizeText(item.runtime.ttsVoice) || 'Edge TTS';
+    }
     return getModelShortName(item.runtime.ttsModelId) || 'Python TTS';
   }
   if (item.tts?.extractedDir) {
@@ -1173,6 +1195,10 @@ class VoiceModelLibrary {
     const pipPackages = Array.isArray(runtime.pipPackages)
       ? runtime.pipPackages.map((item) => sanitizeText(item)).filter(Boolean)
       : [];
+    const asrModelId = shouldInstallAsr ? sanitizeText(runtime.asrModelId) : '';
+    const ttsModelId = shouldInstallTts ? sanitizeText(runtime.ttsModelId) : '';
+    const ttsTokenizerModelId = shouldInstallTts ? sanitizeText(runtime.ttsTokenizerModelId) : '';
+    const needsModelDownload = Boolean(asrModelId || ttsModelId || ttsTokenizerModelId);
     const modelTargetLabel = shouldInstallAsr && shouldInstallTts
       ? 'ASR/TTS 模型'
       : shouldInstallAsr
@@ -1182,7 +1208,7 @@ class VoiceModelLibrary {
     await fsp.mkdir(bundleDir, { recursive: true });
     await fsp.mkdir(modelsDir, { recursive: true });
 
-    const totalTasks = 3 + (pipPackages.length ? 2 : 1);
+    const totalTasks = 3 + (pipPackages.length ? 1 : 0) + (needsModelDownload ? 1 : 0);
     let completedTasks = 0;
     const emitProgress = ({
       phase,
@@ -1305,188 +1331,192 @@ class VoiceModelLibrary {
         });
       }
 
-      emitProgress({
-        phase: 'running',
-        currentFile: `正在下载 ${modelTargetLabel}`,
-        overallProgress: (completedTasks + 0.5) / totalTasks,
-      });
+      let resolvedAsrModelDir = '';
+      let resolvedTtsModelDir = '';
+      let resolvedTtsTokenizerDir = '';
 
-      const bootstrapArgs = [
-        bootstrapScriptPath,
-        '--source',
-        sanitizeOptionalText(runtime.modelSource, 'auto'),
-      ];
-      if (shouldInstallAsr) {
-        bootstrapArgs.push(
-          '--asr-model-id',
-          sanitizeOptionalText(runtime.asrModelId, 'FunAudioLLM/SenseVoiceSmall'),
-          '--asr-model-dir',
-          asrModelDir,
-        );
-      }
-      if (shouldInstallTts) {
-        bootstrapArgs.push(
-          '--tts-model-id',
-          sanitizeOptionalText(runtime.ttsModelId, 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice'),
-          '--tts-model-dir',
-          ttsModelDir,
-        );
-      }
-
-      const ttsTokenizerModelId = shouldInstallTts ? sanitizeText(runtime.ttsTokenizerModelId) : '';
-      if (shouldInstallTts && ttsTokenizerModelId) {
-        bootstrapArgs.push(
-          '--tts-tokenizer-model-id',
-          ttsTokenizerModelId,
-          '--tts-tokenizer-dir',
-          ttsTokenizerDir,
-        );
-      }
-
-      const bootstrapTaskFileProgress = new Map();
-      let bootstrapProgressRateBytesPerSec = 0;
-      let bootstrapProgressBuffer = '';
-      let bootstrapLastEmitAt = 0;
-
-      const emitBootstrapDownloadProgress = ({ force = false } = {}) => {
-        const totals = Array.from(bootstrapTaskFileProgress.values()).reduce(
-          (acc, item) => {
-            if (!Number.isFinite(item.totalBytes) || item.totalBytes <= 0) {
-              return acc;
-            }
-            acc.totalBytes += item.totalBytes;
-            acc.downloadedBytes += Math.min(item.downloadedBytes, item.totalBytes);
-            return acc;
-          },
-          {
-            downloadedBytes: 0,
-            totalBytes: 0,
-          },
-        );
-
-        if (totals.totalBytes <= 0) {
-          return;
-        }
-
-        const now = Date.now();
-        if (!force && now - bootstrapLastEmitAt < 250) {
-          return;
-        }
-        bootstrapLastEmitAt = now;
-
-        const downloadRatio = Math.min(1, totals.downloadedBytes / totals.totalBytes);
-        const overallProgress = (completedTasks + downloadRatio) / totalTasks;
-        const estimatedRemainingSeconds =
-          bootstrapProgressRateBytesPerSec > 0
-            ? Math.max(0, (totals.totalBytes - totals.downloadedBytes) / bootstrapProgressRateBytesPerSec)
-            : null;
-
+      if (needsModelDownload) {
         emitProgress({
           phase: 'running',
           currentFile: `正在下载 ${modelTargetLabel}`,
-          fileDownloadedBytes: totals.downloadedBytes,
-          fileTotalBytes: totals.totalBytes,
-          downloadSpeedBytesPerSec: bootstrapProgressRateBytesPerSec,
-          estimatedRemainingSeconds,
-          overallProgress,
+          overallProgress: (completedTasks + 0.5) / totalTasks,
         });
-      };
 
-      const parseBootstrapLine = (line) => {
-        const downloadMatches = line.matchAll(
-          /Downloading \[([^\]]+)\]:.*?([0-9]+(?:\.[0-9]+)?)\s*([kMGT]?)(?:i?B?)\/([0-9]+(?:\.[0-9]+)?)\s*([kMGT]?)(?:i?B?)/gi,
-        );
-        let hasProgressUpdate = false;
-        for (const match of downloadMatches) {
-          const fileName = sanitizeText(match?.[1]);
-          const downloadedBytes = parseSizeToBytes(match?.[2], match?.[3]);
-          const totalBytes = parseSizeToBytes(match?.[4], match?.[5]);
-          if (!fileName || totalBytes <= 0) {
-            continue;
+        const bootstrapArgs = [
+          bootstrapScriptPath,
+          '--source',
+          sanitizeOptionalText(runtime.modelSource, 'auto'),
+        ];
+        if (shouldInstallAsr && asrModelId) {
+          bootstrapArgs.push(
+            '--asr-model-id',
+            asrModelId,
+            '--asr-model-dir',
+            asrModelDir,
+          );
+        }
+        if (shouldInstallTts && ttsModelId) {
+          bootstrapArgs.push(
+            '--tts-model-id',
+            ttsModelId,
+            '--tts-model-dir',
+            ttsModelDir,
+          );
+        }
+        if (shouldInstallTts && ttsTokenizerModelId) {
+          bootstrapArgs.push(
+            '--tts-tokenizer-model-id',
+            ttsTokenizerModelId,
+            '--tts-tokenizer-dir',
+            ttsTokenizerDir,
+          );
+        }
+
+        const bootstrapTaskFileProgress = new Map();
+        let bootstrapProgressRateBytesPerSec = 0;
+        let bootstrapProgressBuffer = '';
+        let bootstrapLastEmitAt = 0;
+
+        const emitBootstrapDownloadProgress = ({ force = false } = {}) => {
+          const totals = Array.from(bootstrapTaskFileProgress.values()).reduce(
+            (acc, item) => {
+              if (!Number.isFinite(item.totalBytes) || item.totalBytes <= 0) {
+                return acc;
+              }
+              acc.totalBytes += item.totalBytes;
+              acc.downloadedBytes += Math.min(item.downloadedBytes, item.totalBytes);
+              return acc;
+            },
+            {
+              downloadedBytes: 0,
+              totalBytes: 0,
+            },
+          );
+
+          if (totals.totalBytes <= 0) {
+            return;
           }
-          bootstrapTaskFileProgress.set(fileName, {
-            downloadedBytes,
-            totalBytes,
+
+          const now = Date.now();
+          if (!force && now - bootstrapLastEmitAt < 250) {
+            return;
+          }
+          bootstrapLastEmitAt = now;
+
+          const downloadRatio = Math.min(1, totals.downloadedBytes / totals.totalBytes);
+          const overallProgress = (completedTasks + downloadRatio) / totalTasks;
+          const estimatedRemainingSeconds =
+            bootstrapProgressRateBytesPerSec > 0
+              ? Math.max(0, (totals.totalBytes - totals.downloadedBytes) / bootstrapProgressRateBytesPerSec)
+              : null;
+
+          emitProgress({
+            phase: 'running',
+            currentFile: `正在下载 ${modelTargetLabel}`,
+            fileDownloadedBytes: totals.downloadedBytes,
+            fileTotalBytes: totals.totalBytes,
+            downloadSpeedBytesPerSec: bootstrapProgressRateBytesPerSec,
+            estimatedRemainingSeconds,
+            overallProgress,
           });
-          hasProgressUpdate = true;
-        }
+        };
 
-        const rateMatch = line.match(/,\s*([0-9]+(?:\.[0-9]+)?)\s*([kMGT]?)(?:i?B?)\/s\]/i);
-        if (rateMatch) {
-          const rateBytesPerSec = parseSizeToBytes(rateMatch[1], rateMatch[2]);
-          if (rateBytesPerSec > 0) {
-            bootstrapProgressRateBytesPerSec = rateBytesPerSec;
-          }
-        }
-
-        if (hasProgressUpdate) {
-          emitBootstrapDownloadProgress();
-        }
-      };
-
-      const bootstrapResult = await runPythonCommandStreaming(
-        pythonExecutablePath,
-        bootstrapArgs,
-        {
-          timeoutMs: PYTHON_MODEL_DOWNLOAD_TIMEOUT_MS,
-          onStderrChunk: (chunkText) => {
-            bootstrapProgressBuffer += stripAnsiCodes(chunkText);
-            const lines = bootstrapProgressBuffer.split(/[\r\n]+/);
-            bootstrapProgressBuffer = lines.pop() || '';
-            for (const line of lines) {
-              parseBootstrapLine(line);
+        const parseBootstrapLine = (line) => {
+          const downloadMatches = line.matchAll(
+            /Downloading \[([^\]]+)\]:.*?([0-9]+(?:\.[0-9]+)?)\s*([kMGT]?)(?:i?B?)\/([0-9]+(?:\.[0-9]+)?)\s*([kMGT]?)(?:i?B?)/gi,
+          );
+          let hasProgressUpdate = false;
+          for (const match of downloadMatches) {
+            const fileName = sanitizeText(match?.[1]);
+            const downloadedBytes = parseSizeToBytes(match?.[2], match?.[3]);
+            const totalBytes = parseSizeToBytes(match?.[4], match?.[5]);
+            if (!fileName || totalBytes <= 0) {
+              continue;
             }
+            bootstrapTaskFileProgress.set(fileName, {
+              downloadedBytes,
+              totalBytes,
+            });
+            hasProgressUpdate = true;
+          }
+
+          const rateMatch = line.match(/,\s*([0-9]+(?:\.[0-9]+)?)\s*([kMGT]?)(?:i?B?)\/s\]/i);
+          if (rateMatch) {
+            const rateBytesPerSec = parseSizeToBytes(rateMatch[1], rateMatch[2]);
+            if (rateBytesPerSec > 0) {
+              bootstrapProgressRateBytesPerSec = rateBytesPerSec;
+            }
+          }
+
+          if (hasProgressUpdate) {
+            emitBootstrapDownloadProgress();
+          }
+        };
+
+        const bootstrapResult = await runPythonCommandStreaming(
+          pythonExecutablePath,
+          bootstrapArgs,
+          {
+            timeoutMs: PYTHON_MODEL_DOWNLOAD_TIMEOUT_MS,
+            onStderrChunk: (chunkText) => {
+              bootstrapProgressBuffer += stripAnsiCodes(chunkText);
+              const lines = bootstrapProgressBuffer.split(/[\r\n]+/);
+              bootstrapProgressBuffer = lines.pop() || '';
+              for (const line of lines) {
+                parseBootstrapLine(line);
+              }
+            },
           },
-        },
-      );
-      if (bootstrapProgressBuffer) {
-        parseBootstrapLine(bootstrapProgressBuffer);
-      }
-      emitBootstrapDownloadProgress({ force: true });
-      const bootstrapPayload = parseJsonOutput(
-        bootstrapResult.stdout,
-        'voice_python_runtime_bootstrap_invalid_output',
-        'Invalid Python runtime bootstrap output.',
-      );
-
-      const resolvedAsrModelDir = shouldInstallAsr
-        ? sanitizeOptionalText(bootstrapPayload.asrModelDir, asrModelDir)
-        : '';
-      const resolvedTtsModelDir = shouldInstallTts
-        ? sanitizeOptionalText(bootstrapPayload.ttsModelDir, ttsModelDir)
-        : '';
-      const resolvedTtsTokenizerDir = shouldInstallTts
-        ? sanitizeOptionalText(bootstrapPayload.ttsTokenizerDir, ttsTokenizerDir)
-        : '';
-
-      if (shouldInstallAsr) {
-        await ensurePathExists(
-          resolvedAsrModelDir,
-          'voice_python_runtime_model_missing',
-          `ASR model directory not found: ${resolvedAsrModelDir}`,
         );
-      }
-      if (shouldInstallTts) {
-        await ensurePathExists(
-          resolvedTtsModelDir,
-          'voice_python_runtime_model_missing',
-          `TTS model directory not found: ${resolvedTtsModelDir}`,
+        if (bootstrapProgressBuffer) {
+          parseBootstrapLine(bootstrapProgressBuffer);
+        }
+        emitBootstrapDownloadProgress({ force: true });
+        const bootstrapPayload = parseJsonOutput(
+          bootstrapResult.stdout,
+          'voice_python_runtime_bootstrap_invalid_output',
+          'Invalid Python runtime bootstrap output.',
         );
-      }
-      if (shouldInstallTts && ttsTokenizerModelId) {
-        await ensurePathExists(
-          resolvedTtsTokenizerDir,
-          'voice_python_runtime_model_missing',
-          `TTS tokenizer directory not found: ${resolvedTtsTokenizerDir}`,
-        );
-      }
 
-      completedTasks += 1;
-      emitProgress({
-        phase: 'running',
-        currentFile: `${modelTargetLabel}下载完成`,
-        overallProgress: completedTasks / totalTasks,
-      });
+        resolvedAsrModelDir = shouldInstallAsr && asrModelId
+          ? sanitizeOptionalText(bootstrapPayload.asrModelDir, asrModelDir)
+          : '';
+        resolvedTtsModelDir = shouldInstallTts && ttsModelId
+          ? sanitizeOptionalText(bootstrapPayload.ttsModelDir, ttsModelDir)
+          : '';
+        resolvedTtsTokenizerDir = shouldInstallTts && ttsTokenizerModelId
+          ? sanitizeOptionalText(bootstrapPayload.ttsTokenizerDir, ttsTokenizerDir)
+          : '';
+
+        if (shouldInstallAsr && asrModelId) {
+          await ensurePathExists(
+            resolvedAsrModelDir,
+            'voice_python_runtime_model_missing',
+            `ASR model directory not found: ${resolvedAsrModelDir}`,
+          );
+        }
+        if (shouldInstallTts && ttsModelId) {
+          await ensurePathExists(
+            resolvedTtsModelDir,
+            'voice_python_runtime_model_missing',
+            `TTS model directory not found: ${resolvedTtsModelDir}`,
+          );
+        }
+        if (shouldInstallTts && ttsTokenizerModelId) {
+          await ensurePathExists(
+            resolvedTtsTokenizerDir,
+            'voice_python_runtime_model_missing',
+            `TTS tokenizer directory not found: ${resolvedTtsTokenizerDir}`,
+          );
+        }
+
+        completedTasks += 1;
+        emitProgress({
+          phase: 'running',
+          currentFile: `${modelTargetLabel}下载完成`,
+          overallProgress: completedTasks / totalTasks,
+        });
+      }
 
       const bundleRecord = normalizeBundleRecord({
         id,
@@ -1504,7 +1534,12 @@ class VoiceModelLibrary {
           asrLanguage: shouldInstallAsr ? sanitizeOptionalText(runtime.asrLanguage, 'auto') : '',
           ttsLanguage: shouldInstallTts ? sanitizeOptionalText(runtime.ttsLanguage, 'Chinese') : '',
           ttsMode: shouldInstallTts ? sanitizeOptionalText(runtime.ttsMode, 'custom_voice') : '',
-          ttsSpeaker: shouldInstallTts ? sanitizeOptionalText(runtime.ttsSpeaker, 'Vivian') : '',
+          ttsEngine: shouldInstallTts ? sanitizeOptionalText(runtime.ttsEngine, 'qwen3-mlx') : '',
+          ttsSpeaker: shouldInstallTts ? sanitizeOptionalText(runtime.ttsSpeaker, 'vivian') : '',
+          ttsVoice: shouldInstallTts ? sanitizeOptionalText(runtime.ttsVoice) : '',
+          ttsRate: shouldInstallTts ? sanitizeOptionalText(runtime.ttsRate) : '',
+          ttsPitch: shouldInstallTts ? sanitizeOptionalText(runtime.ttsPitch) : '',
+          ttsVolume: shouldInstallTts ? sanitizeOptionalText(runtime.ttsVolume) : '',
           modelSource: sanitizeOptionalText(runtime.modelSource, 'auto'),
           device: sanitizeOptionalText(runtime.device, 'auto'),
         },
@@ -1706,11 +1741,16 @@ class VoiceModelLibrary {
     if (selectedTtsBundle) {
       if (
         selectedTtsBundle.runtime?.kind === 'python'
-        && sanitizeText(selectedTtsBundle.runtime.ttsModelDir)
+        && bundleSupportsTts(selectedTtsBundle)
       ) {
         const runtime = selectedTtsBundle.runtime;
         env.VOICE_TTS_PROVIDER = 'python';
-        env.VOICE_TTS_PYTHON_MODEL_DIR = runtime.ttsModelDir;
+        if (runtime.ttsEngine) {
+          env.VOICE_TTS_PYTHON_ENGINE = runtime.ttsEngine;
+        }
+        if (runtime.ttsModelDir) {
+          env.VOICE_TTS_PYTHON_MODEL_DIR = runtime.ttsModelDir;
+        }
         if (runtime.ttsTokenizerDir) {
           env.VOICE_TTS_PYTHON_TOKENIZER_DIR = runtime.ttsTokenizerDir;
         }
@@ -1722,6 +1762,18 @@ class VoiceModelLibrary {
         }
         if (runtime.ttsSpeaker) {
           env.VOICE_TTS_PYTHON_SPEAKER = runtime.ttsSpeaker;
+        }
+        if (runtime.ttsVoice) {
+          env.VOICE_TTS_PYTHON_EDGE_VOICE = runtime.ttsVoice;
+        }
+        if (runtime.ttsRate) {
+          env.VOICE_TTS_PYTHON_EDGE_RATE = runtime.ttsRate;
+        }
+        if (runtime.ttsPitch) {
+          env.VOICE_TTS_PYTHON_EDGE_PITCH = runtime.ttsPitch;
+        }
+        if (runtime.ttsVolume) {
+          env.VOICE_TTS_PYTHON_EDGE_VOLUME = runtime.ttsVolume;
         }
       } else if (selectedTtsBundle.tts) {
         const runtimeTts = resolveRuntimeTtsBundle(selectedTtsBundle.tts);

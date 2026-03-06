@@ -157,8 +157,8 @@ test('listCatalog returns built-in model items', async () => {
   assert.ok(catalog.length >= 4);
   assert.ok(catalog.some((item) => item.id === 'builtin-asr-zh-int8-zipformer-v1'));
   assert.ok(catalog.some((item) => item.id === 'builtin-asr-qwen3-0.6b-4bit-v1'));
-  assert.ok(catalog.some((item) => item.id === 'builtin-tts-kokoro-v1'));
-  assert.ok(catalog.some((item) => item.id === 'builtin-tts-qwen3tts-v1'));
+  assert.ok(catalog.some((item) => item.id === 'builtin-tts-qwen3-0.6b-4bit-v1'));
+  assert.ok(catalog.some((item) => item.id === 'builtin-tts-edge-v1'));
 });
 
 test('getRuntimeEnv infers kokoro data dir and lexicon for legacy bundles', async () => {
@@ -266,8 +266,9 @@ test('getRuntimeEnv maps python runtime bundle into python provider env', async 
           ttsTokenizerDir,
           asrLanguage: '中文',
           ttsLanguage: 'Chinese',
+          ttsEngine: 'qwen3-mlx',
           ttsMode: 'custom_voice',
-          ttsSpeaker: 'Vivian',
+          ttsSpeaker: 'vivian',
           device: 'cpu',
         },
       },
@@ -280,14 +281,59 @@ test('getRuntimeEnv maps python runtime bundle into python provider env', async 
   assert.equal(runtimeEnv.VOICE_PYTHON_EXECUTABLE, pythonExecutablePath);
   assert.equal(runtimeEnv.VOICE_PYTHON_BRIDGE_SCRIPT, bridgeScriptPath);
   assert.equal(runtimeEnv.VOICE_ASR_PYTHON_MODEL_DIR, asrModelDir);
+  assert.equal(runtimeEnv.VOICE_TTS_PYTHON_ENGINE, 'qwen3-mlx');
   assert.equal(runtimeEnv.VOICE_TTS_PYTHON_MODEL_DIR, ttsModelDir);
   assert.equal(runtimeEnv.VOICE_TTS_PYTHON_TOKENIZER_DIR, ttsTokenizerDir);
   assert.equal(runtimeEnv.VOICE_TTS_PYTHON_MODE, 'custom_voice');
-  assert.equal(runtimeEnv.VOICE_TTS_PYTHON_SPEAKER, 'Vivian');
+  assert.equal(runtimeEnv.VOICE_TTS_PYTHON_SPEAKER, 'vivian');
   assert.equal(runtimeEnv.VOICE_TTS_AUTO_ON_ASR_FINAL, undefined);
 });
 
-test('init migrates legacy sherpa+kohoro combined bundle into separate ASR/TTS catalog records', async () => {
+test('getRuntimeEnv supports edge tts python runtime without local model dir', async () => {
+  const { library, tmpDir } = await createLibraryForTest();
+
+  const pythonExecutablePath = path.join(tmpDir, 'runtime', 'python', 'bin', 'python3');
+  const bridgeScriptPath = path.join(tmpDir, 'runtime', 'voice_bridge.py');
+  await fs.mkdir(path.dirname(pythonExecutablePath), { recursive: true });
+  await fs.writeFile(pythonExecutablePath, '');
+  await fs.writeFile(bridgeScriptPath, '');
+
+  library.state = {
+    selectedAsrBundleId: '',
+    selectedTtsBundleId: 'edge-runtime',
+    bundles: [
+      {
+        id: 'edge-runtime',
+        name: 'edge',
+        asr: null,
+        tts: null,
+        runtime: {
+          kind: 'python',
+          pythonExecutablePath,
+          bridgeScriptPath,
+          ttsEngine: 'edge',
+          ttsLanguage: 'Chinese',
+          ttsVoice: 'zh-CN-XiaoxiaoNeural',
+          ttsRate: '+0%',
+          ttsPitch: '+0Hz',
+          ttsVolume: '+0%',
+          device: 'auto',
+        },
+      },
+    ],
+  };
+
+  const runtimeEnv = library.getRuntimeEnv({});
+  assert.equal(runtimeEnv.VOICE_TTS_PROVIDER, 'python');
+  assert.equal(runtimeEnv.VOICE_TTS_PYTHON_ENGINE, 'edge');
+  assert.equal(runtimeEnv.VOICE_TTS_PYTHON_EDGE_VOICE, 'zh-CN-XiaoxiaoNeural');
+  assert.equal(runtimeEnv.VOICE_TTS_PYTHON_EDGE_RATE, '+0%');
+  assert.equal(runtimeEnv.VOICE_TTS_PYTHON_EDGE_PITCH, '+0Hz');
+  assert.equal(runtimeEnv.VOICE_TTS_PYTHON_EDGE_VOLUME, '+0%');
+  assert.equal(runtimeEnv.VOICE_TTS_PYTHON_MODEL_DIR, undefined);
+});
+
+test('init migrates legacy sherpa+kohoro combined bundle and drops deprecated built-in tts', async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-model-library-migrate-test-'));
   const app = {
     getPath() {
@@ -333,13 +379,13 @@ test('init migrates legacy sherpa+kohoro combined bundle into separate ASR/TTS c
   await library.init();
 
   const listed = library.listBundles();
-  assert.equal(listed.bundles.length, 2);
+  assert.equal(listed.bundles.length, 1);
   assert.ok(listed.bundles.some((bundle) => bundle.catalogId === 'builtin-asr-zh-int8-zipformer-v1'));
-  assert.ok(listed.bundles.some((bundle) => bundle.catalogId === 'builtin-tts-kokoro-v1'));
+  assert.ok(!listed.bundles.some((bundle) => bundle.catalogId === 'builtin-tts-kokoro-v1'));
   assert.ok(!listed.bundles.some((bundle) => bundle.id === 'legacy-combo'));
 
   const persisted = JSON.parse(await fs.readFile(path.join(stateDir, 'state.json'), 'utf-8'));
-  assert.equal(persisted.bundles.length, 2);
+  assert.equal(persisted.bundles.length, 1);
   assert.ok(persisted.bundles.some((bundle) => bundle.catalogId === 'builtin-asr-zh-int8-zipformer-v1'));
-  assert.ok(persisted.bundles.some((bundle) => bundle.catalogId === 'builtin-tts-kokoro-v1'));
+  assert.ok(!persisted.bundles.some((bundle) => bundle.catalogId === 'builtin-tts-kokoro-v1'));
 });

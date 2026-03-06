@@ -161,7 +161,12 @@ function bundleHasAsr(bundle = {}) {
 }
 
 function bundleHasTts(bundle = {}) {
-  return Boolean(bundle?.hasTts || bundle?.tts?.modelPath || bundle?.runtime?.ttsModelDir);
+  return Boolean(
+    bundle?.hasTts
+    || bundle?.tts?.modelPath
+    || bundle?.runtime?.ttsModelDir
+    || bundle?.runtime?.ttsEngine,
+  );
 }
 
 function resolveAsrModelPath(bundle = {}) {
