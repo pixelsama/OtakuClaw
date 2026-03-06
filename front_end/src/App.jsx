@@ -88,9 +88,17 @@ function AppContent({ desktopMode }) {
     }
 
     const offVoiceModelProgress = desktopBridge.voiceModels.onDownloadProgress((payload = {}) => {
+      const taskId =
+        typeof payload.taskId === 'string' && payload.taskId.trim()
+          ? payload.taskId.trim()
+          : 'voice-models';
+      const taskTitle =
+        typeof payload.taskTitle === 'string' && payload.taskTitle.trim()
+          ? payload.taskTitle.trim()
+          : t('download.voiceModelsTitle');
       handleDownloadProgress({
-        taskId: 'voice-models',
-        title: t('download.voiceModelsTitle'),
+        taskId,
+        title: taskTitle,
         payload,
       });
     });

@@ -68,6 +68,21 @@ export default function UnifiedDownloadDialog({
   const isRunning = phase !== 'completed' && phase !== 'failed' && phase !== 'idle';
   const title = task?.title || t('download.defaultTitle');
   const progressValue = typeof task?.overallProgress === 'number' ? Math.min(100, Math.max(0, task.overallProgress * 100)) : 0;
+  const statusText =
+    task?.currentFile
+    || (phase === 'completed'
+      ? '任务完成。'
+      : phase === 'failed'
+        ? '任务失败。'
+        : t('download.preparing'));
+  const statsText =
+    phase === 'completed'
+      ? '下载与安装已完成。'
+      : phase === 'failed'
+        ? '下载或安装未完成。'
+        : Number.isFinite(task?.fileTotalBytes) && task.fileTotalBytes > 0
+          ? `${formatBytes(task?.fileDownloadedBytes || 0)} / ${formatBytes(task?.fileTotalBytes || 0)} · ${formatBytesPerSecond(task?.downloadSpeedBytesPerSec || 0)} · ${t('download.eta')} ${formatEta(task?.estimatedRemainingSeconds)}`
+          : t('download.waitingStats');
 
   return (
     <Dialog
@@ -87,13 +102,11 @@ export default function UnifiedDownloadDialog({
             />
           </Box>
           <Typography variant="body2" color="text.secondary" align="center">
-            {task?.currentFile || t('download.preparing')}
+            {statusText}
             {' '}· {task?.completedTasks || 0}/{task?.totalTasks || '?'}
           </Typography>
           <Typography variant="caption" color="text.secondary" align="center">
-            {Number.isFinite(task?.fileTotalBytes) && task.fileTotalBytes > 0
-              ? `${formatBytes(task?.fileDownloadedBytes || 0)} / ${formatBytes(task?.fileTotalBytes || 0)} · ${formatBytesPerSecond(task?.downloadSpeedBytesPerSec || 0)} · ${t('download.eta')} ${formatEta(task?.estimatedRemainingSeconds)}`
-              : t('download.waitingStats')}
+            {statsText}
           </Typography>
           <Collapse in={detailsOpen}>
             <Box

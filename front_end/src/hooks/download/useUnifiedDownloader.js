@@ -137,6 +137,7 @@ export function useUnifiedDownloader() {
       estimatedRemainingSeconds: Number.isFinite(payload?.estimatedRemainingSeconds)
         ? payload.estimatedRemainingSeconds
         : null,
+      logs: phase === 'started' ? [] : current.logs,
       updatedAt: Date.now(),
     }));
 

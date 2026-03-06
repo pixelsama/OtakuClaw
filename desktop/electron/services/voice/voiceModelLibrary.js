@@ -74,6 +74,28 @@ function parseSizeToBytes(value, unit = '') {
   return Math.round(numeric);
 }
 
+function resolveVoiceInstallTarget({
+  installAsr = false,
+  installTts = false,
+} = {}) {
+  if (installAsr && installTts) {
+    return {
+      key: 'asr-tts',
+      label: 'ASR/TTS 模型',
+    };
+  }
+  if (installAsr) {
+    return {
+      key: 'asr',
+      label: 'ASR 模型',
+    };
+  }
+  return {
+    key: 'tts',
+    label: 'TTS 模型',
+  };
+}
+
 function normalizeBundleRecord(bundle = {}) {
   const id = sanitizeText(bundle.id);
   const name = sanitizeText(bundle.name);
@@ -841,6 +863,10 @@ class VoiceModelLibrary {
     const catalogHasTts = typeof catalogEntry.hasTts === 'boolean' ? catalogEntry.hasTts : Boolean(catalogEntry.tts);
     const shouldInstallAsr = typeof installAsr === 'boolean' ? installAsr : catalogHasAsr;
     const shouldInstallTts = typeof installTts === 'boolean' ? installTts : catalogHasTts;
+    const installTarget = resolveVoiceInstallTarget({
+      installAsr: shouldInstallAsr,
+      installTts: shouldInstallTts,
+    });
 
     if (!shouldInstallAsr && !shouldInstallTts) {
       throw createVoiceModelError(
@@ -866,12 +892,15 @@ class VoiceModelLibrary {
         catalogEntry,
         installAsr: shouldInstallAsr,
         installTts: shouldInstallTts,
+        installTarget,
         onProgress,
       });
     }
 
     const id = createBundleId(catalogEntry.name);
     const name = catalogEntry.name;
+    const progressTaskId = `voice-models:${id}:${installTarget.key}`;
+    const progressTaskTitle = `${installTarget.label}下载与安装`;
     const bundleDir = path.join(this.bundlesDir, id);
     await fsp.mkdir(bundleDir, { recursive: true });
 
@@ -910,9 +939,13 @@ class VoiceModelLibrary {
 
       onProgress({
         type: 'download-progress',
+        taskId: progressTaskId,
+        taskTitle: progressTaskTitle,
         phase,
         bundleId: id,
         bundleName: name,
+        installTarget: installTarget.key,
+        installTargetLabel: installTarget.label,
         completedTasks,
         totalTasks,
         currentFile,
@@ -1113,6 +1146,7 @@ class VoiceModelLibrary {
     catalogEntry,
     installAsr = true,
     installTts = true,
+    installTarget = null,
     onProgress,
   }) {
     const runtime = catalogEntry?.runtime && typeof catalogEntry.runtime === 'object'
@@ -1129,6 +1163,12 @@ class VoiceModelLibrary {
 
     const id = createBundleId(catalogEntry.name);
     const name = catalogEntry.name;
+    const resolvedInstallTarget = installTarget || resolveVoiceInstallTarget({
+      installAsr: shouldInstallAsr,
+      installTts: shouldInstallTts,
+    });
+    const progressTaskId = `voice-models:${id}:${resolvedInstallTarget.key}`;
+    const progressTaskTitle = `${resolvedInstallTarget.label}下载与安装`;
     const bundleDir = path.join(this.bundlesDir, id);
     const scriptDir = path.join(bundleDir, PYTHON_RUNTIME_SCRIPTS_DIR_NAME);
     const modelsDir = path.join(bundleDir, 'models');
@@ -1144,11 +1184,7 @@ class VoiceModelLibrary {
     const ttsModelId = shouldInstallTts ? sanitizeText(runtime.ttsModelId) : '';
     const ttsTokenizerModelId = shouldInstallTts ? sanitizeText(runtime.ttsTokenizerModelId) : '';
     const needsModelDownload = Boolean(asrModelId || ttsModelId || ttsTokenizerModelId);
-    const modelTargetLabel = shouldInstallAsr && shouldInstallTts
-      ? 'ASR/TTS 模型'
-      : shouldInstallAsr
-        ? 'ASR 模型'
-        : 'TTS 模型';
+    const modelTargetLabel = resolvedInstallTarget.label;
 
     await fsp.mkdir(bundleDir, { recursive: true });
     await fsp.mkdir(modelsDir, { recursive: true });
@@ -1170,9 +1206,13 @@ class VoiceModelLibrary {
 
       onProgress({
         type: 'download-progress',
+        taskId: progressTaskId,
+        taskTitle: progressTaskTitle,
         phase,
         bundleId: id,
         bundleName: name,
+        installTarget: resolvedInstallTarget.key,
+        installTargetLabel: resolvedInstallTarget.label,
         completedTasks,
         totalTasks,
         currentFile,
