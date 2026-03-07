@@ -4,8 +4,6 @@ import EditIcon from '@mui/icons-material/Edit';
 import CloseIcon from '@mui/icons-material/Close';
 import SendIcon from '@mui/icons-material/Send';
 import StopCircleIcon from '@mui/icons-material/StopCircle';
-import MicIcon from '@mui/icons-material/Mic';
-import MicOffIcon from '@mui/icons-material/MicOff';
 import { useI18n } from '../../i18n/I18nContext.jsx';
 import './EdgeComposer.css';
 
@@ -55,9 +53,6 @@ export default function EdgeComposer({
   onDismissExternalError,
   onExpandedChange,
   placeholder,
-  voiceEnabled = false,
-  voiceToggleDisabled = true,
-  onToggleVoice,
 }) {
   const { t } = useI18n();
   const rootRef = useRef(null);
@@ -197,18 +192,6 @@ export default function EdgeComposer({
         event.stopPropagation();
       }}
     >
-      <IconButton
-        className={`voice-toggle edge-composer-toggle ${voiceEnabled ? 'is-active' : ''}`.trim()}
-        color={voiceEnabled ? 'secondary' : 'primary'}
-        onClick={() => {
-          void onToggleVoice?.();
-        }}
-        disabled={voiceToggleDisabled}
-        title={voiceEnabled ? t('composer.voiceDisableTitle') : t('composer.voiceEnableTitle')}
-      >
-        {voiceEnabled ? <MicIcon /> : <MicOffIcon />}
-      </IconButton>
-
       <IconButton
         className="text-toggle edge-composer-toggle"
         color="primary"

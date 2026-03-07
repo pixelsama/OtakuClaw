@@ -25,10 +25,15 @@ const DEFAULT_NANOBOT_SETTINGS = {
   reasoningEffort: '',
 };
 
+const DEFAULT_VOICE_SETTINGS = {
+  pttHotkey: 'F8',
+};
+
 const DEFAULT_SETTINGS = {
   chatBackend: 'openclaw',
   openclaw: { ...DEFAULT_OPENCLAW_SETTINGS },
   nanobot: { ...DEFAULT_NANOBOT_SETTINGS },
+  voice: { ...DEFAULT_VOICE_SETTINGS },
 };
 
 function isObject(value) {
@@ -86,11 +91,29 @@ function normalizeNanobotSettings(settings = {}) {
   };
 }
 
+function normalizeVoicePttHotkey(value) {
+  const normalized = normalizeString(value).toUpperCase();
+  if (normalized === ' ' || normalized === 'SPACE') {
+    return 'SPACE';
+  }
+  if (/^F([1-9]|1[0-2])$/.test(normalized)) {
+    return normalized;
+  }
+  return DEFAULT_VOICE_SETTINGS.pttHotkey;
+}
+
+function normalizeVoiceSettings(settings = {}) {
+  return {
+    pttHotkey: normalizeVoicePttHotkey(settings.pttHotkey),
+  };
+}
+
 function cloneSettings(settings) {
   return {
     chatBackend: settings.chatBackend,
     openclaw: { ...settings.openclaw },
     nanobot: { ...settings.nanobot },
+    voice: { ...settings.voice },
   };
 }
 
@@ -99,6 +122,7 @@ function isNextGenSettingsShape(settings = {}) {
     Object.prototype.hasOwnProperty.call(settings, 'chatBackend')
     || Object.prototype.hasOwnProperty.call(settings, 'openclaw')
     || Object.prototype.hasOwnProperty.call(settings, 'nanobot')
+    || Object.prototype.hasOwnProperty.call(settings, 'voice')
   );
 }
 
@@ -110,6 +134,7 @@ function normalizeFileSettings(settings = {}) {
       chatBackend: normalizeChatBackend(source.chatBackend),
       openclaw: normalizeOpenClawSettings(isObject(source.openclaw) ? source.openclaw : source),
       nanobot: normalizeNanobotSettings(isObject(source.nanobot) ? source.nanobot : {}),
+      voice: normalizeVoiceSettings(isObject(source.voice) ? source.voice : {}),
     };
   }
 
@@ -117,6 +142,7 @@ function normalizeFileSettings(settings = {}) {
     chatBackend: 'openclaw',
     openclaw: normalizeOpenClawSettings(source),
     nanobot: { ...DEFAULT_NANOBOT_SETTINGS },
+    voice: { ...DEFAULT_VOICE_SETTINGS },
   };
 }
 
@@ -189,6 +215,15 @@ function normalizePatch(partialSettings = {}) {
   }
   if (Object.keys(nanobotPatch).length > 0) {
     patch.nanobot = nanobotPatch;
+  }
+
+  const voicePatch = {};
+  const voiceSource = isObject(source.voice) ? source.voice : {};
+  if (Object.prototype.hasOwnProperty.call(voiceSource, 'pttHotkey')) {
+    voicePatch.pttHotkey = normalizeVoicePttHotkey(voiceSource.pttHotkey);
+  }
+  if (Object.keys(voicePatch).length > 0) {
+    patch.voice = voicePatch;
   }
 
   const openclawTokenFromFlat = Object.prototype.hasOwnProperty.call(source, 'token')
@@ -303,6 +338,9 @@ class SettingsStore {
         ...this.settings.nanobot,
         hasApiKey: hasNanobotApiKey,
       },
+      voice: {
+        ...this.settings.voice,
+      },
       hasSecureStorage: this.hasSecureStorage,
 
       // Legacy flat fields for backward compatibility.
@@ -323,6 +361,9 @@ class SettingsStore {
       nanobot: {
         ...this.settings.nanobot,
         apiKey: this.secrets.nanobotApiKey,
+      },
+      voice: {
+        ...this.settings.voice,
       },
 
       // Legacy flat fields for backward compatibility.
@@ -350,6 +391,13 @@ class SettingsStore {
       this.settings.nanobot = normalizeNanobotSettings({
         ...this.settings.nanobot,
         ...patch.nanobot,
+      });
+    }
+
+    if (isObject(patch.voice)) {
+      this.settings.voice = normalizeVoiceSettings({
+        ...this.settings.voice,
+        ...patch.voice,
       });
     }
 
@@ -406,6 +454,13 @@ class SettingsStore {
         ...patch.nanobot,
       });
       merged.nanobot.apiKey = existingNanobotApiKey;
+    }
+
+    if (isObject(patch.voice)) {
+      merged.voice = normalizeVoiceSettings({
+        ...merged.voice,
+        ...patch.voice,
+      });
     }
 
     if (patch.clearOpenclawToken) {

@@ -21,6 +21,9 @@ const defaultChatBackendSettings = {
     reasoningEffort: '',
     hasApiKey: false,
   },
+  voice: {
+    pttHotkey: 'F8',
+  },
   hasSecureStorage: true,
 };
 
@@ -53,6 +56,9 @@ function buildComparableSettingsSnapshot(settings = {}) {
       temperature: Number.isFinite(normalized.nanobot?.temperature) ? normalized.nanobot.temperature : 0.2,
       reasoningEffort: normalized.nanobot?.reasoningEffort || '',
     },
+    voice: {
+      pttHotkey: normalized.voice?.pttHotkey || 'F8',
+    },
   };
 }
 
@@ -83,6 +89,14 @@ function normalizeSettingsForState(settings = {}) {
       apiKey: '',
       hasApiKey: Boolean(nanobot.hasApiKey || settings?.hasNanobotApiKey),
     },
+    voice: {
+      ...defaultChatBackendSettings.voice,
+      ...(typeof settings?.voice === 'object' && settings.voice ? settings.voice : {}),
+      pttHotkey:
+        typeof settings?.voice?.pttHotkey === 'string' && settings.voice.pttHotkey.trim()
+          ? settings.voice.pttHotkey.trim().toUpperCase()
+          : defaultChatBackendSettings.voice.pttHotkey,
+    },
     hasSecureStorage: settings?.hasSecureStorage !== false,
   };
 }
@@ -108,6 +122,12 @@ export function buildChatBackendSettingsPayload(settings) {
       maxTokens: Number.isFinite(nanobotSource?.maxTokens) ? nanobotSource.maxTokens : 4096,
       temperature: Number.isFinite(nanobotSource?.temperature) ? nanobotSource.temperature : 0.2,
       reasoningEffort: nanobotSource?.reasoningEffort || '',
+    },
+    voice: {
+      pttHotkey:
+        typeof source?.voice?.pttHotkey === 'string' && source.voice.pttHotkey.trim()
+          ? source.voice.pttHotkey.trim().toUpperCase()
+          : defaultChatBackendSettings.voice.pttHotkey,
     },
   };
 
@@ -282,6 +302,18 @@ export function useChatBackendSettings({ t, normalizeError }) {
     setSettingsError('');
   }, []);
 
+  const onVoiceSettingChange = useCallback((field, value) => {
+    setChatBackendSettings((prev) => ({
+      ...prev,
+      voice: {
+        ...prev.voice,
+        [field]: value,
+      },
+    }));
+    setSettingsFeedback('');
+    setSettingsError('');
+  }, []);
+
   const onTestChatBackendSettings = useCallback(async () => {
     setSettingsTesting(true);
     setSettingsError('');
@@ -388,6 +420,7 @@ export function useChatBackendSettings({ t, normalizeError }) {
     onChatBackendChange,
     onOpenClawSettingChange,
     onNanobotSettingChange,
+    onVoiceSettingChange,
     onTestChatBackendSettings,
     onTestOpenClawSettings: onTestChatBackendSettings,
     onClearSavedToken,

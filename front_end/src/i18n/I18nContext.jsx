@@ -117,6 +117,11 @@ const MESSAGES = {
     'voice.interactionMode': '交互模式',
     'voice.defaultFormat': '默认音频格式',
     'voice.mode.vad': '自动 VAD',
+    'voice.pttHotkey': '按住说话热键',
+    'voice.pttHotkeyChange': '修改热键',
+    'voice.pttHotkeyCapturing': '请按下按键',
+    'voice.pttHotkeyHint': '当前仅支持 F1-F12 或 Space。设置后立即生效。',
+    'voice.pttHotkeyCaptureHint': '按下新的热键，或按 Esc 取消。',
 
     'main.openSettings': '打开设置',
     'main.switchToPetMode': '切换到桌宠模式',
@@ -329,6 +334,11 @@ const MESSAGES = {
     'voice.interactionMode': 'Interaction Mode',
     'voice.defaultFormat': 'Default Audio Format',
     'voice.mode.vad': 'Auto VAD',
+    'voice.pttHotkey': 'Push-to-talk hotkey',
+    'voice.pttHotkeyChange': 'Change Hotkey',
+    'voice.pttHotkeyCapturing': 'Press a key',
+    'voice.pttHotkeyHint': 'Only F1-F12 or Space is supported for now. Changes apply immediately.',
+    'voice.pttHotkeyCaptureHint': 'Press the new hotkey, or press Esc to cancel.',
 
     'main.openSettings': 'Open Settings',
     'main.switchToPetMode': 'Switch to Pet Mode',

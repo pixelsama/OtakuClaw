@@ -295,6 +295,8 @@ async function captureAsrTestPcm({ durationMs = ASR_TEST_RECORD_MS, sampleRate =
 
 export default function VoiceSettingsPanel({
   desktopMode = false,
+  voiceSettings,
+  onVoiceSettingChange,
   onOpenDownloadCenter,
   onBuiltinTtsEnabledChange,
 }) {
@@ -327,6 +329,12 @@ export default function VoiceSettingsPanel({
   const [ttsTestResult, setTtsTestResult] = useState(null);
   const [voiceTestError, setVoiceTestError] = useState('');
   const [ttsTestAudioUrl, setTtsTestAudioUrl] = useState('');
+  const [isCapturingHotkey, setIsCapturingHotkey] = useState(false);
+
+  const pttHotkey = useMemo(() => {
+    const raw = typeof voiceSettings?.pttHotkey === 'string' ? voiceSettings.pttHotkey.trim().toUpperCase() : '';
+    return raw || 'F8';
+  }, [voiceSettings?.pttHotkey]);
 
   const activeAsrBundle = useMemo(
     () => modelBundles.find((item) => item.id === selectedAsrBundleId) || null,
@@ -952,9 +960,57 @@ export default function VoiceSettingsPanel({
     [ttsTestAudioUrl],
   );
 
+  useEffect(() => {
+    if (!isCapturingHotkey) {
+      return () => {};
+    }
+
+    const onKeyDown = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const key = typeof event.key === 'string' ? event.key.trim().toUpperCase() : '';
+      if (key === 'ESCAPE') {
+        setIsCapturingHotkey(false);
+        return;
+      }
+
+      const nextHotkey = key === ' ' || key === 'SPACEBAR' ? 'SPACE' : key;
+      if (nextHotkey === 'SPACE' || /^F([1-9]|1[0-2])$/.test(nextHotkey)) {
+        onVoiceSettingChange?.('pttHotkey', nextHotkey);
+        setIsCapturingHotkey(false);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+    };
+  }, [isCapturingHotkey, onVoiceSettingChange]);
+
   return (
     <Stack spacing={2}>
       <Box sx={{ fontWeight: 600 }}>{t('voice.title')}</Box>
+      <Stack spacing={1}>
+        <Box sx={{ color: 'text.secondary', fontSize: 14 }}>{t('voice.pttHotkey')}</Box>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <TextField
+            value={pttHotkey}
+            size="small"
+            inputProps={{ readOnly: true }}
+            sx={{ maxWidth: 140 }}
+          />
+          <Button
+            variant={isCapturingHotkey ? 'contained' : 'outlined'}
+            onClick={() => setIsCapturingHotkey((current) => !current)}
+          >
+            {isCapturingHotkey ? t('voice.pttHotkeyCapturing') : t('voice.pttHotkeyChange')}
+          </Button>
+        </Stack>
+        <Box sx={{ color: 'text.secondary', fontSize: 12 }}>
+          {isCapturingHotkey ? t('voice.pttHotkeyCaptureHint') : t('voice.pttHotkeyHint')}
+        </Box>
+      </Stack>
       {!desktopMode && <Alert severity="warning">{t('voice.desktopOnly')}</Alert>}
 
       {desktopMode && (

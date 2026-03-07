@@ -60,6 +60,7 @@ function normalizeSettingsResponse(settings = {}) {
   const chatBackend = settings?.chatBackend === 'nanobot' ? 'nanobot' : 'openclaw';
   const openclaw = settings?.openclaw || {};
   const nanobot = settings?.nanobot || {};
+  const voice = settings?.voice || {};
   const hasToken = Boolean(settings?.hasToken || openclaw?.hasToken || (typeof settings?.token === 'string' && settings.token.trim()));
   const hasNanobotApiKey = Boolean(
     settings?.hasNanobotApiKey
@@ -96,6 +97,12 @@ function normalizeSettingsResponse(settings = {}) {
       temperature: Number.isFinite(nanobot.temperature) ? nanobot.temperature : 0.2,
       reasoningEffort: typeof nanobot.reasoningEffort === 'string' ? nanobot.reasoningEffort.trim() : '',
       hasApiKey: hasNanobotApiKey,
+    },
+    voice: {
+      pttHotkey:
+        typeof voice.pttHotkey === 'string' && voice.pttHotkey.trim()
+          ? voice.pttHotkey.trim().toUpperCase()
+          : 'F8',
     },
     hasSecureStorage: settings.hasSecureStorage !== false,
   };
@@ -253,6 +260,24 @@ function normalizeSettingsPatch(settings = {}) {
           },
         }
       : {}),
+    ...(Object.prototype.hasOwnProperty.call(settings, 'voice')
+      ? {
+          voice: {
+            ...(typeof settings.voice === 'object' && settings.voice
+              ? {
+                  ...(Object.prototype.hasOwnProperty.call(settings.voice, 'pttHotkey')
+                    ? {
+                        pttHotkey:
+                          typeof settings.voice.pttHotkey === 'string'
+                            ? settings.voice.pttHotkey.trim().toUpperCase()
+                            : 'F8',
+                      }
+                    : {}),
+                }
+              : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -293,6 +318,10 @@ function saveWebSettings(partialSettings = {}) {
       ...current.nanobot,
       ...(patch.nanobot || {}),
     },
+    voice: {
+      ...current.voice,
+      ...(patch.voice || {}),
+    },
     hasSecureStorage: false,
   };
 
@@ -332,6 +361,9 @@ function saveWebSettings(partialSettings = {}) {
           maxTokens: merged.nanobot.maxTokens,
           temperature: merged.nanobot.temperature,
           reasoningEffort: merged.nanobot.reasoningEffort,
+        },
+        voice: {
+          pttHotkey: merged.voice.pttHotkey,
         },
       }),
     );
@@ -759,6 +791,20 @@ export const desktopBridge = {
         return () => {};
       }
       return api.voice.onFlowControl(handler);
+    },
+    onPttCommand(handler) {
+      const api = getDesktopApi();
+      if (!api?.voice?.onPttCommand || typeof handler !== 'function') {
+        return () => {};
+      }
+      return api.voice.onPttCommand(handler);
+    },
+    onPttStatus(handler) {
+      const api = getDesktopApi();
+      if (!api?.voice?.onPttStatus || typeof handler !== 'function') {
+        return () => {};
+      }
+      return api.voice.onPttStatus(handler);
     },
   },
   voiceModels: {

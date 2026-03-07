@@ -81,3 +81,27 @@ test('settings:test returns mapped error when backend test fails', async () => {
   assert.equal(result.ok, false);
   assert.equal(result.error.code, 'openclaw_upstream_error');
 });
+
+test('settings:save invokes onSaved callback with saved payload', async () => {
+  const ipcMain = createIpcMainMock();
+  const savedPayload = { voice: { pttHotkey: 'SPACE' } };
+  let callbackPayload = null;
+
+  const settingsStore = {
+    getPublic: () => ({}),
+    merge: () => ({}),
+    save: async () => savedPayload,
+  };
+
+  registerSettingsIpc({
+    ipcMain,
+    settingsStore,
+    onSaved: async (saved) => {
+      callbackPayload = saved;
+    },
+  });
+
+  const result = await ipcMain.invoke('settings:save', savedPayload);
+  assert.deepEqual(result, savedPayload);
+  assert.deepEqual(callbackPayload, savedPayload);
+});

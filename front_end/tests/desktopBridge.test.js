@@ -134,4 +134,28 @@ describe('desktopBridge conversation-only routing', () => {
     off();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
+
+  it('routes voice.onPttCommand through dedicated channel', () => {
+    const unsubscribe = vi.fn();
+    let listener = null;
+    globalThis.window = {
+      desktop: {
+        isElectron: true,
+        voice: {
+          onPttCommand: vi.fn((handler) => {
+            listener = handler;
+            return unsubscribe;
+          }),
+        },
+      },
+    };
+
+    const handler = vi.fn();
+    const off = desktopBridge.voice.onPttCommand(handler);
+    listener?.({ action: 'start', hotkey: 'F8' });
+
+    expect(handler).toHaveBeenCalledWith({ action: 'start', hotkey: 'F8' });
+    off();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
 });

@@ -79,6 +79,19 @@ describe('buildChatBackendSettingsPayload', () => {
     expect(payload.chatBackend).toBe('nanobot');
     expect(payload.nanobot.apiKey).toBe('sk-or-v1-demo');
     expect(payload.nanobot.maxTokens).toBe(2048);
+    expect(payload.voice.pttHotkey).toBe('F8');
+  });
+
+  it('includes voice ptt hotkey when provided', () => {
+    const payload = buildChatBackendSettingsPayload({
+      voice: {
+        pttHotkey: 'space',
+      },
+    });
+
+    expect(payload.voice).toEqual({
+      pttHotkey: 'SPACE',
+    });
   });
 });
 

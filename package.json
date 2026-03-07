@@ -21,7 +21,8 @@
   },
   "optionalDependencies": {
     "keytar": "^8.0.0",
-    "sherpa-onnx-node": "^1.12.28"
+    "sherpa-onnx-node": "^1.12.28",
+    "uiohook-napi": "^1.5.4"
   },
   "build": {
     "appId": "com.freeagent.vtuber.openclaw",

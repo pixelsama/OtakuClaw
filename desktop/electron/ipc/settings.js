@@ -1,10 +1,19 @@
 const { createChatBackendManager } = require('../services/chat/backendManager');
 
-function registerSettingsIpc({ ipcMain, settingsStore, backendManager = createChatBackendManager() }) {
+function registerSettingsIpc({
+  ipcMain,
+  settingsStore,
+  backendManager = createChatBackendManager(),
+  onSaved,
+}) {
   ipcMain.handle('settings:get', async () => settingsStore.getPublic());
 
   ipcMain.handle('settings:save', async (_event, partialSettings = {}) => {
-    return settingsStore.save(partialSettings);
+    const saved = await settingsStore.save(partialSettings);
+    if (typeof onSaved === 'function') {
+      await onSaved(saved);
+    }
+    return saved;
   });
 
   ipcMain.handle('settings:test', async (_event, overrideSettings = {}) => {
