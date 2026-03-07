@@ -1554,9 +1554,15 @@ class VoiceModelLibrary {
 
   selectBundles(payload = {}) {
     const request = payload && typeof payload === 'object' ? payload : {};
-    const hasAsrKey = Object.prototype.hasOwnProperty.call(request, 'asrBundleId');
-    const hasTtsKey = Object.prototype.hasOwnProperty.call(request, 'ttsBundleId');
-    const hasLegacyBundleKey = Object.prototype.hasOwnProperty.call(request, 'bundleId');
+    const hasAsrKey =
+      Object.prototype.hasOwnProperty.call(request, 'asrBundleId')
+      && typeof request.asrBundleId !== 'undefined';
+    const hasTtsKey =
+      Object.prototype.hasOwnProperty.call(request, 'ttsBundleId')
+      && typeof request.ttsBundleId !== 'undefined';
+    const hasLegacyBundleKey =
+      Object.prototype.hasOwnProperty.call(request, 'bundleId')
+      && typeof request.bundleId !== 'undefined';
 
     let nextAsrBundleId = this.state.selectedAsrBundleId;
     let nextTtsBundleId = this.state.selectedTtsBundleId;

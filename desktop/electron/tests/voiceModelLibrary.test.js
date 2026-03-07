@@ -134,6 +134,47 @@ test('selectBundles allows ASR and TTS from different bundles', async () => {
   assert.equal(listed.selectedTtsBundleId, ttsOnly.bundle.id);
 });
 
+test('selectBundles ignores undefined fields and preserves the other capability selection', async () => {
+  const { library } = await createLibraryForTest();
+  const asrOnly = await library.downloadBundle({
+    bundleName: 'asr-only-preserve',
+    asr: {
+      modelUrl: 'https://example.com/asr/model.onnx',
+      tokensUrl: 'https://example.com/asr/tokens.txt',
+    },
+  });
+  const ttsOnly = await library.downloadBundle({
+    bundleName: 'tts-only-preserve',
+    tts: {
+      modelUrl: 'https://example.com/tts/model.onnx',
+      voicesUrl: 'https://example.com/tts/voices.bin',
+      tokensUrl: 'https://example.com/tts/tokens.txt',
+    },
+  });
+
+  await library.selectBundles({
+    asrBundleId: asrOnly.bundle.id,
+    ttsBundleId: ttsOnly.bundle.id,
+  });
+  await library.selectBundles({
+    asrBundleId: asrOnly.bundle.id,
+    ttsBundleId: undefined,
+  });
+
+  let listed = library.listBundles();
+  assert.equal(listed.selectedAsrBundleId, asrOnly.bundle.id);
+  assert.equal(listed.selectedTtsBundleId, ttsOnly.bundle.id);
+
+  await library.selectBundles({
+    asrBundleId: undefined,
+    ttsBundleId: ttsOnly.bundle.id,
+  });
+
+  listed = library.listBundles();
+  assert.equal(listed.selectedAsrBundleId, asrOnly.bundle.id);
+  assert.equal(listed.selectedTtsBundleId, ttsOnly.bundle.id);
+});
+
 test('downloadBundle validates required URL groups', async () => {
   const { library } = await createLibraryForTest();
 

@@ -753,7 +753,17 @@ export const desktopBridge = {
           },
         };
       }
-      return api.voiceModels.select({ bundleId, asrBundleId, ttsBundleId });
+      const payload = {};
+      if (typeof bundleId !== 'undefined') {
+        payload.bundleId = bundleId;
+      }
+      if (typeof asrBundleId !== 'undefined') {
+        payload.asrBundleId = asrBundleId;
+      }
+      if (typeof ttsBundleId !== 'undefined') {
+        payload.ttsBundleId = ttsBundleId;
+      }
+      return api.voiceModels.select(payload);
     },
     async download(payload = {}) {
       const api = getDesktopApi();
