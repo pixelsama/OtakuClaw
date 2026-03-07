@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createTtsPlaybackLifecycleTracker } from './ttsPlaybackLifecycle.js';
 
 const ACK_INTERVAL_MS = 200;
 const MIN_SCHEDULE_LEAD_SECONDS = 0.02;
@@ -88,6 +89,8 @@ export function useVoiceTtsPlayback({
   const lastAckSeqRef = useRef(0);
   const ackTimerRef = useRef(null);
   const ackInFlightRef = useRef(false);
+  const playbackSessionIdRef = useRef('');
+  const playbackLifecycleRef = useRef(createTtsPlaybackLifecycleTracker());
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [bufferedMs, setBufferedMs] = useState(0);
@@ -104,7 +107,8 @@ export function useVoiceTtsPlayback({
   }, []);
 
   const emitAck = useCallback(async () => {
-    if (!desktopMode || !sessionId || typeof sendPlaybackAck !== 'function') {
+    const targetSessionId = sessionId || playbackSessionIdRef.current;
+    if (!desktopMode || !targetSessionId || typeof sendPlaybackAck !== 'function') {
       return;
     }
 
@@ -118,7 +122,7 @@ export function useVoiceTtsPlayback({
     ackInFlightRef.current = true;
     try {
       await sendPlaybackAck({
-        sessionId,
+        sessionId: targetSessionId,
         ackSeq: lastAckSeqRef.current,
         bufferedMs: nextBufferedMs,
       });
@@ -169,6 +173,7 @@ export function useVoiceTtsPlayback({
 
   const stopPlayback = useCallback(
     async ({ emitFinalAck = true, resetSeq = false } = {}) => {
+      playbackLifecycleRef.current.reset({ reason: 'playback_stopped' });
       for (const source of activeSourcesRef.current) {
         try {
           source.stop();
@@ -195,16 +200,21 @@ export function useVoiceTtsPlayback({
 
       if (resetSeq) {
         lastAckSeqRef.current = 0;
+        playbackSessionIdRef.current = '';
       }
     },
     [emitAck, stopAckTimer],
   );
 
   const scheduleChunk = useCallback(
-    async ({ audioChunk, codec, sampleRate, seq }) => {
+    async ({ audioChunk, codec, sampleRate, seq, sessionId: chunkSessionId, turnId, segmentId, index, text }) => {
       const context = await ensureAudioContextReady();
       if (!context) {
         return;
+      }
+
+      if (typeof chunkSessionId === 'string' && chunkSessionId.trim()) {
+        playbackSessionIdRef.current = chunkSessionId.trim();
       }
 
       const safeCodec = typeof codec === 'string' ? codec : '';
@@ -230,9 +240,19 @@ export function useVoiceTtsPlayback({
       );
       const durationSeconds = samples.length / safeSampleRate;
       nextStartTimeRef.current = startAt + durationSeconds;
+      const handleChunkEnded = playbackLifecycleRef.current.scheduleChunkPlayback({
+        sessionId: chunkSessionId,
+        turnId,
+        segmentId,
+        index,
+        text,
+        startAt,
+        currentTime: context.currentTime,
+      });
 
       source.onended = () => {
         activeSourcesRef.current.delete(source);
+        handleChunkEnded();
         if (activeSourcesRef.current.size === 0 && getBufferedMs() <= 1) {
           setIsPlaying(false);
           setBufferedMs(0);
@@ -261,18 +281,31 @@ export function useVoiceTtsPlayback({
         return;
       }
 
-      if (event.sessionId && sessionId && event.sessionId !== sessionId) {
-        return;
-      }
-
       if (event.type === 'tts-chunk') {
         setPlaybackError('');
+        if (typeof event.sessionId === 'string' && event.sessionId.trim()) {
+          playbackSessionIdRef.current = event.sessionId.trim();
+        }
         void scheduleChunk(event).catch((error) => {
           const message = error?.message || 'tts_playback_failed';
           setPlaybackError(message);
           console.error('TTS playback failed:', error);
         });
         return;
+      }
+
+      if (event.type === 'segment-tts-started') {
+        playbackLifecycleRef.current.markSegmentStarted(event);
+        return;
+      }
+
+      if (event.type === 'segment-tts-finished') {
+        playbackLifecycleRef.current.markSegmentFinished(event);
+        return;
+      }
+
+      if (event.type === 'segment-tts-failed') {
+        playbackLifecycleRef.current.markSegmentFailed(event);
       }
 
       const isSpeakingStage = event.stage === 'speaking';
@@ -300,13 +333,15 @@ export function useVoiceTtsPlayback({
         });
       }
     },
-    [scheduleChunk, sessionId, stopPlayback],
+    [scheduleChunk, stopPlayback],
   );
 
   useEffect(() => {
     const activeSources = activeSourcesRef.current;
+    const playbackLifecycle = playbackLifecycleRef.current;
 
     return () => {
+      playbackLifecycle.reset({ reason: 'playback_unmount' });
       stopAckTimer();
       for (const source of activeSources) {
         try {
@@ -318,6 +353,7 @@ export function useVoiceTtsPlayback({
       activeSources.clear();
       nextStartTimeRef.current = 0;
       lastAckSeqRef.current = 0;
+      playbackSessionIdRef.current = '';
 
       if (audioContextRef.current) {
         void audioContextRef.current.close().catch(() => {});

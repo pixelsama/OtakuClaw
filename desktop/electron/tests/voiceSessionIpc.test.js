@@ -427,6 +427,93 @@ test('voice tts backpressure pauses and resumes chunk delivery', async () => {
   assert.equal(flowEvents[1]?.action, 'resume');
 });
 
+test('voice segment playback auto-creates an internal session for text-only output', async () => {
+  const ipcMain = createIpcMainMock();
+  const emitted = [];
+
+  const voiceControl = registerVoiceSessionIpc({
+    ipcMain,
+    emitEvent: (event) => emitted.push(event),
+    createAsrServiceImpl: () => ({ warmup: async () => {}, transcribe: async () => ({ text: '' }) }),
+    createTtsServiceImpl: () => ({
+      synthesize: async ({ onChunk }) => {
+        await onChunk({
+          audioChunk: Buffer.from([1, 2, 3, 4]),
+          codec: 'pcm_s16le',
+          sampleRate: 24000,
+        });
+      },
+    }),
+  });
+
+  const enqueueResult = voiceControl.enqueueSegmentReady({
+    sessionId: 'text-composer',
+    turnId: 'turn-text-1',
+    segmentId: 'turn-text-1:0',
+    index: 0,
+    text: 'text output should speak without manual voice session',
+    final: true,
+  });
+  assert.equal(enqueueResult.ok, true);
+
+  const markDoneResult = voiceControl.markTurnDone({
+    sessionId: 'text-composer',
+    turnId: 'turn-text-1',
+  });
+  assert.equal(markDoneResult.ok, true);
+
+  await waitFor(() =>
+    emitted.some((event) => event.type === 'segment-tts-finished' && event.segmentId === 'turn-text-1:0'),
+  );
+
+  assert.equal(emitted.some((event) => event.type === 'state' && event.sessionId === 'text-composer'), false);
+  assert.equal(
+    emitted.some((event) => event.type === 'tts-chunk' && event.sessionId === 'text-composer'),
+    true,
+  );
+});
+
+test('voice session start upgrades an internal playback session into a ui-owned session', async () => {
+  const ipcMain = createIpcMainMock();
+  const emitted = [];
+
+  const voiceControl = registerVoiceSessionIpc({
+    ipcMain,
+    emitEvent: (event) => emitted.push(event),
+    createAsrServiceImpl: () => ({ warmup: async () => {}, transcribe: async () => ({ text: '' }) }),
+    createTtsServiceImpl: () => ({
+      synthesize: async ({ onChunk }) => {
+        await onChunk({
+          audioChunk: Buffer.from([1, 2, 3, 4]),
+          codec: 'pcm_s16le',
+          sampleRate: 24000,
+        });
+      },
+    }),
+  });
+
+  voiceControl.enqueueSegmentReady({
+    sessionId: 'text-composer',
+    turnId: 'turn-upgrade-1',
+    segmentId: 'turn-upgrade-1:0',
+    index: 0,
+    text: 'upgrade session ownership',
+    final: true,
+  });
+
+  const started = await ipcMain.invoke('voice:session:start', {
+    sessionId: 'text-composer',
+    mode: 'vad',
+  });
+
+  assert.equal(started.ok, true);
+  assert.equal(started.status, 'speaking');
+  assert.equal(
+    emitted.some((event) => event.type === 'state' && event.sessionId === 'text-composer' && event.status === 'speaking'),
+    true,
+  );
+});
+
 test('voice session survives event emitter exception during tts chunk delivery', async () => {
   const ipcMain = createIpcMainMock();
   const emitted = [];

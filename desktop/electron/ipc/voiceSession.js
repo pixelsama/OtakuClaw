@@ -6,6 +6,7 @@ const SESSION_STATUS_LISTENING = 'listening';
 const SESSION_STATUS_TRANSCRIBING = 'transcribing';
 const SESSION_STATUS_SPEAKING = 'speaking';
 const SESSION_STATUS_ERROR = 'error';
+const SESSION_MODE_INTERNAL_PLAYBACK = 'internal-playback';
 const TTS_PAUSE_HIGH_WATERMARK_MS = 2000;
 const TTS_RESUME_LOW_WATERMARK_MS = 800;
 const DEFAULT_TTS_BACKPRESSURE_TIMEOUT_MS = 5000;
@@ -574,9 +575,10 @@ function registerVoiceSessionIpc({
     return runtime;
   };
 
-  const buildSessionState = (sessionId, mode) => ({
+  const buildSessionState = (sessionId, mode, { ownedByUi = true } = {}) => ({
     sessionId,
     mode: mode || 'vad',
+    ownedByUi,
     status: SESSION_STATUS_LISTENING,
     lastSeq: 0,
     lastAckSeq: 0,
@@ -599,13 +601,65 @@ function registerVoiceSessionIpc({
     activeSegment: null,
   });
 
+  const shouldEmitUiLifecycle = (sessionState) => Boolean(sessionState?.ownedByUi);
+
+  const createSessionState = (sessionId, mode, options = {}) => {
+    const sessionState = buildSessionState(sessionId, mode, options);
+    sessionMap.set(sessionId, sessionState);
+    if (shouldEmitUiLifecycle(sessionState)) {
+      sendState(sessionId, sessionState.status);
+    }
+    return sessionState;
+  };
+
+  const getOrCreateSessionState = (sessionId, { mode = 'vad', ownedByUi = true } = {}) => {
+    const normalizedSessionId = normalizeSessionId(sessionId);
+    if (!normalizedSessionId) {
+      return null;
+    }
+
+    const existing = sessionMap.get(normalizedSessionId);
+    if (existing) {
+      if (ownedByUi && !existing.ownedByUi) {
+        existing.ownedByUi = true;
+        existing.mode = mode || existing.mode;
+        sendState(normalizedSessionId, existing.status);
+      }
+      return existing;
+    }
+
+    return createSessionState(normalizedSessionId, mode, { ownedByUi });
+  };
+
+  const maybeDisposeInternalSession = (sessionState) => {
+    if (!sessionState || sessionState.ownedByUi) {
+      return;
+    }
+
+    if (sessionState.asrController || sessionState.ttsController) {
+      return;
+    }
+
+    if (sessionState.audioChunks.length > 0) {
+      return;
+    }
+
+    if (sessionState.segmentPlaybackActive || sessionState.segmentTurnOrder.length > 0 || sessionState.activeSegment) {
+      return;
+    }
+
+    sessionMap.delete(sessionState.sessionId);
+  };
+
   const setSessionStatus = (sessionState, nextStatus) => {
     if (!sessionState || sessionState.status === nextStatus) {
       return;
     }
 
     sessionState.status = nextStatus;
-    sendState(sessionState.sessionId, nextStatus);
+    if (shouldEmitUiLifecycle(sessionState)) {
+      sendState(sessionState.sessionId, nextStatus);
+    }
   };
 
   const normalizeSegmentPayload = (payload = {}) => {
@@ -851,6 +905,7 @@ function registerVoiceSessionIpc({
     }
 
     void drainSegmentPlaybackQueue(sessionState);
+    maybeDisposeInternalSession(sessionState);
     return { ok: true };
   };
 
@@ -863,7 +918,10 @@ function registerVoiceSessionIpc({
       };
     }
 
-    const sessionState = sessionMap.get(segment.sessionId);
+    const sessionState = getOrCreateSessionState(segment.sessionId, {
+      mode: SESSION_MODE_INTERNAL_PLAYBACK,
+      ownedByUi: false,
+    });
     if (!sessionState) {
       return {
         ok: false,
@@ -1054,6 +1112,7 @@ function registerVoiceSessionIpc({
     } finally {
       sessionState.segmentPlaybackActive = false;
       updateStatusFromSegmentQueue(sessionState);
+      maybeDisposeInternalSession(sessionState);
     }
   }
 
@@ -1068,6 +1127,11 @@ function registerVoiceSessionIpc({
 
     const existing = sessionMap.get(sessionId);
     if (existing) {
+      if (!existing.ownedByUi) {
+        existing.ownedByUi = true;
+        existing.mode = request.mode || existing.mode;
+        sendState(sessionId, existing.status);
+      }
       return {
         ok: true,
         sessionId,
@@ -1075,9 +1139,7 @@ function registerVoiceSessionIpc({
       };
     }
 
-    const sessionState = buildSessionState(sessionId, request.mode);
-    sessionMap.set(sessionId, sessionState);
-    sendState(sessionId, sessionState.status);
+    const sessionState = createSessionState(sessionId, request.mode, { ownedByUi: true });
 
     // Pre-warm ASR worker/model in background to reduce first-turn latency.
     const runtime = resolveRuntime();
@@ -1168,7 +1230,9 @@ function registerVoiceSessionIpc({
     sessionState.audioChunks = [];
 
     sessionState.status = SESSION_STATUS_TRANSCRIBING;
-    sendState(sessionId, sessionState.status);
+    if (shouldEmitUiLifecycle(sessionState)) {
+      sendState(sessionId, sessionState.status);
+    }
     sessionState.asrController = new AbortController();
 
     try {
@@ -1208,7 +1272,9 @@ function registerVoiceSessionIpc({
       sendDone(sessionId, 'transcribing');
       if (sessionState.status !== SESSION_STATUS_SPEAKING) {
         sessionState.status = SESSION_STATUS_LISTENING;
-        sendState(sessionId, sessionState.status);
+        if (shouldEmitUiLifecycle(sessionState)) {
+          sendState(sessionId, sessionState.status);
+        }
       }
       void drainSegmentPlaybackQueue(sessionState);
 
@@ -1221,7 +1287,9 @@ function registerVoiceSessionIpc({
       const payload = toVoiceError(error, 'voice_asr_failed', 'transcribing');
       sendError(sessionId, payload);
       sessionState.status = SESSION_STATUS_ERROR;
-      sendState(sessionId, sessionState.status);
+      if (shouldEmitUiLifecycle(sessionState)) {
+        sendState(sessionId, sessionState.status);
+      }
       return {
         ok: false,
         reason: 'asr_failed',
@@ -1253,8 +1321,10 @@ function registerVoiceSessionIpc({
     clearTtsAckWatchdog(sessionState);
     sessionState.audioChunks = [];
     sessionState.status = SESSION_STATUS_IDLE;
-    sendState(sessionId, sessionState.status);
-    sendDone(sessionId, 'session', { aborted: true });
+    if (shouldEmitUiLifecycle(sessionState)) {
+      sendState(sessionId, sessionState.status);
+      sendDone(sessionId, 'session', { aborted: true });
+    }
     sessionMap.delete(sessionId);
 
     return { ok: true };
@@ -1281,8 +1351,11 @@ function registerVoiceSessionIpc({
     sessionState.ttsController?.abort();
     clearTtsAckWatchdog(sessionState);
     sessionState.status = SESSION_STATUS_LISTENING;
-    sendState(sessionId, sessionState.status);
-    sendDone(sessionId, 'speaking', { aborted: true });
+    if (shouldEmitUiLifecycle(sessionState)) {
+      sendState(sessionId, sessionState.status);
+      sendDone(sessionId, 'speaking', { aborted: true });
+    }
+    maybeDisposeInternalSession(sessionState);
 
     return { ok: true };
   });
@@ -1327,12 +1400,14 @@ function registerVoiceSessionIpc({
       });
     }
 
-    return {
+    const response = {
       ok: true,
       sessionId,
       ackSeq: sessionState.lastAckSeq,
       bufferedMs: sessionState.bufferedMs,
     };
+    maybeDisposeInternalSession(sessionState);
+    return response;
   });
 
   ipcMain.handle('voice:diagnostics:asr', async (_event, request = {}) => {

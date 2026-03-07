@@ -48,6 +48,18 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
   }, []);
 
   const active = Boolean(sessionIdRef.current && status !== STATUS_IDLE);
+  const matchesOwnedSession = useCallback((eventSessionId) => {
+    const currentSessionId = sessionIdRef.current;
+    if (!currentSessionId) {
+      return false;
+    }
+
+    if (!eventSessionId) {
+      return true;
+    }
+
+    return eventSessionId === currentSessionId;
+  }, []);
 
   useEffect(() => {
     if (!desktopMode) {
@@ -55,42 +67,41 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
     }
 
     const disposeEvent = desktopBridge.voice.onEvent((event = {}) => {
-      const currentSessionId = sessionIdRef.current;
-      if (currentSessionId && event.sessionId && event.sessionId !== currentSessionId) {
-        return;
-      }
+      const belongsToOwnedSession = matchesOwnedSession(event.sessionId);
 
-      if (event.type === 'state' && event.status) {
-        setStatus(event.status);
-      }
+      if (belongsToOwnedSession) {
+        if (event.type === 'state' && event.status) {
+          setStatus(event.status);
+        }
 
-      if (event.type === 'asr-partial' && typeof event.text === 'string') {
-        setLastPartialText(event.text);
-      }
+        if (event.type === 'asr-partial' && typeof event.text === 'string') {
+          setLastPartialText(event.text);
+        }
 
-      if (event.type === 'asr-final' && typeof event.text === 'string') {
-        setLastFinalText(event.text);
-      }
+        if (event.type === 'asr-final' && typeof event.text === 'string') {
+          setLastFinalText(event.text);
+        }
 
-      if (event.type === 'error') {
-        setLastError(normalizeVoiceError(event));
-      }
+        if (event.type === 'error') {
+          setLastError(normalizeVoiceError(event));
+        }
 
-      if (
-        event.type === 'segment-tts-started'
-        || event.type === 'segment-tts-finished'
-        || event.type === 'segment-tts-failed'
-      ) {
-        setLastSegmentEvent(event);
-      }
+        if (
+          event.type === 'segment-tts-started'
+          || event.type === 'segment-tts-finished'
+          || event.type === 'segment-tts-failed'
+        ) {
+          setLastSegmentEvent(event);
+        }
 
-      if (event.type === 'segment-tts-failed') {
-        setLastError(normalizeVoiceError(event));
-      }
+        if (event.type === 'segment-tts-failed') {
+          setLastError(normalizeVoiceError(event));
+        }
 
-      if (event.type === 'done' && event.stage === 'session') {
-        setStatus(STATUS_IDLE);
-        setSessionIdWithRef('');
+        if (event.type === 'done' && event.stage === 'session') {
+          setStatus(STATUS_IDLE);
+          setSessionIdWithRef('');
+        }
       }
 
       for (const subscriber of eventSubscribersRef.current) {
@@ -103,8 +114,7 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
     });
 
     const disposeFlow = desktopBridge.voice.onFlowControl((event = {}) => {
-      const currentSessionId = sessionIdRef.current;
-      if (currentSessionId && event.sessionId && event.sessionId !== currentSessionId) {
+      if (!matchesOwnedSession(event.sessionId)) {
         return;
       }
 
@@ -118,7 +128,7 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
       disposeEvent();
       disposeFlow();
     };
-  }, [desktopMode, setSessionIdWithRef]);
+  }, [desktopMode, matchesOwnedSession, setSessionIdWithRef]);
 
   const startSession = useCallback(
     async ({ mode = 'vad', sessionId: requestedSessionId = '' } = {}) => {
@@ -214,8 +224,8 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
   );
 
   const stopTts = useCallback(
-    async ({ reason = 'manual' } = {}) => {
-      const activeSessionId = sessionIdRef.current;
+    async ({ sessionId: requestedSessionId = '', reason = 'manual' } = {}) => {
+      const activeSessionId = normalizeRequestedSessionId(requestedSessionId) || sessionIdRef.current;
       if (!activeSessionId) {
         return { ok: true, reason: 'not_started' };
       }
@@ -229,8 +239,8 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
   );
 
   const sendPlaybackAck = useCallback(
-    async ({ ackSeq, bufferedMs } = {}) => {
-      const activeSessionId = sessionIdRef.current;
+    async ({ sessionId: requestedSessionId = '', ackSeq, bufferedMs } = {}) => {
+      const activeSessionId = normalizeRequestedSessionId(requestedSessionId) || sessionIdRef.current;
       if (!activeSessionId) {
         return { ok: false, reason: 'session_not_started' };
       }
