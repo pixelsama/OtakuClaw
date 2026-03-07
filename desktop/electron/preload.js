@@ -24,19 +24,16 @@ const chatStream = {
     return ipcRenderer.invoke('chat:stream:abort', request);
   },
   onEvent(handler) {
-    if (typeof handler !== 'function') {
-      return () => {};
-    }
-
-    const listener = (_event, payload) => {
-      handler(payload);
-    };
-
-    ipcRenderer.on('chat:stream:event', listener);
-
-    return () => {
-      ipcRenderer.removeListener('chat:stream:event', listener);
-    };
+    return onChannel('conversation:event', (event = {}) => {
+      if (event?.channel !== 'chat') {
+        return;
+      }
+      handler({
+        streamId: typeof event.streamId === 'string' ? event.streamId : '',
+        type: typeof event.type === 'string' ? event.type : '',
+        payload: event.payload && typeof event.payload === 'object' ? event.payload : {},
+      });
+    });
   },
 };
 
@@ -156,7 +153,13 @@ const voice = {
     return ipcRenderer.invoke('voice:segment:trace:list', request);
   },
   onEvent(handler) {
-    return onChannel('voice:event', handler);
+    return onChannel('conversation:event', (event = {}) => {
+      if (event?.channel !== 'voice') {
+        return;
+      }
+      const { channel, ...voicePayload } = event;
+      handler(voicePayload);
+    });
   },
   onFlowControl(handler) {
     return onChannel('voice:flow-control', handler);

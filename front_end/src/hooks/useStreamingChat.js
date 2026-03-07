@@ -90,26 +90,17 @@ const normalizeDesktopChatConversationEvent = (event = {}) => {
     return null;
   }
 
-  if (event.channel === 'chat') {
-    const streamId = typeof event.streamId === 'string' ? event.streamId : '';
-    const type = typeof event.type === 'string' ? event.type : '';
-    const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
-    if (!streamId || !type) {
-      return null;
-    }
-    return { streamId, type, payload };
+  if (event.channel !== 'chat') {
+    return null;
   }
 
-  // Backward-compatible shape from legacy `chat:stream:event`.
-  if (typeof event.streamId === 'string' && typeof event.type === 'string') {
-    return {
-      streamId: event.streamId,
-      type: event.type,
-      payload: event.payload && typeof event.payload === 'object' ? event.payload : {},
-    };
+  const streamId = typeof event.streamId === 'string' ? event.streamId : '';
+  const type = typeof event.type === 'string' ? event.type : '';
+  const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
+  if (!streamId || !type) {
+    return null;
   }
-
-  return null;
+  return { streamId, type, payload };
 };
 
 const resolveDesktopPending = (streamId, pending, endedBy, payload = null) => {

@@ -13,6 +13,22 @@ function getDesktopApi() {
   return api;
 }
 
+function subscribeConversationChannel(api, channel, handler) {
+  if (typeof handler !== 'function') {
+    return () => {};
+  }
+  if (!api?.conversation?.onEvent) {
+    return () => {};
+  }
+
+  return api.conversation.onEvent((event = {}) => {
+    if (event?.channel !== channel) {
+      return;
+    }
+    handler(event);
+  });
+}
+
 function detectPlatformFallback() {
   if (typeof navigator === 'undefined') {
     return 'unknown';
@@ -427,70 +443,24 @@ export const desktopBridge = {
       if (api?.conversation?.submitUserText) {
         return api.conversation.submitUserText(request);
       }
-
-      if (!api?.chatStream?.start) {
-        return Promise.resolve({
-          ok: false,
-          reason: 'desktop_chat_unavailable',
-        });
-      }
-
-      return api.chatStream
-        .start(request)
-        .then((result = {}) => ({
-          ok: true,
-          streamId: result.streamId || '',
-        }))
-        .catch((error) => ({
-          ok: false,
-          reason: error?.message || 'stream_start_failed',
-        }));
+      return Promise.resolve({
+        ok: false,
+        reason: 'desktop_conversation_unavailable',
+      });
     },
     abortActive(request = {}) {
       const api = getDesktopApi();
       if (api?.conversation?.abortActive) {
         return api.conversation.abortActive(request);
       }
-
-      const streamId = typeof request?.streamId === 'string' ? request.streamId.trim() : '';
-      if (!streamId || !api?.chatStream?.abort) {
-        return Promise.resolve({ ok: false, reason: 'desktop_chat_unavailable' });
-      }
-      return api.chatStream.abort({ streamId });
+      return Promise.resolve({ ok: false, reason: 'desktop_conversation_unavailable' });
     },
     onEvent(handler) {
       const api = getDesktopApi();
-      if (typeof handler !== 'function') {
+      if (!api?.conversation?.onEvent || typeof handler !== 'function') {
         return () => {};
       }
-
-      if (api?.conversation?.onEvent) {
-        return api.conversation.onEvent(handler);
-      }
-
-      const offChat = api?.chatStream?.onEvent
-        ? api.chatStream.onEvent((event = {}) => {
-            handler({
-              channel: 'chat',
-              streamId: event.streamId || '',
-              type: event.type || '',
-              payload: event.payload && typeof event.payload === 'object' ? event.payload : {},
-            });
-          })
-        : () => {};
-      const offVoice = api?.voice?.onEvent
-        ? api.voice.onEvent((event = {}) => {
-            handler({
-              channel: 'voice',
-              ...(event || {}),
-            });
-          })
-        : () => {};
-
-      return () => {
-        offChat?.();
-        offVoice?.();
-      };
+      return api.conversation.onEvent(handler);
     },
   },
   chat: {
@@ -505,24 +475,30 @@ export const desktopBridge = {
           throw new Error(result.reason || 'desktop_chat_unavailable');
         });
       }
-      if (!api?.chatStream?.start) {
-        throw new Error('desktop_chat_unavailable');
-      }
-      return api.chatStream.start(request);
+      throw new Error('desktop_conversation_unavailable');
     },
     abort(request) {
       const api = getDesktopApi();
-      if (!api?.chatStream?.abort) {
-        return Promise.resolve({ ok: false, reason: 'desktop_chat_unavailable' });
+      if (!api?.conversation?.abortActive) {
+        return Promise.resolve({ ok: false, reason: 'desktop_conversation_unavailable' });
       }
-      return api.chatStream.abort(request);
+      return api.conversation.abortActive({
+        streamId: request?.streamId || '',
+        reason: request?.reason || 'manual',
+      });
     },
     onEvent(handler) {
       const api = getDesktopApi();
-      if (!api?.chatStream?.onEvent) {
+      if (typeof handler !== 'function') {
         return () => {};
       }
-      return api.chatStream.onEvent(handler);
+      return subscribeConversationChannel(api, 'chat', (event = {}) => {
+        handler({
+          streamId: event.streamId || '',
+          type: event.type || '',
+          payload: event.payload && typeof event.payload === 'object' ? event.payload : {},
+        });
+      });
     },
   },
   settings: {
@@ -768,10 +744,14 @@ export const desktopBridge = {
     },
     onEvent(handler) {
       const api = getDesktopApi();
-      if (!api?.voice?.onEvent || typeof handler !== 'function') {
+      if (typeof handler !== 'function') {
         return () => {};
       }
-      return api.voice.onEvent(handler);
+      return subscribeConversationChannel(api, 'voice', (event = {}) => {
+        const voicePayload = { ...(event || {}) };
+        delete voicePayload.channel;
+        handler(voicePayload);
+      });
     },
     onFlowControl(handler) {
       const api = getDesktopApi();

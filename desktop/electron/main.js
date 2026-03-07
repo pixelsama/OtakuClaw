@@ -55,6 +55,14 @@ let voiceModelLibrary = null;
 let nanobotRuntimeManager = null;
 let isQuitting = false;
 let chatBackendManager = null;
+const legacyConversationMirrorEnabled = (() => {
+  const value = process.env.OPENCLAW_ENABLE_LEGACY_STREAM_EVENTS;
+  if (typeof value !== 'string') {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+})();
 
 function registerWindowControlIpc() {
   ipcMain.handle('window:get-platform', () => ({
@@ -385,7 +393,9 @@ async function bootstrap() {
         return;
       }
 
-      mainWindow.webContents.send('chat:stream:event', payload);
+      if (legacyConversationMirrorEnabled) {
+        mainWindow.webContents.send('chat:stream:event', payload);
+      }
     },
   });
   disposeChatStreamHandlers = chatStreamControl;
@@ -446,7 +456,9 @@ async function bootstrap() {
         return;
       }
 
-      mainWindow.webContents.send('voice:event', payload);
+      if (legacyConversationMirrorEnabled) {
+        mainWindow.webContents.send('voice:event', payload);
+      }
     },
     emitFlowControl: (payload) => {
       if (!mainWindow || mainWindow.isDestroyed()) {
