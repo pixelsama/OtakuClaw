@@ -180,7 +180,7 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
   );
 
   const commitInput = useCallback(
-    async ({ finalSeq } = {}) => {
+    async ({ finalSeq, autoStartChat = true } = {}) => {
       const activeSessionId = sessionIdRef.current;
       if (!activeSessionId) {
         return { ok: false, reason: 'session_not_started' };
@@ -189,6 +189,7 @@ export function useVoiceSession({ desktopMode = desktopBridge.isDesktop() } = {}
       return desktopBridge.voice.commit({
         sessionId: activeSessionId,
         finalSeq,
+        autoStartChat,
       });
     },
     [],

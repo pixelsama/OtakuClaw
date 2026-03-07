@@ -88,6 +88,68 @@ test('voice session start -> chunk -> commit emits state and asr events', async 
   assert.equal(emitted[3].text, 'hello');
 });
 
+test('voice commit respects autoStartChat flag when invoking onAsrFinal callback', async () => {
+  const ipcMain = createIpcMainMock();
+  const callbackCalls = [];
+
+  registerVoiceSessionIpc({
+    ipcMain,
+    emitEvent: () => {},
+    onAsrFinal: async ({ sessionId, text }) => {
+      callbackCalls.push({ sessionId, text });
+    },
+    createAsrServiceImpl: () => ({
+      transcribe: async () => ({ text: 'hello' }),
+    }),
+  });
+
+  await ipcMain.invoke('voice:session:start', {
+    sessionId: 'asr-auto-start-flag-s1',
+    mode: 'vad',
+  });
+
+  await ipcMain.invoke('voice:audio:chunk', {
+    sessionId: 'asr-auto-start-flag-s1',
+    seq: 1,
+    chunkId: 1,
+    pcmChunk: Buffer.from([1, 2, 3, 4]),
+    sampleRate: 16000,
+    channels: 1,
+    sampleFormat: 'pcm_s16le',
+    isSpeech: true,
+  });
+
+  const firstCommit = await ipcMain.invoke('voice:input:commit', {
+    sessionId: 'asr-auto-start-flag-s1',
+    finalSeq: 1,
+    autoStartChat: false,
+  });
+  assert.equal(firstCommit.ok, true);
+  assert.equal(callbackCalls.length, 0);
+
+  await ipcMain.invoke('voice:audio:chunk', {
+    sessionId: 'asr-auto-start-flag-s1',
+    seq: 2,
+    chunkId: 2,
+    pcmChunk: Buffer.from([5, 6, 7, 8]),
+    sampleRate: 16000,
+    channels: 1,
+    sampleFormat: 'pcm_s16le',
+    isSpeech: true,
+  });
+
+  const secondCommit = await ipcMain.invoke('voice:input:commit', {
+    sessionId: 'asr-auto-start-flag-s1',
+    finalSeq: 2,
+  });
+  assert.equal(secondCommit.ok, true);
+  assert.equal(callbackCalls.length, 1);
+  assert.deepEqual(callbackCalls[0], {
+    sessionId: 'asr-auto-start-flag-s1',
+    text: 'hello',
+  });
+});
+
 test('voice session start triggers background asr warmup when available', async () => {
   const ipcMain = createIpcMainMock();
   let warmupCalls = 0;

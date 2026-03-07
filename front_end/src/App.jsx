@@ -189,9 +189,26 @@ function AppContent({ desktopMode }) {
     cancelStreaming,
     isStreaming,
   });
+  const submitVoiceText = useCallback(
+    async (content) => {
+      const safeContent = typeof content === 'string' ? content.trim() : '';
+      if (!safeContent) {
+        return;
+      }
+
+      beginStream();
+      await startStreaming('text-composer', safeContent, {
+        options: {
+          source: 'voice-asr',
+        },
+      });
+    },
+    [beginStream, startStreaming],
+  );
   const voiceMicToggle = useVoiceMicToggle({
     desktopMode,
     chatSessionId: 'text-composer',
+    onSubmitVoiceText: submitVoiceText,
   });
   const textComposerWithVoiceProps = useMemo(
     () => ({

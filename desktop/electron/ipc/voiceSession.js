@@ -1142,6 +1142,7 @@ function registerVoiceSessionIpc({
 
   ipcMain.handle('voice:input:commit', async (_event, request = {}) => {
     const sessionId = normalizeSessionId(request.sessionId);
+    const autoStartChat = request.autoStartChat !== false;
     const sessionState = sessionMap.get(sessionId);
     if (!sessionState) {
       return {
@@ -1197,7 +1198,7 @@ function registerVoiceSessionIpc({
         });
       }
 
-      if (typeof onAsrFinal === 'function' && finalText) {
+      if (typeof onAsrFinal === 'function' && finalText && autoStartChat) {
         await onAsrFinal({
           sessionId,
           text: finalText,

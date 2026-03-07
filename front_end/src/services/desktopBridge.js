@@ -616,12 +616,12 @@ export const desktopBridge = {
         isSpeech,
       });
     },
-    async commit({ sessionId, finalSeq } = {}) {
+    async commit({ sessionId, finalSeq, autoStartChat = true } = {}) {
       const api = getDesktopApi();
       if (!api?.voice?.commitInput) {
         return { ok: false, reason: 'desktop_voice_unavailable' };
       }
-      return api.voice.commitInput({ sessionId, finalSeq });
+      return api.voice.commitInput({ sessionId, finalSeq, autoStartChat });
     },
     async stop({ sessionId, reason = 'manual' } = {}) {
       const api = getDesktopApi();
