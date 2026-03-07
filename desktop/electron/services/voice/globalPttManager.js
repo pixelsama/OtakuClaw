@@ -1,3 +1,6 @@
+const { fork } = require('node:child_process');
+const path = require('node:path');
+
 function normalizePttHotkey(value) {
   const normalized = typeof value === 'string' ? value.trim().toUpperCase() : '';
   if (normalized === ' ' || normalized === 'SPACE') {
@@ -10,138 +13,141 @@ function normalizePttHotkey(value) {
 }
 
 class GlobalPttManager {
-  constructor({ emitCommand, emitStatus, logger = console } = {}) {
+  constructor({
+    emitCommand,
+    emitStatus,
+    logger = console,
+    forkImpl = fork,
+    workerFilePath = path.join(__dirname, 'globalPttHookProcess.js'),
+  } = {}) {
     this.emitCommand = typeof emitCommand === 'function' ? emitCommand : () => {};
     this.emitStatus = typeof emitStatus === 'function' ? emitStatus : () => {};
     this.logger = logger;
+    this.forkImpl = forkImpl;
+    this.workerFilePath = workerFilePath;
     this.hotkey = 'F8';
-    this.keycode = 0;
-    this.pressed = false;
     this.started = false;
-    this.module = null;
-    this.keyMap = null;
-    this.onKeyDown = null;
-    this.onKeyUp = null;
+    this.lastError = '';
+    this.worker = null;
+    this.workerReady = false;
+    this.shouldRun = false;
   }
 
   updateSettings(settings = {}) {
     this.hotkey = normalizePttHotkey(settings?.voice?.pttHotkey);
-    this.keycode = this.resolveKeycode(this.hotkey);
+    if (this.worker && this.worker.connected) {
+      this.worker.send({ type: 'configure', hotkey: this.hotkey });
+    }
     this.emitCurrentStatus();
   }
 
   emitCurrentStatus(extra = {}) {
-    this.emitStatus({
-      available: Boolean(this.started && this.keycode),
+    this.emitStatus(this.getStatus(extra));
+  }
+
+  getStatus(extra = {}) {
+    return {
+      available: Boolean(this.started && this.workerReady),
       hotkey: this.hotkey,
+      error: this.lastError,
       ...extra,
+    };
+  }
+
+  ensureWorker() {
+    if (this.worker && this.worker.connected) {
+      return this.worker;
+    }
+
+    this.workerReady = false;
+    const worker = this.forkImpl(this.workerFilePath, [], {
+      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
     });
-  }
+    this.worker = worker;
 
-  resolveKeycode(hotkey) {
-    if (!this.keyMap) {
-      return 0;
-    }
-    if (hotkey === 'SPACE') {
-      return this.keyMap.Space || 0;
-    }
-    return this.keyMap[hotkey] || 0;
-  }
+    worker.stderr?.on('data', (chunk) => {
+      const text = chunk.toString().trim();
+      if (text) {
+        this.logger.warn(`[global-ptt-worker] ${text}`);
+      }
+    });
 
-  ensureModule() {
-    if (this.module) {
-      return true;
-    }
+    worker.on('message', (message = {}) => {
+      if (!message || typeof message !== 'object') {
+        return;
+      }
 
-    try {
-      const loaded = require('uiohook-napi');
-      this.module = loaded.uIOhook;
-      this.keyMap = loaded.UiohookKey;
-      this.keycode = this.resolveKeycode(this.hotkey);
-      return Boolean(this.module && this.keyMap);
-    } catch (error) {
-      this.logger.warn('Failed to load global PTT hook module:', error);
+      if (message.type === 'ready') {
+        this.workerReady = true;
+        this.lastError = '';
+        worker.send({ type: 'configure', hotkey: this.hotkey });
+        if (this.shouldRun) {
+          worker.send({ type: 'start' });
+        }
+        return;
+      }
+
+      if (message.type === 'status') {
+        this.started = message.available === true;
+        this.lastError = typeof message.error === 'string' ? message.error : '';
+        this.emitCurrentStatus({
+          available: this.started,
+          error: this.lastError,
+        });
+        return;
+      }
+
+      if (message.type === 'command' && (message.action === 'start' || message.action === 'stop')) {
+        this.emitCommand({
+          action: message.action,
+          hotkey: this.hotkey,
+        });
+      }
+    });
+
+    worker.on('exit', (code, signal) => {
+      if (this.worker === worker) {
+        this.worker = null;
+      }
+      this.workerReady = false;
+      this.started = false;
+      this.lastError = `ptt_worker_exited:${code ?? 'null'}:${signal || 'none'}`;
       this.emitCurrentStatus({
         available: false,
-        error: error?.message || 'ptt_hook_module_unavailable',
+        error: this.lastError,
       });
-      return false;
-    }
+    });
+
+    worker.on('error', (error) => {
+      this.workerReady = false;
+      this.started = false;
+      this.lastError = error?.message || 'ptt_worker_spawn_failed';
+      this.emitCurrentStatus({
+        available: false,
+        error: this.lastError,
+      });
+    });
+
+    worker.send({ type: 'init', hotkey: this.hotkey });
+    return worker;
   }
 
   start() {
-    if (this.started) {
-      this.emitCurrentStatus();
-      return;
-    }
-    if (!this.ensureModule()) {
-      return;
-    }
-
-    this.onKeyDown = (event = {}) => {
-      if (!this.keycode || event.keycode !== this.keycode || this.pressed) {
-        return;
-      }
-      this.pressed = true;
-      this.emitCommand({ action: 'start', hotkey: this.hotkey });
-    };
-
-    this.onKeyUp = (event = {}) => {
-      if (!this.keycode || event.keycode !== this.keycode || !this.pressed) {
-        return;
-      }
-      this.pressed = false;
-      this.emitCommand({ action: 'stop', hotkey: this.hotkey });
-    };
-
-    this.module.on('keydown', this.onKeyDown);
-    this.module.on('keyup', this.onKeyUp);
-
-    try {
-      this.module.start();
-      this.started = true;
-      this.emitCurrentStatus();
-    } catch (error) {
-      this.logger.warn('Failed to start global PTT hook:', error);
-      if (typeof this.module.removeListener === 'function') {
-        this.module.removeListener('keydown', this.onKeyDown);
-        this.module.removeListener('keyup', this.onKeyUp);
-      }
-      this.onKeyDown = null;
-      this.onKeyUp = null;
-      this.emitCurrentStatus({
-        available: false,
-        error: error?.message || 'ptt_hook_start_failed',
-      });
-    }
+    this.shouldRun = true;
+    this.ensureWorker();
+    this.emitCurrentStatus();
   }
 
   stop() {
-    if (!this.module) {
-      return;
+    this.shouldRun = false;
+    if (this.worker && this.worker.connected) {
+      this.worker.send({ type: 'stop' });
+      this.worker.disconnect();
     }
-
-    if (typeof this.module.removeListener === 'function') {
-      if (this.onKeyDown) {
-        this.module.removeListener('keydown', this.onKeyDown);
-      }
-      if (this.onKeyUp) {
-        this.module.removeListener('keyup', this.onKeyUp);
-      }
-    }
-
-    try {
-      if (this.started) {
-        this.module.stop();
-      }
-    } catch (error) {
-      this.logger.warn('Failed to stop global PTT hook:', error);
-    }
-
+    this.worker = null;
+    this.workerReady = false;
     this.started = false;
-    this.pressed = false;
-    this.onKeyDown = null;
-    this.onKeyUp = null;
+    this.lastError = '';
     this.emitCurrentStatus({ available: false });
   }
 }

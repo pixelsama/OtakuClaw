@@ -177,6 +177,50 @@ function resolveTtsModelPath(bundle = {}) {
   return bundle?.tts?.modelPath || bundle?.runtime?.ttsModelDir || '';
 }
 
+function normalizePttStatus(status = {}, fallbackHotkey = 'F8') {
+  const hotkey = typeof status?.hotkey === 'string' && status.hotkey.trim()
+    ? status.hotkey.trim().toUpperCase()
+    : fallbackHotkey;
+
+  return {
+    available: status?.available === true,
+    hotkey,
+    error: typeof status?.error === 'string' ? status.error.trim() : '',
+  };
+}
+
+function isLikelyPttPermissionError(error = '') {
+  return /(permission|not authorized|accessibility|input monitoring|monitoring|trusted|denied|ax|sigabrt|ptt_worker_exited)/i.test(error);
+}
+
+export function describePttStatus({ status = {}, fallbackHotkey = 'F8', t }) {
+  const normalized = normalizePttStatus(status, fallbackHotkey);
+
+  if (normalized.available) {
+    return {
+      severity: 'success',
+      message: t('voice.pttStatusReady', { hotkey: normalized.hotkey }),
+    };
+  }
+
+  if (normalized.error) {
+    return {
+      severity: 'warning',
+      message: isLikelyPttPermissionError(normalized.error)
+        ? t('voice.pttStatusPermissionDenied', { hotkey: normalized.hotkey })
+        : t('voice.pttStatusUnavailable', {
+          hotkey: normalized.hotkey,
+          error: normalized.error,
+        }),
+    };
+  }
+
+  return {
+    severity: 'info',
+    message: t('voice.pttStatusPending', { hotkey: normalized.hotkey }),
+  };
+}
+
 export function resolveCatalogSelectionFromBundle({
   bundles = [],
   selectedBundleId = '',
@@ -335,6 +379,7 @@ export default function VoiceSettingsPanel({
     const raw = typeof voiceSettings?.pttHotkey === 'string' ? voiceSettings.pttHotkey.trim().toUpperCase() : '';
     return raw || 'F8';
   }, [voiceSettings?.pttHotkey]);
+  const [pttStatus, setPttStatus] = useState(() => normalizePttStatus({}, pttHotkey));
 
   const activeAsrBundle = useMemo(
     () => modelBundles.find((item) => item.id === selectedAsrBundleId) || null,
@@ -961,6 +1006,50 @@ export default function VoiceSettingsPanel({
   );
 
   useEffect(() => {
+    setPttStatus((current) => normalizePttStatus(current, pttHotkey));
+  }, [pttHotkey]);
+
+  useEffect(() => {
+    if (!desktopMode) {
+      return () => {};
+    }
+
+    let disposed = false;
+    const applyStatus = (nextStatus = {}) => {
+      if (disposed) {
+        return;
+      }
+      setPttStatus(normalizePttStatus(nextStatus, pttHotkey));
+    };
+
+    void desktopBridge.voice.getPttStatus()
+      .then((status) => {
+        applyStatus(status);
+      })
+      .catch((error) => {
+        applyStatus({
+          available: false,
+          hotkey: pttHotkey,
+          error: error?.message || 'ptt_status_unavailable',
+        });
+      });
+
+    const off = desktopBridge.voice.onPttStatus((status) => {
+      applyStatus(status);
+    });
+
+    return () => {
+      disposed = true;
+      off();
+    };
+  }, [desktopMode, pttHotkey]);
+
+  const pttStatusInfo = useMemo(
+    () => describePttStatus({ status: pttStatus, fallbackHotkey: pttHotkey, t }),
+    [pttHotkey, pttStatus, t],
+  );
+
+  useEffect(() => {
     if (!isCapturingHotkey) {
       return () => {};
     }
@@ -991,6 +1080,7 @@ export default function VoiceSettingsPanel({
   return (
     <Stack spacing={2}>
       <Box sx={{ fontWeight: 600 }}>{t('voice.title')}</Box>
+      {desktopMode && <Alert severity={pttStatusInfo.severity}>{pttStatusInfo.message}</Alert>}
       <Stack spacing={1}>
         <Box sx={{ color: 'text.secondary', fontSize: 14 }}>{t('voice.pttHotkey')}</Box>
         <Stack direction="row" spacing={1} alignItems="center">

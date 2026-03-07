@@ -1,5 +1,66 @@
 import { describe, expect, it } from 'vitest';
-import { resolveCatalogSelectionFromBundle } from '../src/components/config/VoiceSettingsPanel.jsx';
+import {
+  describePttStatus,
+  resolveCatalogSelectionFromBundle,
+} from '../src/components/config/VoiceSettingsPanel.jsx';
+
+function createT() {
+  return (key, values = {}) => `${key}|${values.hotkey || ''}|${values.error || ''}`;
+}
+
+describe('describePttStatus', () => {
+  it('returns success copy when global ptt is available', () => {
+    const result = describePttStatus({
+      status: { available: true, hotkey: 'SPACE', error: '' },
+      fallbackHotkey: 'F8',
+      t: createT(),
+    });
+
+    expect(result).toEqual({
+      severity: 'success',
+      message: 'voice.pttStatusReady|SPACE|',
+    });
+  });
+
+  it('returns permission guidance when the hook reports a permission-like error', () => {
+    const result = describePttStatus({
+      status: { available: false, hotkey: 'F8', error: 'Accessibility permission denied' },
+      fallbackHotkey: 'F8',
+      t: createT(),
+    });
+
+    expect(result).toEqual({
+      severity: 'warning',
+      message: 'voice.pttStatusPermissionDenied|F8|',
+    });
+  });
+
+  it('treats worker abort exits as permission-style guidance', () => {
+    const result = describePttStatus({
+      status: { available: false, hotkey: 'F8', error: 'ptt_worker_exited:null:SIGABRT' },
+      fallbackHotkey: 'F8',
+      t: createT(),
+    });
+
+    expect(result).toEqual({
+      severity: 'warning',
+      message: 'voice.pttStatusPermissionDenied|F8|',
+    });
+  });
+
+  it('returns generic unavailable copy for non-permission errors', () => {
+    const result = describePttStatus({
+      status: { available: false, hotkey: 'F9', error: 'uiohook bootstrap failed' },
+      fallbackHotkey: 'F8',
+      t: createT(),
+    });
+
+    expect(result).toEqual({
+      severity: 'warning',
+      message: 'voice.pttStatusUnavailable|F9|uiohook bootstrap failed',
+    });
+  });
+});
 
 describe('resolveCatalogSelectionFromBundle', () => {
   it('prefers the catalog id of the active selected bundle', () => {

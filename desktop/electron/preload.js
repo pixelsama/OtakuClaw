@@ -125,6 +125,9 @@ const windowControls = {
 };
 
 const voice = {
+  getPttStatus() {
+    return ipcRenderer.invoke('voice:ptt-status:get');
+  },
   startSession(request) {
     return ipcRenderer.invoke('voice:session:start', request);
   },

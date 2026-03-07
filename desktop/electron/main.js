@@ -253,6 +253,11 @@ async function bootstrap() {
   });
   globalPttManager.updateSettings(settingsStore.getPublic());
   globalPttManager.start();
+  ipcMain.handle('voice:ptt-status:get', async () => globalPttManager?.getStatus() || {
+    available: false,
+    hotkey: 'F8',
+    error: '',
+  });
   live2dModelLibrary = new Live2DModelLibrary(app);
   await live2dModelLibrary.init();
   pythonRuntimeManager = new PythonRuntimeManager(app);
