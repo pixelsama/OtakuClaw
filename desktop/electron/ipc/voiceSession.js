@@ -529,6 +529,51 @@ function registerVoiceSessionIpc({
     };
   };
 
+  const disposeCachedRuntime = async () => {
+    const pending = [];
+    if (cachedAsrService && typeof cachedAsrService.dispose === 'function') {
+      pending.push(Promise.resolve(cachedAsrService.dispose()).catch(() => {}));
+    }
+    if (cachedTtsService && typeof cachedTtsService.dispose === 'function') {
+      pending.push(Promise.resolve(cachedTtsService.dispose()).catch(() => {}));
+    }
+
+    cachedAsrService = null;
+    cachedTtsService = null;
+    cachedEnvFingerprint = '';
+
+    if (pending.length > 0) {
+      await Promise.allSettled(pending);
+    }
+  };
+
+  const warmupRuntime = async ({
+    reload = false,
+    warmAsr = true,
+    warmTts = true,
+  } = {}) => {
+    if (reload) {
+      await disposeCachedRuntime();
+    }
+
+    const runtime = resolveRuntime();
+    const warmupTasks = [];
+
+    if (warmAsr && runtime?.asrService && typeof runtime.asrService.warmup === 'function') {
+      warmupTasks.push(runtime.asrService.warmup());
+    }
+
+    if (warmTts && runtime?.ttsService && typeof runtime.ttsService.warmup === 'function') {
+      warmupTasks.push(runtime.ttsService.warmup());
+    }
+
+    if (warmupTasks.length > 0) {
+      await Promise.all(warmupTasks);
+    }
+
+    return runtime;
+  };
+
   const buildSessionState = (sessionId, mode) => ({
     sessionId,
     mode: mode || 'vad',
@@ -1494,15 +1539,7 @@ function registerVoiceSessionIpc({
       clearTtsAckWatchdog(sessionState);
     }
     sessionMap.clear();
-    if (cachedAsrService && typeof cachedAsrService.dispose === 'function') {
-      Promise.resolve(cachedAsrService.dispose()).catch(() => {});
-    }
-    if (cachedTtsService && typeof cachedTtsService.dispose === 'function') {
-      Promise.resolve(cachedTtsService.dispose()).catch(() => {});
-    }
-    cachedAsrService = null;
-    cachedTtsService = null;
-    cachedEnvFingerprint = '';
+    void disposeCachedRuntime();
 
     ipcMain.removeHandler('voice:session:start');
     ipcMain.removeHandler('voice:audio:chunk');
@@ -1517,6 +1554,8 @@ function registerVoiceSessionIpc({
 
   dispose.enqueueSegmentReady = (payload = {}) => enqueueSegmentReady(payload);
   dispose.markTurnDone = (payload = {}) => markTurnDone(payload);
+  dispose.disposeCachedRuntime = disposeCachedRuntime;
+  dispose.warmupRuntime = warmupRuntime;
 
   return dispose;
 }

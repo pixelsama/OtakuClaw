@@ -30,6 +30,9 @@ function createMockAsrProvider() {
 
 function createMockTtsProvider() {
   return {
+    async warmup() {
+      return;
+    },
     async synthesize({ text = '', signal, onChunk }) {
       if (signal?.aborted) {
         throw createAbortError();

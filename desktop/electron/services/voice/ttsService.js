@@ -37,6 +37,14 @@ function createTtsService({ provider = null, env = process.env } = {}) {
   };
 
   return {
+    async warmup() {
+      const ttsProvider = getTtsProvider();
+      if (typeof ttsProvider.warmup !== 'function') {
+        return;
+      }
+
+      await ttsProvider.warmup();
+    },
     async synthesize({ text = '', signal, onChunk }) {
       const ttsProvider = getTtsProvider();
       return ttsProvider.synthesize({

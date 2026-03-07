@@ -157,6 +157,28 @@ function createTtsWorkerClient({ provider = null, env = process.env } = {}) {
         return;
       }
 
+      if (message.type === 'warmup-done') {
+        pendingRequests.delete(requestId);
+        pending.resolve();
+        return;
+      }
+
+      if (message.type === 'warmup-error') {
+        pendingRequests.delete(requestId);
+        const errorPayload = message.error && typeof message.error === 'object' ? message.error : {};
+        const error = new Error(errorPayload.message || 'TTS worker warmup failed.');
+        error.name = errorPayload.name || 'Error';
+        if (errorPayload.code) {
+          error.code = errorPayload.code;
+        }
+        if (errorPayload.stage) {
+          error.stage = errorPayload.stage;
+        }
+        error.retriable = Boolean(errorPayload.retriable);
+        pending.reject(error);
+        return;
+      }
+
       if (message.type === 'tts-chunk') {
         Promise.resolve()
           .then(async () => {
@@ -267,6 +289,29 @@ function createTtsWorkerClient({ provider = null, env = process.env } = {}) {
     }
   };
 
+  const sendWarmupRequest = async () => {
+    await ensureReady();
+
+    if (!worker || worker.killed) {
+      throw createWorkerError('TTS worker is unavailable.', 'voice_tts_worker_unavailable');
+    }
+
+    requestSeq += 1;
+    const requestId = `tts-warmup-${Date.now().toString(36)}-${requestSeq.toString(36)}`;
+
+    return new Promise((resolve, reject) => {
+      pendingRequests.set(requestId, {
+        resolve,
+        reject,
+      });
+
+      worker.send({
+        type: 'warmup',
+        requestId,
+      });
+    });
+  };
+
   const sendSynthesizeRequest = async ({ text, signal, onChunk } = {}) => {
     await ensureReady();
 
@@ -357,6 +402,28 @@ function createTtsWorkerClient({ provider = null, env = process.env } = {}) {
     }
   };
 
+  const warmup = async () => {
+    let retriesLeft = 1;
+
+    while (true) {
+      try {
+        await sendWarmupRequest();
+        return;
+      } catch (error) {
+        const shouldRetry =
+          retriesLeft > 0
+          && error?.code === 'voice_tts_worker_exited'
+          && !disposed;
+
+        if (!shouldRetry) {
+          throw error;
+        }
+
+        retriesLeft -= 1;
+      }
+    }
+  };
+
   const dispose = async () => {
     if (disposed) {
       return;
@@ -374,6 +441,7 @@ function createTtsWorkerClient({ provider = null, env = process.env } = {}) {
   };
 
   return {
+    warmup,
     synthesize,
     dispose,
   };

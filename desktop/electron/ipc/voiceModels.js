@@ -16,7 +16,18 @@ function registerVoiceModelsIpc({
   ipcMain,
   voiceModelLibrary,
   emitDownloadProgress,
+  onSelectionChanged,
 }) {
+  const notifySelectionChanged = (payload = {}) => {
+    if (typeof onSelectionChanged !== 'function') {
+      return;
+    }
+
+    Promise.resolve(onSelectionChanged(payload)).catch((error) => {
+      console.warn('Failed to refresh warmed voice runtime after model selection change:', error);
+    });
+  };
+
   ipcMain.handle('voice-models:catalog', async () => {
     return {
       ok: true,
@@ -48,6 +59,7 @@ function registerVoiceModelsIpc({
         },
       );
 
+      notifySelectionChanged();
       return {
         ok: true,
         ...result,
@@ -63,6 +75,7 @@ function registerVoiceModelsIpc({
   ipcMain.handle('voice-models:select', async (_event, payload = {}) => {
     try {
       await voiceModelLibrary.selectBundles(payload);
+      notifySelectionChanged();
       return {
         ok: true,
         ...voiceModelLibrary.listBundles(),
@@ -85,6 +98,7 @@ function registerVoiceModelsIpc({
         },
       });
 
+      notifySelectionChanged();
       return {
         ok: true,
         ...result,

@@ -199,6 +199,30 @@ async function handleSynthesize(message = {}) {
   }
 }
 
+async function handleWarmup(message = {}) {
+  const requestId = toRequestId(message.requestId);
+  if (!requestId) {
+    return;
+  }
+
+  try {
+    const provider = getTtsProvider();
+    if (typeof provider?.warmup === 'function') {
+      await provider.warmup();
+    }
+    sendMessage({
+      type: 'warmup-done',
+      requestId,
+    });
+  } catch (error) {
+    sendMessage({
+      type: 'warmup-error',
+      requestId,
+      error: serializeError(error),
+    });
+  }
+}
+
 process.on('message', (message = {}) => {
   if (!message || typeof message !== 'object') {
     return;
@@ -214,6 +238,11 @@ process.on('message', (message = {}) => {
 
   if (message.type === 'synthesize') {
     void handleSynthesize(message);
+    return;
+  }
+
+  if (message.type === 'warmup') {
+    void handleWarmup(message);
     return;
   }
 

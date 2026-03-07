@@ -511,6 +511,9 @@ function createSherpaOnnxTtsProvider({ options = {}, requireFn = require } = {})
   };
 
   return {
+    async warmup() {
+      getTtsEngine();
+    },
     async synthesize({ text = '', signal, onChunk } = {}) {
       if (signal?.aborted) {
         throw createAbortError();

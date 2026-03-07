@@ -114,6 +114,68 @@ test('voice session start triggers background asr warmup when available', async 
   assert.equal(warmupCalls, 1);
 });
 
+test('voice runtime warmup reloads cached asr and tts services', async () => {
+  const ipcMain = createIpcMainMock();
+  const lifecycle = [];
+  let envVersion = 1;
+
+  const control = registerVoiceSessionIpc({
+    ipcMain,
+    emitEvent: () => {},
+    resolveVoiceEnv: () => ({
+      VOICE_ASR_PROVIDER: 'python',
+      VOICE_TTS_PROVIDER: 'python',
+      VOICE_ENV_VERSION: String(envVersion),
+    }),
+    createAsrServiceImpl: ({ env }) => ({
+      async warmup() {
+        lifecycle.push(`asr:warmup:${env.VOICE_ENV_VERSION}`);
+      },
+      async dispose() {
+        lifecycle.push(`asr:dispose:${env.VOICE_ENV_VERSION}`);
+      },
+      async transcribe() {
+        return { text: '' };
+      },
+    }),
+    createTtsServiceImpl: ({ env }) => ({
+      async warmup() {
+        lifecycle.push(`tts:warmup:${env.VOICE_ENV_VERSION}`);
+      },
+      async dispose() {
+        lifecycle.push(`tts:dispose:${env.VOICE_ENV_VERSION}`);
+      },
+      async synthesize() {
+        return { sampleRate: 24000, sampleCount: 0 };
+      },
+    }),
+  });
+
+  await control.warmupRuntime({
+    reload: true,
+    warmAsr: true,
+    warmTts: true,
+  });
+
+  envVersion = 2;
+  await control.warmupRuntime({
+    reload: true,
+    warmAsr: true,
+    warmTts: true,
+  });
+
+  assert.deepEqual(lifecycle, [
+    'asr:warmup:1',
+    'tts:warmup:1',
+    'asr:dispose:1',
+    'tts:dispose:1',
+    'asr:warmup:2',
+    'tts:warmup:2',
+  ]);
+
+  control();
+});
+
 test('voice playback ack emits flow-control pause/resume', async () => {
   const ipcMain = createIpcMainMock();
   const flowEvents = [];

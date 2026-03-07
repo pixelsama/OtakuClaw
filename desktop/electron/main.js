@@ -313,6 +313,17 @@ async function bootstrap() {
       }
       mainWindow.webContents.send('voice-models:download-progress', payload);
     },
+    onSelectionChanged: async () => {
+      if (!disposeVoiceSessionHandlers || typeof disposeVoiceSessionHandlers.warmupRuntime !== 'function') {
+        return;
+      }
+
+      await disposeVoiceSessionHandlers.warmupRuntime({
+        reload: true,
+        warmAsr: true,
+        warmTts: true,
+      });
+    },
   });
 
   const chatStreamControl = registerChatStreamIpc({
@@ -423,6 +434,17 @@ async function bootstrap() {
   });
 
   await createMainWindow();
+  if (disposeVoiceSessionHandlers && typeof disposeVoiceSessionHandlers.warmupRuntime === 'function') {
+    Promise.resolve(
+      disposeVoiceSessionHandlers.warmupRuntime({
+        reload: true,
+        warmAsr: true,
+        warmTts: true,
+      }),
+    ).catch((error) => {
+      console.warn('Initial voice model warmup failed:', error);
+    });
+  }
 
   app.on('activate', async () => {
     if (!mainWindow || mainWindow.isDestroyed()) {

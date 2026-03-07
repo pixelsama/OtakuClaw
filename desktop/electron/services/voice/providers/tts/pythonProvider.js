@@ -649,6 +649,9 @@ function createResidentPythonTtsRunner(
   };
 
   return {
+    async warmup() {
+      await ensureReady();
+    },
     async synthesize({ text = '', instruct = '', signal, onChunk } = {}) {
       if (signal?.aborted) {
         throw createAbortError();
@@ -969,6 +972,56 @@ function createPythonTtsProvider(
   };
 
   return {
+    async warmup() {
+      const pythonExecutable = normalizePath(options.pythonExecutable);
+      const bridgeScriptPath = normalizePath(options.bridgeScriptPath);
+      const engine = normalizePath(options.engine) || DEFAULT_ENGINE;
+      const modelDir = normalizePath(options.modelDir);
+      const tokenizerDir = normalizePath(options.tokenizerDir);
+      const ttsMode = normalizePath(options.ttsMode) || DEFAULT_TTS_MODE;
+      const speaker = normalizePath(options.speaker) || DEFAULT_SPEAKER;
+      const language = normalizePath(options.language) || DEFAULT_LANGUAGE;
+      const device = normalizePath(options.device) || DEFAULT_DEVICE;
+      const timeoutMs = Math.max(1_000, toPositiveInteger(options.timeoutMs, 180_000));
+      const stream = toBoolean(options.stream, engine === 'qwen3-mlx');
+      const streamingInterval = Math.max(
+        0.1,
+        toPositiveNumber(options.streamingInterval, DEFAULT_STREAMING_INTERVAL),
+      );
+      const temperature = Math.max(0, toPositiveNumber(options.temperature, DEFAULT_TEMPERATURE));
+      const useResidentWorker = engine === 'qwen3-mlx' && !toBoolean(options.disableResidentWorker, false);
+
+      ensureBasePaths({
+        pythonExecutable,
+        bridgeScriptPath,
+        modelDir,
+        tokenizerDir,
+        engine,
+        requireBridgeScript: !useResidentWorker,
+      });
+
+      if (!useResidentWorker) {
+        return;
+      }
+
+      const runner = getResidentRunner({
+        pythonExecutable,
+        modelDir,
+        tokenizerDir,
+        engine,
+        ttsMode,
+        speaker,
+        language,
+        device,
+        stream,
+        streamingInterval,
+        temperature,
+        timeoutMs,
+      });
+      if (typeof runner.warmup === 'function') {
+        await runner.warmup();
+      }
+    },
     async synthesize({ text = '', signal, onChunk } = {}) {
       if (signal?.aborted) {
         throw createAbortError();
