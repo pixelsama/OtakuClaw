@@ -461,24 +461,6 @@ export default function VoiceSettingsPanel({ desktopMode = false, onOpenDownload
         setModelError('');
       }
       setCatalogItems(items);
-      setSelectedAsrCatalogId((previous) => {
-        return resolveCatalogSelectionFromBundle({
-          bundles: modelBundles,
-          selectedBundleId: selectedAsrBundleId,
-          catalogItems: items.filter((item) => item?.hasAsr),
-          previousCatalogId: previous,
-          capability: 'asr',
-        });
-      });
-      setSelectedTtsCatalogId((previous) => {
-        return resolveCatalogSelectionFromBundle({
-          bundles: modelBundles,
-          selectedBundleId: selectedTtsBundleId,
-          catalogItems: items.filter((item) => item?.hasTts),
-          previousCatalogId: previous,
-          capability: 'tts',
-        });
-      });
     } catch (error) {
       if (mountedRef.current) {
         setCatalogItems([]);
@@ -487,7 +469,7 @@ export default function VoiceSettingsPanel({ desktopMode = false, onOpenDownload
         setModelError(error?.message || '读取内置模型列表失败，请重启应用后重试。');
       }
     }
-  }, [desktopMode, modelBundles, selectedAsrBundleId, selectedTtsBundleId]);
+  }, [desktopMode]);
 
   const handleRefreshModels = useCallback(async () => {
     setModelError('');
