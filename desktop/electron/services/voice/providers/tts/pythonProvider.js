@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { resolveExternalScriptPath } = require('../../../externalScriptPath');
 
 const DEFAULT_SAMPLE_RATE = 24000;
 const DEFAULT_CHUNK_MS = 120;
@@ -178,10 +179,10 @@ function parseWorkerLine(line) {
 function resolveResidentScriptPath(configuredPath = '') {
   const explicit = normalizePath(configuredPath);
   if (explicit) {
-    return explicit;
+    return resolveExternalScriptPath(explicit);
   }
 
-  return path.join(__dirname, '..', 'python', 'tts_resident_worker.py');
+  return resolveExternalScriptPath(path.join(__dirname, '..', 'python', 'tts_resident_worker.py'));
 }
 
 async function runPythonBridge({

@@ -1,6 +1,7 @@
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const { resolveExternalScriptPath } = require('../../externalScriptPath');
 
 function createAbortError() {
   const error = new Error('aborted');
@@ -102,7 +103,7 @@ function sanitizeDebugPayload(value) {
 function createNanobotBridgeClient({
   spawnImpl = spawn,
   pythonBin,
-  scriptPath = path.join(__dirname, 'nanobot_bridge.py'),
+  scriptPath = resolveExternalScriptPath(path.join(__dirname, 'nanobot_bridge.py')),
   env = process.env,
   resolveLaunchConfig,
   emitDebugLog,
@@ -299,19 +300,20 @@ function createNanobotBridgeClient({
         PYTHONUNBUFFERED: '1',
         NANOBOT_REPO_PATH: resolvedRepoPath,
       };
+      const resolvedScriptPath = resolveExternalScriptPath(scriptPath);
       debug('bridge-launch', 'Launching Nanobot bridge process.', {
         pythonBin: resolvedPythonBin,
         repoPath: resolvedRepoPath,
-        scriptPath,
+        scriptPath: resolvedScriptPath,
       });
 
-      const scriptExists = fs.existsSync(scriptPath);
+      const scriptExists = fs.existsSync(resolvedScriptPath);
       if (!scriptExists) {
-        throw createBridgeError('nanobot_runtime_not_ready', `Nanobot bridge script not found: ${scriptPath}`);
+        throw createBridgeError('nanobot_runtime_not_ready', `Nanobot bridge script not found: ${resolvedScriptPath}`);
       }
 
       try {
-        child = spawnImpl(resolvedPythonBin, [scriptPath], {
+        child = spawnImpl(resolvedPythonBin, [resolvedScriptPath], {
           stdio: ['pipe', 'pipe', 'pipe'],
           env: launchEnv,
         });

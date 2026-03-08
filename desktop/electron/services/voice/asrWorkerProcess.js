@@ -3,6 +3,7 @@ const fsp = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { resolveExternalScriptPath } = require('../externalScriptPath');
 
 const JSON_PREFIX = '__ASR_JSON__';
 const READY_TIMEOUT_MS = 90_000;
@@ -176,10 +177,10 @@ function sendMessage(payload) {
 function resolveResidentScriptPath(configuredPath = '') {
   const explicit = normalizePath(configuredPath);
   if (explicit) {
-    return explicit;
+    return resolveExternalScriptPath(explicit);
   }
 
-  return path.join(__dirname, 'providers', 'python', 'asr_resident_worker.py');
+  return resolveExternalScriptPath(path.join(__dirname, 'providers', 'python', 'asr_resident_worker.py'));
 }
 
 function ensurePathExists(pathValue, envKey, notConfiguredCode, missingCode) {
