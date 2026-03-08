@@ -760,6 +760,13 @@ export const desktopBridge = {
       }
       return api.voice.onFlowControl(handler);
     },
+    onToggleRequest(handler) {
+      const api = getDesktopApi();
+      if (!api?.voice?.onToggleRequest || typeof handler !== 'function') {
+        return () => {};
+      }
+      return api.voice.onToggleRequest(handler);
+    },
   },
   voiceModels: {
     async catalog() {

@@ -265,6 +265,9 @@ function AppContent({ desktopMode }) {
     desktopMode,
     chatSessionId: 'text-composer',
     onSubmitVoiceText: submitVoiceText,
+    onInterruptAssistant: async () => {
+      await cancelStreaming();
+    },
   });
   const textComposerWithVoiceProps = useMemo(
     () => ({

@@ -134,4 +134,37 @@ describe('desktopBridge conversation-only routing', () => {
     off();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
+
+  it('routes voice.onToggleRequest through voice toggle channel', () => {
+    const unsubscribe = vi.fn();
+    let listener = null;
+    globalThis.window = {
+      desktop: {
+        isElectron: true,
+        voice: {
+          onToggleRequest: vi.fn((handler) => {
+            listener = handler;
+            return unsubscribe;
+          }),
+        },
+      },
+    };
+
+    const toggleHandler = vi.fn();
+    const off = desktopBridge.voice.onToggleRequest(toggleHandler);
+
+    listener?.({
+      source: 'global-shortcut',
+      accelerator: 'CommandOrControl+Shift+Space',
+    });
+
+    expect(toggleHandler).toHaveBeenCalledTimes(1);
+    expect(toggleHandler).toHaveBeenCalledWith({
+      source: 'global-shortcut',
+      accelerator: 'CommandOrControl+Shift+Space',
+    });
+
+    off();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
 });

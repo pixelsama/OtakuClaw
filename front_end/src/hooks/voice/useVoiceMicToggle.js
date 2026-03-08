@@ -3,11 +3,15 @@ import { useSileroVad } from './useSileroVad.js';
 import { waitForSpeechDrain, waitForSpeechQueueSettled } from './pttSpeechDrain.js';
 import { useVoiceSession } from './useVoiceSession.js';
 import { useVoiceTtsPlayback } from './useVoiceTtsPlayback.js';
+import { desktopBridge } from '../../services/desktopBridge.js';
 
 const DEFAULT_FRAME_SAMPLES = 320;
-const DEFAULT_PTT_FLUSH_TIMEOUT_MS = 1500;
-const RAW_PTT_HOTKEY = import.meta.env.VITE_VOICE_PTT_KEY || import.meta.env.VITE_PTT_HOTKEY || 'F8';
-const RAW_PTT_FLUSH_TIMEOUT_MS = import.meta.env.VITE_VOICE_PTT_FLUSH_TIMEOUT_MS;
+const DEFAULT_AUTO_SUBMIT_DELAY_MS = 1500;
+const DEFAULT_INTERRUPT_CONFIRM_MS = 200;
+const RAW_VOICE_TOGGLE_HOTKEY =
+  import.meta.env.VITE_VOICE_TOGGLE_ACCELERATOR || 'CommandOrControl+Shift+Space';
+const RAW_AUTO_SUBMIT_DELAY_MS = import.meta.env.VITE_VOICE_AUTO_SUBMIT_DELAY_MS;
+const RAW_INTERRUPT_CONFIRM_MS = import.meta.env.VITE_VOICE_INTERRUPT_CONFIRM_MS;
 
 function clampToInt16(sample) {
   const clamped = Math.max(-1, Math.min(1, sample));
@@ -42,17 +46,13 @@ function splitFloat32ToPcmChunks(audioFloat32, frameSamples = DEFAULT_FRAME_SAMP
   return chunks;
 }
 
-function normalizePttHotkey(value) {
+function normalizeHotkeyLabel(value) {
   const raw = typeof value === 'string' ? value.trim() : '';
   if (!raw) {
-    return 'F8';
+    return 'CommandOrControl+Shift+Space';
   }
 
-  if (raw === ' ') {
-    return 'SPACE';
-  }
-
-  return raw.toUpperCase();
+  return raw;
 }
 
 function normalizePositiveInteger(value, fallback) {
@@ -81,52 +81,18 @@ function previewText(value, limit = 80) {
   return `${normalized.slice(0, limit)}...`;
 }
 
-function logPtt(message, details = {}) {
-  console.info('[voice-ptt]', message, details);
-}
-
-function eventMatchesPttHotkey(event, hotkey) {
-  if (!hotkey) {
-    return false;
-  }
-
-  const eventCode = typeof event?.code === 'string' ? event.code.trim().toUpperCase() : '';
-  const eventKey = typeof event?.key === 'string' ? event.key.trim().toUpperCase() : '';
-
-  if (hotkey === 'SPACE') {
-    return eventCode === 'SPACE' || eventKey === 'SPACE' || event?.key === ' ';
-  }
-
-  return eventCode === hotkey || eventKey === hotkey;
-}
-
-function isFunctionHotkey(hotkey) {
-  return /^F[1-9]$/.test(hotkey) || /^F1[0-2]$/.test(hotkey);
-}
-
-function isEditableTarget(target) {
-  if (!target || typeof target !== 'object') {
-    return false;
-  }
-
-  const tagName = typeof target.tagName === 'string' ? target.tagName.toLowerCase() : '';
-  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
-    return true;
-  }
-
-  if (target.isContentEditable) {
-    return true;
-  }
-
-  return false;
+function logVoice(message, details = {}) {
+  console.info('[voice-mic]', message, details);
 }
 
 export function useVoiceMicToggle({
   desktopMode = false,
   chatSessionId = 'text-composer',
   onSubmitVoiceText,
-  pttHotkey = RAW_PTT_HOTKEY,
-  pttFlushTimeoutMs = RAW_PTT_FLUSH_TIMEOUT_MS,
+  onInterruptAssistant,
+  toggleHotkey = RAW_VOICE_TOGGLE_HOTKEY,
+  autoSubmitDelayMs = RAW_AUTO_SUBMIT_DELAY_MS,
+  interruptConfirmMs = RAW_INTERRUPT_CONFIRM_MS,
 } = {}) {
   const seqRef = useRef(0);
   const sentSeqRef = useRef(0);
@@ -139,23 +105,32 @@ export function useVoiceMicToggle({
   const lastSpeechActivityAtRef = useRef(0);
   const runEpochRef = useRef(0);
   const mountedRef = useRef(true);
-  const isArmedRef = useRef(false);
-  const isPttCapturingRef = useRef(false);
-  const isFlushingRef = useRef(false);
-  const hotkeyPressedRef = useRef(false);
+  const isEnabledRef = useRef(false);
+  const isSubmittingRef = useRef(false);
+  const isTransitioningRef = useRef(false);
+  const isInterruptingRef = useRef(false);
+  const isVadSpeakingRef = useRef(false);
+  const isPlayingTtsRef = useRef(false);
+  const autoSubmitTimerRef = useRef(null);
+  const interruptTimerRef = useRef(null);
+  const interruptTokenRef = useRef(0);
   const stopPlaybackRef = useRef(null);
   const stopVadRef = useRef(null);
   const stopSessionRef = useRef(null);
-  const [isArmed, setIsArmed] = useState(false);
-  const [isPttCapturing, setIsPttCapturing] = useState(false);
-  const [isFlushing, setIsFlushing] = useState(false);
+  const [isEnabled, setIsEnabled] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
   const [isProcessingSpeech, setIsProcessingSpeech] = useState(false);
   const [capturedFrames, setCapturedFrames] = useState(0);
   const [localError, setLocalError] = useState('');
-  const normalizedHotkey = useMemo(() => normalizePttHotkey(pttHotkey), [pttHotkey]);
-  const flushTimeoutMs = useMemo(
-    () => normalizePositiveInteger(pttFlushTimeoutMs, DEFAULT_PTT_FLUSH_TIMEOUT_MS),
-    [pttFlushTimeoutMs],
+  const normalizedHotkey = useMemo(() => normalizeHotkeyLabel(toggleHotkey), [toggleHotkey]);
+  const silenceSubmitDelayMs = useMemo(
+    () => normalizePositiveInteger(autoSubmitDelayMs, DEFAULT_AUTO_SUBMIT_DELAY_MS),
+    [autoSubmitDelayMs],
+  );
+  const interruptDelayMs = useMemo(
+    () => normalizePositiveInteger(interruptConfirmMs, DEFAULT_INTERRUPT_CONFIRM_MS),
+    [interruptConfirmMs],
   );
 
   const {
@@ -220,11 +195,252 @@ export function useVoiceMicToggle({
     lastSpeechActivityAtRef.current = Date.now();
   }, []);
 
+  const clearAutoSubmitTimer = useCallback(() => {
+    if (!autoSubmitTimerRef.current) {
+      return;
+    }
+
+    clearTimeout(autoSubmitTimerRef.current);
+    autoSubmitTimerRef.current = null;
+  }, []);
+
+  const clearInterruptTimer = useCallback(() => {
+    interruptTokenRef.current += 1;
+    if (!interruptTimerRef.current) {
+      return;
+    }
+
+    clearTimeout(interruptTimerRef.current);
+    interruptTimerRef.current = null;
+  }, []);
+
+  const waitForSpeechQueue = useCallback(
+    async ({ timeoutMs }) => {
+      return waitForSpeechDrain({
+        timeoutMs,
+        getPendingCount: () => pendingSpeechTasksRef.current,
+        getLastActivityAt: () => lastSpeechActivityAtRef.current,
+        getQueue: () => speechQueueRef.current,
+        onWaitStart: markSpeechActivity,
+      });
+    },
+    [markSpeechActivity],
+  );
+
+  const waitForSpeechQueueSettledAfterTimeout = useCallback(async () => {
+    return waitForSpeechQueueSettled({
+      getPendingCount: () => pendingSpeechTasksRef.current,
+      getQueue: () => speechQueueRef.current,
+    });
+  }, []);
+
+  const submitAggregatedTranscription = useCallback(async () => {
+    const orderedSegments = segmentTextsRef.current
+      .slice()
+      .sort((left, right) => left.segmentIndex - right.segmentIndex)
+      .filter((item) => Boolean(item?.text));
+    const text = orderedSegments.map((item) => item.text).join(' ').trim();
+
+    logVoice('Submitting aggregated voice transcription.', {
+      sessionId: chatSessionId,
+      segmentCount: orderedSegments.length,
+      textLength: text.length,
+      textPreview: previewText(text),
+      hasSubmitHandler: typeof onSubmitVoiceText === 'function',
+    });
+
+    segmentTextsRef.current = [];
+    segmentIndexRef.current = 0;
+
+    if (!text || typeof onSubmitVoiceText !== 'function') {
+      console.warn('[voice-mic] Aggregated voice submit was skipped.', {
+        sessionId: chatSessionId,
+        reason: text ? 'submit_handler_missing' : 'empty_text',
+        textLength: text.length,
+      });
+      return { ok: Boolean(text), reason: text ? 'submit_handler_missing' : 'empty_text' };
+    }
+
+    await onSubmitVoiceText(text, {
+      sessionId: chatSessionId,
+      source: 'voice-mic',
+    });
+    logVoice('Forwarded aggregated voice transcription to chat submitter.', {
+      sessionId: chatSessionId,
+      textLength: text.length,
+      textPreview: previewText(text),
+    });
+    return { ok: true };
+  }, [chatSessionId, onSubmitVoiceText]);
+
+  const flushPendingSpeechAndSubmit = useCallback(
+    async ({ reason = 'silence_timeout' } = {}) => {
+      clearAutoSubmitTimer();
+      if (isSubmittingRef.current) {
+        return { ok: false, reason: 'voice_submit_in_progress' };
+      }
+
+      isSubmittingRef.current = true;
+      setIsSubmitting(true);
+      markSpeechActivity();
+      logVoice('Flushing pending speech for submit.', {
+        reason,
+        pendingSpeechTasks: pendingSpeechTasksRef.current,
+        bufferedSegmentCount: segmentTextsRef.current.length,
+      });
+
+      try {
+        const { timedOut } = await waitForSpeechQueue({
+          timeoutMs: silenceSubmitDelayMs,
+        });
+
+        if (timedOut) {
+          console.warn('[voice-mic] Speech queue exceeded soft timeout; waiting for settlement.', {
+            reason,
+            pendingSpeechTasks: pendingSpeechTasksRef.current,
+            bufferedSegmentCount: segmentTextsRef.current.length,
+            timeoutMs: silenceSubmitDelayMs,
+          });
+          await waitForSpeechQueueSettledAfterTimeout();
+        }
+
+        const submitResult = await submitAggregatedTranscription();
+        if (!submitResult?.ok && submitResult?.reason !== 'empty_text') {
+          setLocalError(submitResult.reason || 'voice_submit_failed');
+        }
+        return submitResult;
+      } finally {
+        isSubmittingRef.current = false;
+        if (mountedRef.current) {
+          setIsSubmitting(false);
+        }
+      }
+    },
+    [
+      clearAutoSubmitTimer,
+      markSpeechActivity,
+      silenceSubmitDelayMs,
+      submitAggregatedTranscription,
+      waitForSpeechQueue,
+      waitForSpeechQueueSettledAfterTimeout,
+    ],
+  );
+
+  const scheduleAutoSubmit = useCallback(() => {
+    clearAutoSubmitTimer();
+    if (isSubmittingRef.current) {
+      return;
+    }
+
+    const hasBufferedText = segmentTextsRef.current.some((item) => Boolean(item?.text));
+    if (!hasBufferedText || !isEnabledRef.current) {
+      return;
+    }
+
+    autoSubmitTimerRef.current = setTimeout(() => {
+      autoSubmitTimerRef.current = null;
+      if (!mountedRef.current || !isEnabledRef.current || isSubmittingRef.current) {
+        return;
+      }
+
+      logVoice('Silence window elapsed; auto-submitting buffered speech.', {
+        delayMs: silenceSubmitDelayMs,
+        bufferedSegmentCount: segmentTextsRef.current.length,
+      });
+      void flushPendingSpeechAndSubmit({ reason: 'silence_timeout' });
+    }, silenceSubmitDelayMs);
+  }, [clearAutoSubmitTimer, flushPendingSpeechAndSubmit, silenceSubmitDelayMs]);
+
+  const handleSpeechStart = useCallback(
+    async (epoch) => {
+      if (epoch !== runEpochRef.current) {
+        return;
+      }
+
+      markSpeechActivity();
+      clearAutoSubmitTimer();
+      clearInterruptTimer();
+
+      if (!isPlayingTtsRef.current) {
+        return;
+      }
+
+      const interruptToken = interruptTokenRef.current + 1;
+      interruptTokenRef.current = interruptToken;
+      interruptTimerRef.current = setTimeout(() => {
+        interruptTimerRef.current = null;
+        if (
+          interruptToken !== interruptTokenRef.current
+          || epoch !== runEpochRef.current
+          || !mountedRef.current
+          || !isEnabledRef.current
+          || !isVadSpeakingRef.current
+          || isInterruptingRef.current
+        ) {
+          return;
+        }
+
+        isInterruptingRef.current = true;
+        logVoice('Interrupting assistant playback after confirmed user speech.', {
+          epoch,
+          delayMs: interruptDelayMs,
+        });
+
+        Promise.resolve()
+          .then(async () => {
+            if (typeof onInterruptAssistant === 'function') {
+              await onInterruptAssistant({ reason: 'barge_in' });
+            }
+            await stopPlayback({
+              emitFinalAck: false,
+              resetSeq: false,
+            });
+            await stopTts({ reason: 'barge_in' });
+          })
+          .catch((error) => {
+            console.error('Assistant interruption failed:', error);
+          })
+          .finally(() => {
+            isInterruptingRef.current = false;
+          });
+      }, interruptDelayMs);
+    },
+    [
+      clearAutoSubmitTimer,
+      clearInterruptTimer,
+      interruptDelayMs,
+      markSpeechActivity,
+      onInterruptAssistant,
+      stopPlayback,
+      stopTts,
+    ],
+  );
+
+  const handleVADMisfire = useCallback(
+    async (epoch) => {
+      if (epoch !== runEpochRef.current) {
+        return;
+      }
+
+      clearInterruptTimer();
+      markSpeechActivity();
+      logVoice('VAD reported a misfire.', {
+        epoch,
+      });
+    },
+    [clearInterruptTimer, markSpeechActivity],
+  );
+
   const handleSpeechEnd = useCallback(
     async (audioFloat32, epoch) => {
+      if (epoch !== runEpochRef.current) {
+        return;
+      }
+
+      clearInterruptTimer();
       pendingSpeechTasksRef.current += 1;
       markSpeechActivity();
-      logPtt('Queued speech-end task from VAD.', {
+      logVoice('Queued speech-end task from VAD.', {
         epoch,
         audioSamples: audioFloat32 instanceof Float32Array ? audioFloat32.length : 0,
         pendingSpeechTasks: pendingSpeechTasksRef.current,
@@ -232,7 +448,7 @@ export function useVoiceMicToggle({
 
       return enqueueSpeechTask(async () => {
         if (epoch !== runEpochRef.current) {
-          logPtt('Skipped speech-end task because epoch is stale.', {
+          logVoice('Skipped speech-end task because epoch is stale.', {
             epoch,
             activeEpoch: runEpochRef.current,
           });
@@ -243,7 +459,7 @@ export function useVoiceMicToggle({
         segmentIndexRef.current += 1;
         const chunks = splitFloat32ToPcmChunks(audioFloat32, DEFAULT_FRAME_SAMPLES);
         if (!chunks.length) {
-          console.warn('[voice-ptt] Speech-end task produced no PCM chunks.', {
+          console.warn('[voice-mic] Speech-end task produced no PCM chunks.', {
             epoch,
             segmentIndex: currentSegmentIndex,
             audioSamples: audioFloat32 instanceof Float32Array ? audioFloat32.length : 0,
@@ -251,7 +467,7 @@ export function useVoiceMicToggle({
           return;
         }
 
-        logPtt('Processing speech segment for commit.', {
+        logVoice('Processing speech segment for commit.', {
           epoch,
           segmentIndex: currentSegmentIndex,
           pcmChunkCount: chunks.length,
@@ -260,7 +476,7 @@ export function useVoiceMicToggle({
 
         for (const pcmChunk of chunks) {
           if (epoch !== runEpochRef.current) {
-            logPtt('Stopped sending PCM chunks because epoch changed mid-segment.', {
+            logVoice('Stopped sending PCM chunks because epoch changed mid-segment.', {
               epoch,
               activeEpoch: runEpochRef.current,
               segmentIndex: currentSegmentIndex,
@@ -286,7 +502,7 @@ export function useVoiceMicToggle({
           });
 
           if (!sent?.ok) {
-            console.warn('[voice-ptt] Failed to send PCM chunk to voice session.', {
+            console.warn('[voice-mic] Failed to send PCM chunk to voice session.', {
               epoch,
               segmentIndex: currentSegmentIndex,
               seq: nextSeq,
@@ -301,7 +517,7 @@ export function useVoiceMicToggle({
         }
 
         if (epoch !== runEpochRef.current) {
-          logPtt('Skipped commit because epoch changed after chunk upload.', {
+          logVoice('Skipped commit because epoch changed after chunk upload.', {
             epoch,
             activeEpoch: runEpochRef.current,
             segmentIndex: currentSegmentIndex,
@@ -311,7 +527,7 @@ export function useVoiceMicToggle({
 
         const finalSeq = sentSeqRef.current;
         if (finalSeq <= lastCommittedSeqRef.current) {
-          logPtt('Skipped commit because no new PCM sequence was buffered.', {
+          logVoice('Skipped commit because no new PCM sequence was buffered.', {
             epoch,
             segmentIndex: currentSegmentIndex,
             finalSeq,
@@ -320,7 +536,7 @@ export function useVoiceMicToggle({
           return;
         }
 
-        logPtt('Submitting speech segment to ASR commit.', {
+        logVoice('Submitting speech segment to ASR commit.', {
           epoch,
           segmentIndex: currentSegmentIndex,
           finalSeq,
@@ -333,7 +549,7 @@ export function useVoiceMicToggle({
         });
 
         if (!committed?.ok) {
-          console.warn('[voice-ptt] ASR commit returned a non-ok result.', {
+          console.warn('[voice-mic] ASR commit returned a non-ok result.', {
             epoch,
             segmentIndex: currentSegmentIndex,
             finalSeq,
@@ -347,7 +563,7 @@ export function useVoiceMicToggle({
 
         lastCommittedSeqRef.current = finalSeq;
         const finalText = typeof committed.text === 'string' ? committed.text.trim() : '';
-        logPtt('Speech segment commit finished.', {
+        logVoice('Speech segment commit finished.', {
           epoch,
           segmentIndex: currentSegmentIndex,
           finalSeq,
@@ -359,249 +575,104 @@ export function useVoiceMicToggle({
             segmentIndex: currentSegmentIndex,
             text: finalText,
           });
-          logPtt('Stored ASR text for aggregated PTT submit.', {
+          logVoice('Stored ASR text for aggregated submit.', {
             epoch,
             segmentIndex: currentSegmentIndex,
             bufferedSegmentCount: segmentTextsRef.current.length,
             textLength: finalText.length,
           });
+          scheduleAutoSubmit();
         }
       }).finally(() => {
         pendingSpeechTasksRef.current = Math.max(0, pendingSpeechTasksRef.current - 1);
         markSpeechActivity();
-        logPtt('Speech-end task settled.', {
+        logVoice('Speech-end task settled.', {
           epoch,
           pendingSpeechTasks: pendingSpeechTasksRef.current,
           bufferedSegmentCount: segmentTextsRef.current.length,
         });
       });
     },
-    [commitInput, enqueueSpeechTask, markSpeechActivity, sendAudioChunk],
+    [
+      clearInterruptTimer,
+      commitInput,
+      enqueueSpeechTask,
+      markSpeechActivity,
+      scheduleAutoSubmit,
+      sendAudioChunk,
+    ],
   );
-
-  const waitForSpeechQueue = useCallback(
-    async ({ timeoutMs }) => {
-      return waitForSpeechDrain({
-        timeoutMs,
-        getPendingCount: () => pendingSpeechTasksRef.current,
-        getLastActivityAt: () => lastSpeechActivityAtRef.current,
-        getQueue: () => speechQueueRef.current,
-        onWaitStart: markSpeechActivity,
-      });
-    },
-    [markSpeechActivity],
-  );
-
-  const waitForSpeechQueueSettledAfterTimeout = useCallback(async () => {
-    return waitForSpeechQueueSettled({
-      getPendingCount: () => pendingSpeechTasksRef.current,
-      getQueue: () => speechQueueRef.current,
-    });
-  }, []);
-
-  const submitPttTranscription = useCallback(async () => {
-    const orderedSegments = segmentTextsRef.current
-      .slice()
-      .sort((left, right) => left.segmentIndex - right.segmentIndex)
-      .filter((item) => Boolean(item?.text));
-    const text = orderedSegments.map((item) => item.text).join(' ').trim();
-
-    logPtt('Submitting aggregated PTT transcription.', {
-      sessionId: chatSessionId,
-      segmentCount: orderedSegments.length,
-      textLength: text.length,
-      textPreview: previewText(text),
-      hasSubmitHandler: typeof onSubmitVoiceText === 'function',
-    });
-
-    segmentTextsRef.current = [];
-    segmentIndexRef.current = 0;
-
-    if (!text || typeof onSubmitVoiceText !== 'function') {
-      console.warn('[voice-ptt] Aggregated PTT submit was skipped.', {
-        sessionId: chatSessionId,
-        reason: text ? 'submit_handler_missing' : 'empty_text',
-        textLength: text.length,
-      });
-      return { ok: Boolean(text), reason: text ? 'submit_handler_missing' : 'empty_text' };
-    }
-
-    await onSubmitVoiceText(text, {
-      sessionId: chatSessionId,
-      source: 'voice-ptt',
-    });
-    logPtt('Forwarded aggregated PTT transcription to chat submitter.', {
-      sessionId: chatSessionId,
-      textLength: text.length,
-      textPreview: previewText(text),
-    });
-    return { ok: true };
-  }, [chatSessionId, onSubmitVoiceText]);
-
-  const startPttCapture = useCallback(async () => {
-    if (!isArmedRef.current || isPttCapturingRef.current || isFlushingRef.current) {
-      console.warn('[voice-ptt] Ignored PTT start because the voice toggle is not ready.', {
-        isArmed: isArmedRef.current,
-        isPttCapturing: isPttCapturingRef.current,
-        isFlushing: isFlushingRef.current,
-      });
-      return { ok: false, reason: 'ptt_not_ready' };
-    }
-
-    if (status === 'transcribing') {
-      console.warn('[voice-ptt] Ignored PTT start because ASR is still transcribing.', {
-        status,
-      });
-      return { ok: false, reason: 'voice_transcribing_in_progress' };
-    }
-
-    const nextEpoch = runEpochRef.current + 1;
-    runEpochRef.current = nextEpoch;
-    setLocalError('');
-    logPtt('Starting PTT capture.', {
-      epoch: nextEpoch,
-      sessionId,
-      status,
-      hotkey: normalizedHotkey,
-    });
-
-    const started = await startVad({
-      onSpeechEnd: async (audioFloat32) => handleSpeechEnd(audioFloat32, nextEpoch),
-    });
-
-    if (!started?.ok) {
-      console.warn('[voice-ptt] Failed to start VAD for PTT capture.', {
-        epoch: nextEpoch,
-        reason: started?.reason || 'unknown_reason',
-      });
-      setLocalError(started?.reason || 'silero_vad_start_failed');
-      return started;
-    }
-
-    isPttCapturingRef.current = true;
-    setIsPttCapturing(true);
-    logPtt('PTT capture started.', {
-      epoch: nextEpoch,
-      sessionId,
-    });
-    return { ok: true };
-  }, [handleSpeechEnd, normalizedHotkey, sessionId, startVad, status]);
-
-  const stopPttCaptureAndSubmit = useCallback(async () => {
-    if (!isPttCapturingRef.current || isFlushingRef.current) {
-      console.warn('[voice-ptt] Ignored PTT stop because capture is not active.', {
-        isPttCapturing: isPttCapturingRef.current,
-        isFlushing: isFlushingRef.current,
-      });
-      return { ok: false, reason: 'ptt_not_capturing' };
-    }
-
-    isFlushingRef.current = true;
-    setIsFlushing(true);
-    isPttCapturingRef.current = false;
-    setIsPttCapturing(false);
-    logPtt('Stopping PTT capture and flushing pending speech.', {
-      epoch: runEpochRef.current,
-      pendingSpeechTasks: pendingSpeechTasksRef.current,
-      capturedFrames,
-      bufferedSegmentCount: segmentTextsRef.current.length,
-    });
-
-    try {
-      const stopResult = await stopVad();
-      logPtt('VAD stop completed for PTT flush.', {
-        epoch: runEpochRef.current,
-        ok: stopResult?.ok !== false,
-        reason: stopResult?.reason || '',
-      });
-
-      const { timedOut } = await waitForSpeechQueue({
-        timeoutMs: flushTimeoutMs,
-      });
-      logPtt('Speech queue wait finished.', {
-        epoch: runEpochRef.current,
-        timedOut,
-        pendingSpeechTasks: pendingSpeechTasksRef.current,
-        bufferedSegmentCount: segmentTextsRef.current.length,
-      });
-      if (timedOut) {
-        console.warn('[voice-ptt] Speech queue exceeded soft flush timeout; waiting for in-flight speech to finish.', {
-          epoch: runEpochRef.current,
-          pendingSpeechTasks: pendingSpeechTasksRef.current,
-          bufferedSegmentCount: segmentTextsRef.current.length,
-          flushTimeoutMs,
-        });
-        await waitForSpeechQueueSettledAfterTimeout();
-        logPtt('Speech queue settled after soft timeout.', {
-          epoch: runEpochRef.current,
-          pendingSpeechTasks: pendingSpeechTasksRef.current,
-          bufferedSegmentCount: segmentTextsRef.current.length,
-        });
-      }
-
-      const submitResult = await submitPttTranscription();
-      logPtt('PTT submit finished.', {
-        epoch: runEpochRef.current,
-        ok: submitResult?.ok !== false,
-        reason: submitResult?.reason || '',
-      });
-      if (!submitResult?.ok && submitResult?.reason !== 'empty_text') {
-        setLocalError(submitResult.reason || 'voice_ptt_submit_failed');
-      }
-
-      return { ok: true };
-    } finally {
-      isFlushingRef.current = false;
-      setIsFlushing(false);
-    }
-  }, [
-    capturedFrames,
-    flushTimeoutMs,
-    stopVad,
-    submitPttTranscription,
-    waitForSpeechQueue,
-    waitForSpeechQueueSettledAfterTimeout,
-  ]);
 
   const disableVoice = useCallback(
     async ({ reason = 'manual' } = {}) => {
-      logPtt('Disabling voice toggle.', {
+      if (isTransitioningRef.current) {
+        return { ok: false, reason: 'voice_toggle_transitioning' };
+      }
+
+      if (!isEnabledRef.current) {
+        return { ok: true, reason: 'not_enabled' };
+      }
+
+      isTransitioningRef.current = true;
+      setIsTransitioning(true);
+      clearAutoSubmitTimer();
+      clearInterruptTimer();
+      logVoice('Disabling voice input.', {
         reason,
         sessionId,
       });
       runEpochRef.current += 1;
-      hotkeyPressedRef.current = false;
-      isPttCapturingRef.current = false;
-      isFlushingRef.current = false;
-      isArmedRef.current = false;
-      setIsPttCapturing(false);
-      setIsFlushing(false);
-      setIsArmed(false);
+      isEnabledRef.current = false;
+      setIsEnabled(false);
       setLocalError('');
-      await stopPlayback({
-        emitFinalAck: true,
-        resetSeq: true,
-      });
-      await stopVad();
-      await stopSession({ reason });
-      seqRef.current = 0;
-      sentSeqRef.current = 0;
-      chunkIdRef.current = 0;
-      lastCommittedSeqRef.current = 0;
-      speechQueueRef.current = Promise.resolve();
-      pendingSpeechTasksRef.current = 0;
-      lastSpeechActivityAtRef.current = 0;
-      segmentIndexRef.current = 0;
-      segmentTextsRef.current = [];
-      if (mountedRef.current) {
-        setCapturedFrames(0);
+
+      try {
+        await stopVad();
+        const submitResult = await flushPendingSpeechAndSubmit({ reason });
+        if (!submitResult?.ok && submitResult?.reason !== 'empty_text') {
+          setLocalError(submitResult.reason || 'voice_submit_failed');
+        }
+
+        await stopPlayback({
+          emitFinalAck: true,
+          resetSeq: true,
+        });
+        await stopTts({ reason });
+        await stopSession({ reason });
+        seqRef.current = 0;
+        sentSeqRef.current = 0;
+        chunkIdRef.current = 0;
+        lastCommittedSeqRef.current = 0;
+        speechQueueRef.current = Promise.resolve();
+        pendingSpeechTasksRef.current = 0;
+        lastSpeechActivityAtRef.current = 0;
+        segmentIndexRef.current = 0;
+        segmentTextsRef.current = [];
+        if (mountedRef.current) {
+          setCapturedFrames(0);
+        }
+
+        logVoice('Voice input disabled and state cleared.', {
+          reason,
+        });
+        return { ok: true };
+      } finally {
+        isTransitioningRef.current = false;
+        if (mountedRef.current) {
+          setIsTransitioning(false);
+        }
       }
-      logPtt('Voice toggle disabled and state cleared.', {
-        reason,
-      });
-      return { ok: true };
     },
-    [sessionId, stopPlayback, stopSession, stopVad],
+    [
+      clearAutoSubmitTimer,
+      clearInterruptTimer,
+      flushPendingSpeechAndSubmit,
+      sessionId,
+      stopPlayback,
+      stopSession,
+      stopTts,
+      stopVad,
+    ],
   );
 
   const enableVoice = useCallback(async () => {
@@ -611,52 +682,106 @@ export function useVoiceMicToggle({
       return { ok: false, reason: 'desktop_only', message: errorMessage };
     }
 
-    setLocalError('');
-    await stopPlayback({
-      emitFinalAck: false,
-      resetSeq: true,
-    });
-    logPtt('Enabling voice toggle and starting session.', {
-      sessionId: chatSessionId,
-      hotkey: normalizedHotkey,
-    });
-
-    const started = await startSession({
-      mode: 'vad',
-      sessionId: chatSessionId,
-    });
-    if (!started?.ok) {
-      console.warn('[voice-ptt] Failed to enable voice toggle session.', {
-        sessionId: chatSessionId,
-        reason: started?.reason || 'unknown_reason',
-      });
-      const errorMessage = started?.reason || 'voice_session_start_failed';
-      setLocalError(errorMessage);
-      return started;
+    if (isTransitioningRef.current) {
+      return { ok: false, reason: 'voice_toggle_transitioning' };
     }
 
-    seqRef.current = 0;
-    sentSeqRef.current = 0;
-    chunkIdRef.current = 0;
-    lastCommittedSeqRef.current = 0;
-    speechQueueRef.current = Promise.resolve();
-    pendingSpeechTasksRef.current = 0;
-    lastSpeechActivityAtRef.current = 0;
-    segmentIndexRef.current = 0;
-    segmentTextsRef.current = [];
-    setCapturedFrames(0);
-    isArmedRef.current = true;
-    setIsArmed(true);
-    logPtt('Voice toggle armed for push-to-talk.', {
-      sessionId: started.sessionId || chatSessionId,
-      hotkey: normalizedHotkey,
-    });
+    if (isEnabledRef.current) {
+      return { ok: true, reason: 'already_enabled' };
+    }
 
-    return { ok: true };
-  }, [chatSessionId, desktopMode, normalizedHotkey, startSession, stopPlayback]);
+    isTransitioningRef.current = true;
+    setIsTransitioning(true);
+    clearAutoSubmitTimer();
+    clearInterruptTimer();
+    setLocalError('');
+
+    try {
+      await stopPlayback({
+        emitFinalAck: false,
+        resetSeq: true,
+      });
+      await stopTts({ reason: 'enable_voice' });
+      logVoice('Enabling voice input and starting session.', {
+        sessionId: chatSessionId,
+        hotkey: normalizedHotkey,
+      });
+
+      const nextEpoch = runEpochRef.current + 1;
+      runEpochRef.current = nextEpoch;
+      const started = await startSession({
+        mode: 'vad',
+        sessionId: chatSessionId,
+      });
+      if (!started?.ok) {
+        console.warn('[voice-mic] Failed to start voice session.', {
+          sessionId: chatSessionId,
+          reason: started?.reason || 'unknown_reason',
+        });
+        const errorMessage = started?.reason || 'voice_session_start_failed';
+        setLocalError(errorMessage);
+        return started;
+      }
+
+      seqRef.current = 0;
+      sentSeqRef.current = 0;
+      chunkIdRef.current = 0;
+      lastCommittedSeqRef.current = 0;
+      speechQueueRef.current = Promise.resolve();
+      pendingSpeechTasksRef.current = 0;
+      lastSpeechActivityAtRef.current = 0;
+      segmentIndexRef.current = 0;
+      segmentTextsRef.current = [];
+      setCapturedFrames(0);
+
+      const vadStarted = await startVad({
+        onSpeechStart: async () => handleSpeechStart(nextEpoch),
+        onSpeechEnd: async (audioFloat32) => handleSpeechEnd(audioFloat32, nextEpoch),
+        onVADMisfire: async () => handleVADMisfire(nextEpoch),
+      });
+
+      if (!vadStarted?.ok) {
+        await stopSession({ reason: 'vad_start_failed' });
+        const errorMessage = vadStarted?.reason || 'silero_vad_start_failed';
+        setLocalError(errorMessage);
+        return vadStarted;
+      }
+
+      isEnabledRef.current = true;
+      setIsEnabled(true);
+      logVoice('Voice input is now enabled.', {
+        sessionId: started.sessionId || chatSessionId,
+        hotkey: normalizedHotkey,
+      });
+      return { ok: true };
+    } finally {
+      isTransitioningRef.current = false;
+      if (mountedRef.current) {
+        setIsTransitioning(false);
+      }
+    }
+  }, [
+    chatSessionId,
+    clearAutoSubmitTimer,
+    clearInterruptTimer,
+    desktopMode,
+    handleSpeechEnd,
+    handleSpeechStart,
+    handleVADMisfire,
+    normalizedHotkey,
+    startSession,
+    startVad,
+    stopPlayback,
+    stopSession,
+    stopTts,
+  ]);
 
   const toggleVoice = useCallback(async () => {
-    if (isArmedRef.current) {
+    if (isTransitioningRef.current) {
+      return { ok: false, reason: 'voice_toggle_transitioning' };
+    }
+
+    if (isEnabledRef.current) {
       return disableVoice({ reason: 'manual' });
     }
     return enableVoice();
@@ -677,93 +802,37 @@ export function useVoiceMicToggle({
   }, [stopPlayback, stopSession, stopVad]);
 
   useEffect(() => {
-    isArmedRef.current = isArmed;
-  }, [isArmed]);
+    isVadSpeakingRef.current = isVadSpeaking;
+  }, [isVadSpeaking]);
 
   useEffect(() => {
-    isPttCapturingRef.current = isPttCapturing;
-  }, [isPttCapturing]);
+    isPlayingTtsRef.current = isPlayingTts;
+  }, [isPlayingTts]);
 
   useEffect(() => onEvent(handleVoiceEvent), [handleVoiceEvent, onEvent]);
 
   useEffect(() => {
-    if (!desktopMode || !isArmed || !normalizedHotkey) {
+    if (!desktopMode) {
       return () => {};
     }
 
-    const shouldSkipEditable = !isFunctionHotkey(normalizedHotkey);
-
-    const onKeyDown = (event) => {
-      if (!eventMatchesPttHotkey(event, normalizedHotkey)) {
-        return;
-      }
-
-      if (event.repeat || hotkeyPressedRef.current) {
-        return;
-      }
-
-      if (shouldSkipEditable && isEditableTarget(event.target)) {
-        return;
-      }
-
-      hotkeyPressedRef.current = true;
-      event.preventDefault();
-      logPtt('Detected PTT hotkey down.', {
-        hotkey: normalizedHotkey,
-        code: event.code,
-        key: event.key,
+    return desktopBridge.voice.onToggleRequest((payload = {}) => {
+      logVoice('Received global voice toggle request.', {
+        hotkey: payload.accelerator || normalizedHotkey,
+        source: payload.source || 'unknown',
       });
-      void startPttCapture();
-    };
-
-    const onKeyUp = (event) => {
-      if (!eventMatchesPttHotkey(event, normalizedHotkey)) {
-        return;
-      }
-
-      if (!hotkeyPressedRef.current) {
-        return;
-      }
-
-      hotkeyPressedRef.current = false;
-      event.preventDefault();
-      logPtt('Detected PTT hotkey up.', {
-        hotkey: normalizedHotkey,
-        code: event.code,
-        key: event.key,
-      });
-      void stopPttCaptureAndSubmit();
-    };
-
-    const onBlur = () => {
-      if (!hotkeyPressedRef.current) {
-        return;
-      }
-      hotkeyPressedRef.current = false;
-      logPtt('Window blur forced a PTT stop.', {
-        hotkey: normalizedHotkey,
-      });
-      void stopPttCaptureAndSubmit();
-    };
-
-    window.addEventListener('keydown', onKeyDown, true);
-    window.addEventListener('keyup', onKeyUp, true);
-    window.addEventListener('blur', onBlur);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown, true);
-      window.removeEventListener('keyup', onKeyUp, true);
-      window.removeEventListener('blur', onBlur);
-    };
-  }, [desktopMode, isArmed, normalizedHotkey, startPttCapture, stopPttCaptureAndSubmit]);
+      void toggleVoice();
+    });
+  }, [desktopMode, normalizedHotkey, toggleVoice]);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      hotkeyPressedRef.current = false;
-      isArmedRef.current = false;
-      isPttCapturingRef.current = false;
-      isFlushingRef.current = false;
+      clearAutoSubmitTimer();
+      clearInterruptTimer();
+      isEnabledRef.current = false;
+      isSubmittingRef.current = false;
       runEpochRef.current += 1;
       void stopPlaybackRef.current?.({
         emitFinalAck: false,
@@ -772,16 +841,16 @@ export function useVoiceMicToggle({
       void stopVadRef.current?.();
       void stopSessionRef.current?.({ reason: 'toggle_unmount' });
     };
-  }, []);
+  }, [clearAutoSubmitTimer, clearInterruptTimer]);
 
   const error = localError || lastError || vadError || playbackError || '';
 
   return useMemo(
     () => ({
-      isEnabled: isArmed,
-      isBusy: isVadLoading || isProcessingSpeech || isFlushing,
+      isEnabled,
+      isBusy: isVadLoading || isProcessingSpeech || isSubmitting || isTransitioning,
       isAvailable: desktopMode,
-      isPttCapturing,
+      isPttCapturing: isEnabled,
       isVadSpeaking,
       isPlayingTts,
       pttHotkey: normalizedHotkey,
@@ -800,11 +869,11 @@ export function useVoiceMicToggle({
       disableVoice,
       enableVoice,
       error,
-      isArmed,
-      isFlushing,
+      isEnabled,
       isPlayingTts,
-      isPttCapturing,
       isProcessingSpeech,
+      isSubmitting,
+      isTransitioning,
       isVadLoading,
       isVadSpeaking,
       normalizedHotkey,

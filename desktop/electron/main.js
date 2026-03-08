@@ -1,5 +1,5 @@
 const path = require('node:path');
-const { app, BrowserWindow, shell, ipcMain, protocol, screen } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, protocol, screen, globalShortcut } = require('electron');
 
 const { registerChatStreamIpc } = require('./ipc/chatStream');
 const { registerConversationIpc } = require('./ipc/conversation');
@@ -63,6 +63,55 @@ const legacyConversationMirrorEnabled = (() => {
   const normalized = value.trim().toLowerCase();
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 })();
+const DEFAULT_GLOBAL_VOICE_TOGGLE_ACCELERATOR =
+  typeof process.env.OPENCLAW_VOICE_TOGGLE_ACCELERATOR === 'string'
+    ? process.env.OPENCLAW_VOICE_TOGGLE_ACCELERATOR.trim() || 'CommandOrControl+Shift+Space'
+    : 'CommandOrControl+Shift+Space';
+let registeredVoiceToggleAccelerator = '';
+
+function emitVoiceToggleRequest(payload = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  mainWindow.webContents.send('voice:toggle-request', payload);
+}
+
+function registerGlobalVoiceToggleShortcut() {
+  if (!DEFAULT_GLOBAL_VOICE_TOGGLE_ACCELERATOR) {
+    return;
+  }
+
+  if (registeredVoiceToggleAccelerator) {
+    globalShortcut.unregister(registeredVoiceToggleAccelerator);
+    registeredVoiceToggleAccelerator = '';
+  }
+
+  const registered = globalShortcut.register(DEFAULT_GLOBAL_VOICE_TOGGLE_ACCELERATOR, () => {
+    emitVoiceToggleRequest({
+      source: 'global-shortcut',
+      accelerator: DEFAULT_GLOBAL_VOICE_TOGGLE_ACCELERATOR,
+    });
+  });
+
+  if (!registered) {
+    console.warn('Failed to register global voice toggle shortcut.', {
+      accelerator: DEFAULT_GLOBAL_VOICE_TOGGLE_ACCELERATOR,
+    });
+    return;
+  }
+
+  registeredVoiceToggleAccelerator = DEFAULT_GLOBAL_VOICE_TOGGLE_ACCELERATOR;
+}
+
+function unregisterGlobalVoiceToggleShortcut() {
+  if (!registeredVoiceToggleAccelerator) {
+    return;
+  }
+
+  globalShortcut.unregister(registeredVoiceToggleAccelerator);
+  registeredVoiceToggleAccelerator = '';
+}
 
 function registerWindowControlIpc() {
   ipcMain.handle('window:get-platform', () => ({
@@ -499,6 +548,7 @@ async function bootstrap() {
   });
 
   await createMainWindow();
+  registerGlobalVoiceToggleShortcut();
   if (disposeVoiceSessionHandlers && typeof disposeVoiceSessionHandlers.warmupRuntime === 'function') {
     Promise.resolve(
       disposeVoiceSessionHandlers.warmupRuntime({
@@ -537,6 +587,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  unregisterGlobalVoiceToggleShortcut();
 
   if (conversationRuntime) {
     void conversationRuntime.dispose();
@@ -584,4 +635,5 @@ app.on('before-quit', () => {
   }
 
   trayManager?.destroy();
+  globalShortcut.unregisterAll();
 });

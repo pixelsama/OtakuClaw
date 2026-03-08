@@ -164,6 +164,9 @@ const voice = {
   onFlowControl(handler) {
     return onChannel('voice:flow-control', handler);
   },
+  onToggleRequest(handler) {
+    return onChannel('voice:toggle-request', handler);
+  },
 };
 
 const live2dModels = {
