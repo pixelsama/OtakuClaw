@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { stopVoiceCaptureAndSubmit } from '../src/hooks/voice/useVoiceMicToggle.js';
+import {
+  shouldPreserveVoiceSessionAfterDisable,
+  stopVoiceCaptureAndSubmit,
+} from '../src/hooks/voice/useVoiceMicToggle.js';
 
 describe('stopVoiceCaptureAndSubmit', () => {
   it('invalidates the active epoch only after VAD stop and flush finish', async () => {
@@ -63,5 +66,13 @@ describe('stopVoiceCaptureAndSubmit', () => {
     ).rejects.toThrow('flush_failed');
 
     expect(epochInvalidated).toBe(true);
+  });
+});
+
+describe('shouldPreserveVoiceSessionAfterDisable', () => {
+  it('keeps the voice session alive for manual mic disable so downstream TTS can continue', () => {
+    expect(shouldPreserveVoiceSessionAfterDisable('manual')).toBe(true);
+    expect(shouldPreserveVoiceSessionAfterDisable('session_stop')).toBe(false);
+    expect(shouldPreserveVoiceSessionAfterDisable('toggle_unmount')).toBe(false);
   });
 });

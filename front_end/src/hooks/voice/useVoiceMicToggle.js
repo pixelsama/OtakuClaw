@@ -103,6 +103,10 @@ export async function stopVoiceCaptureAndSubmit({
   }
 }
 
+export function shouldPreserveVoiceSessionAfterDisable(reason = 'manual') {
+  return reason === 'manual';
+}
+
 function logVoice(message, details = {}) {
   console.info('[voice-mic]', message, details);
 }
@@ -648,6 +652,7 @@ export function useVoiceMicToggle({
       setLocalError('');
 
       try {
+        const preserveVoiceSession = shouldPreserveVoiceSessionAfterDisable(reason);
         const submitResult = await stopVoiceCaptureAndSubmit({
           reason,
           stopVad,
@@ -660,12 +665,6 @@ export function useVoiceMicToggle({
           setLocalError(submitResult.reason || 'voice_submit_failed');
         }
 
-        await stopPlayback({
-          emitFinalAck: true,
-          resetSeq: true,
-        });
-        await stopTts({ reason });
-        await stopSession({ reason });
         seqRef.current = 0;
         sentSeqRef.current = 0;
         chunkIdRef.current = 0;
@@ -679,8 +678,23 @@ export function useVoiceMicToggle({
           setCapturedFrames(0);
         }
 
+        if (preserveVoiceSession) {
+          logVoice('Preserved voice session for downstream playback.', {
+            reason,
+            sessionId,
+          });
+        } else {
+          await stopPlayback({
+            emitFinalAck: true,
+            resetSeq: true,
+          });
+          await stopTts({ reason });
+          await stopSession({ reason });
+        }
+
         logVoice('Voice input disabled and state cleared.', {
           reason,
+          preservedVoiceSession: preserveVoiceSession,
         });
         return { ok: true };
       } finally {
@@ -724,6 +738,7 @@ export function useVoiceMicToggle({
     setLocalError('');
 
     try {
+      await stopSession({ reason: 'enable_voice' });
       await stopPlayback({
         emitFinalAck: false,
         resetSeq: true,
