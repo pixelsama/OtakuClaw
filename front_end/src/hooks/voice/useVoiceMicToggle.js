@@ -402,6 +402,61 @@ export function useVoiceMicToggle({
     return { ok: true };
   }, [chatSessionId, onSubmitVoiceText]);
 
+  const startPttCapture = useCallback(async () => {
+    if (isPttCapturingRef.current || isFlushingRef.current) {
+      console.warn('[voice-ptt] Ignored PTT start because capture is not ready.', {
+        isPttCapturing: isPttCapturingRef.current,
+        isFlushing: isFlushingRef.current,
+      });
+      return { ok: false, reason: 'ptt_not_ready' };
+    }
+
+    if (!isArmedRef.current) {
+      const armed = await enableVoice();
+      if (!armed?.ok) {
+        return armed;
+      }
+    }
+
+    if (status === 'transcribing') {
+      console.warn('[voice-ptt] Ignored PTT start because ASR is still transcribing.', {
+        status,
+      });
+      return { ok: false, reason: 'voice_transcribing_in_progress' };
+    }
+
+    const nextEpoch = runEpochRef.current + 1;
+    runEpochRef.current = nextEpoch;
+    setLocalError('');
+    logPtt('Starting PTT capture.', {
+      epoch: nextEpoch,
+      sessionId,
+      status,
+      hotkey: normalizedHotkey,
+    });
+
+    const started = await startVad({
+      onSpeechEnd: async (audioFloat32) => handleSpeechEnd(audioFloat32, nextEpoch),
+    });
+
+    if (!started?.ok) {
+      console.warn('[voice-ptt] Failed to start VAD for PTT capture.', {
+        epoch: nextEpoch,
+        reason: started?.reason || 'unknown_reason',
+      });
+      setLocalError(started?.reason || 'silero_vad_start_failed');
+      return started;
+    }
+
+    isPttCapturingRef.current = true;
+    setIsPttCapturing(true);
+    logPtt('PTT capture started.', {
+      epoch: nextEpoch,
+      sessionId,
+    });
+    return { ok: true };
+  }, [enableVoice, handleSpeechEnd, normalizedHotkey, sessionId, startVad, status]);
+
   const stopPttCaptureAndSubmit = useCallback(async () => {
     if (!isPttCapturingRef.current || isFlushingRef.current) {
       console.warn('[voice-ptt] Ignored PTT stop because capture is not active.', {
@@ -568,61 +623,6 @@ export function useVoiceMicToggle({
 
     return { ok: true };
   }, [chatSessionId, desktopMode, normalizedHotkey, startSession, stopPlayback]);
-
-  const startPttCapture = useCallback(async () => {
-    if (isPttCapturingRef.current || isFlushingRef.current) {
-      console.warn('[voice-ptt] Ignored PTT start because capture is not ready.', {
-        isPttCapturing: isPttCapturingRef.current,
-        isFlushing: isFlushingRef.current,
-      });
-      return { ok: false, reason: 'ptt_not_ready' };
-    }
-
-    if (!isArmedRef.current) {
-      const armed = await enableVoice();
-      if (!armed?.ok) {
-        return armed;
-      }
-    }
-
-    if (status === 'transcribing') {
-      console.warn('[voice-ptt] Ignored PTT start because ASR is still transcribing.', {
-        status,
-      });
-      return { ok: false, reason: 'voice_transcribing_in_progress' };
-    }
-
-    const nextEpoch = runEpochRef.current + 1;
-    runEpochRef.current = nextEpoch;
-    setLocalError('');
-    logPtt('Starting PTT capture.', {
-      epoch: nextEpoch,
-      sessionId,
-      status,
-      hotkey: normalizedHotkey,
-    });
-
-    const started = await startVad({
-      onSpeechEnd: async (audioFloat32) => handleSpeechEnd(audioFloat32, nextEpoch),
-    });
-
-    if (!started?.ok) {
-      console.warn('[voice-ptt] Failed to start VAD for PTT capture.', {
-        epoch: nextEpoch,
-        reason: started?.reason || 'unknown_reason',
-      });
-      setLocalError(started?.reason || 'silero_vad_start_failed');
-      return started;
-    }
-
-    isPttCapturingRef.current = true;
-    setIsPttCapturing(true);
-    logPtt('PTT capture started.', {
-      epoch: nextEpoch,
-      sessionId,
-    });
-    return { ok: true };
-  }, [enableVoice, handleSpeechEnd, normalizedHotkey, sessionId, startVad, status]);
 
   const toggleVoice = useCallback(async () => {
     if (isArmedRef.current) {

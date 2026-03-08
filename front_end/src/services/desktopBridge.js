@@ -673,17 +673,6 @@ export const desktopBridge = {
     },
   },
   voice: {
-    async getPttStatus() {
-      const api = getDesktopApi();
-      if (!api?.voice?.getPttStatus) {
-        return {
-          available: false,
-          hotkey: 'F8',
-          error: 'desktop_voice_unavailable',
-        };
-      }
-      return api.voice.getPttStatus();
-    },
     async start({ sessionId, mode = 'vad' } = {}) {
       const api = getDesktopApi();
       if (!api?.voice?.startSession) {

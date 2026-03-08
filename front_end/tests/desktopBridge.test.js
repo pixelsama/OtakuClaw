@@ -158,36 +158,4 @@ describe('desktopBridge conversation-only routing', () => {
     off();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
-
-  it('routes voice.onPttStatus through dedicated channel and exposes getPttStatus', async () => {
-    const unsubscribe = vi.fn();
-    const getPttStatus = vi.fn(async () => ({ available: true, hotkey: 'SPACE', error: '' }));
-    let listener = null;
-    globalThis.window = {
-      desktop: {
-        isElectron: true,
-        voice: {
-          getPttStatus,
-          onPttStatus: vi.fn((handler) => {
-            listener = handler;
-            return unsubscribe;
-          }),
-        },
-      },
-    };
-
-    await expect(desktopBridge.voice.getPttStatus()).resolves.toEqual({
-      available: true,
-      hotkey: 'SPACE',
-      error: '',
-    });
-
-    const handler = vi.fn();
-    const off = desktopBridge.voice.onPttStatus(handler);
-    listener?.({ available: false, hotkey: 'F8', error: 'permission denied' });
-
-    expect(handler).toHaveBeenCalledWith({ available: false, hotkey: 'F8', error: 'permission denied' });
-    off();
-    expect(unsubscribe).toHaveBeenCalledTimes(1);
-  });
 });

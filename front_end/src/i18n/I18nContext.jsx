@@ -122,10 +122,6 @@ const MESSAGES = {
     'voice.pttHotkeyCapturing': '请按下按键',
     'voice.pttHotkeyHint': '当前仅支持 F1-F12 或 Space。设置后立即生效。',
     'voice.pttHotkeyCaptureHint': '按下新的热键，或按 Esc 取消。',
-    'voice.pttStatusReady': '全局按住说话已就绪，当前热键为 {hotkey}。',
-    'voice.pttStatusPending': '正在等待全局按住说话状态，当前热键为 {hotkey}。',
-    'voice.pttStatusPermissionDenied': '全局按住说话当前不可用。请在 macOS 系统设置中为应用开启“辅助功能”和“输入监控”权限，然后重启应用。当前热键为 {hotkey}。',
-    'voice.pttStatusUnavailable': '全局按住说话当前不可用。当前热键为 {hotkey}。错误信息: {error}',
 
     'main.openSettings': '打开设置',
     'main.switchToPetMode': '切换到桌宠模式',
@@ -343,10 +339,6 @@ const MESSAGES = {
     'voice.pttHotkeyCapturing': 'Press a key',
     'voice.pttHotkeyHint': 'Only F1-F12 or Space is supported for now. Changes apply immediately.',
     'voice.pttHotkeyCaptureHint': 'Press the new hotkey, or press Esc to cancel.',
-    'voice.pttStatusReady': 'Global push-to-talk is ready. Current hotkey: {hotkey}.',
-    'voice.pttStatusPending': 'Waiting for global push-to-talk status. Current hotkey: {hotkey}.',
-    'voice.pttStatusPermissionDenied': 'Global push-to-talk is unavailable. In macOS System Settings, grant Accessibility and Input Monitoring permissions to the app, then restart it. Current hotkey: {hotkey}.',
-    'voice.pttStatusUnavailable': 'Global push-to-talk is unavailable. Current hotkey: {hotkey}. Error: {error}',
 
     'main.openSettings': 'Open Settings',
     'main.switchToPetMode': 'Switch to Pet Mode',
