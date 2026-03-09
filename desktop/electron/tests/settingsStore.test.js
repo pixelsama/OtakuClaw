@@ -5,7 +5,11 @@ const path = require('node:path');
 const test = require('node:test');
 
 const { SettingsStore } = require('../services/settingsStore');
-const { OPENCLAW_ACCOUNT_NAME, NANOBOT_ACCOUNT_NAME } = require('../services/secretStore');
+const {
+  DASHSCOPE_ACCOUNT_NAME,
+  OPENCLAW_ACCOUNT_NAME,
+  NANOBOT_ACCOUNT_NAME,
+} = require('../services/secretStore');
 
 class FakeSecretStore {
   constructor({
@@ -158,6 +162,7 @@ test('uses batched secure secret reads during init when supported', async () => 
     secrets: {
       [OPENCLAW_ACCOUNT_NAME]: 'saved-openclaw-token',
       [NANOBOT_ACCOUNT_NAME]: 'saved-nanobot-api-key',
+      [DASHSCOPE_ACCOUNT_NAME]: 'saved-dashscope-api-key',
     },
   });
 
@@ -166,8 +171,9 @@ test('uses batched secure secret reads during init when supported', async () => 
   const mainSettings = store.getForMain();
   assert.equal(mainSettings.openclaw.token, 'saved-openclaw-token');
   assert.equal(mainSettings.nanobot.apiKey, 'saved-nanobot-api-key');
+  assert.equal(mainSettings.voice.dashscope.apiKey, 'saved-dashscope-api-key');
   assert.deepEqual(secretStore.getCalls, []);
-  assert.deepEqual(secretStore.getManyCalls, [[OPENCLAW_ACCOUNT_NAME, NANOBOT_ACCOUNT_NAME]]);
+  assert.deepEqual(secretStore.getManyCalls, [[OPENCLAW_ACCOUNT_NAME, NANOBOT_ACCOUNT_NAME, DASHSCOPE_ACCOUNT_NAME]]);
 });
 
 test('falls back to plain text secrets when secure storage is unavailable', async () => {
@@ -203,6 +209,46 @@ test('falls back to plain text secrets when secure storage is unavailable', asyn
   assert.equal(persisted.openclaw.token, 'plain-openclaw-token');
   assert.equal(persisted.nanobot.apiKey, 'plain-nanobot-api-key');
   assert.equal(persisted.nanobot.allowHighRiskTools, true);
+});
+
+test('persists dashscope voice settings and secret', async () => {
+  const secretStore = new FakeSecretStore({ available: true });
+  const { store } = await setupTempStore({ secretStore });
+
+  await store.save({
+    voice: {
+      asrProvider: 'dashscope',
+      ttsProvider: 'dashscope',
+      dashscope: {
+        apiKey: 'dashscope-secret',
+        workspace: 'workspace-01',
+        baseUrl: 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime',
+        asrModel: 'qwen3-asr-flash-realtime',
+        asrLanguage: 'zh',
+        ttsModel: 'qwen-tts-realtime-latest',
+        ttsVoice: 'Cherry',
+        ttsLanguage: 'Chinese',
+        ttsSampleRate: 24000,
+        ttsSpeechRate: 1.1,
+      },
+    },
+  });
+
+  const publicSettings = store.getPublic();
+  assert.equal(publicSettings.voice.asrProvider, 'dashscope');
+  assert.equal(publicSettings.voice.ttsProvider, 'dashscope');
+  assert.equal(publicSettings.voice.dashscope.hasApiKey, true);
+  assert.equal(publicSettings.voice.dashscope.ttsVoice, 'Cherry');
+
+  const mainSettings = store.getForMain();
+  assert.equal(mainSettings.voice.dashscope.apiKey, 'dashscope-secret');
+  assert.equal(secretStore.secrets[DASHSCOPE_ACCOUNT_NAME], 'dashscope-secret');
+
+  const runtimeEnv = store.getVoiceRuntimeEnv({});
+  assert.equal(runtimeEnv.VOICE_ASR_PROVIDER, 'dashscope');
+  assert.equal(runtimeEnv.VOICE_TTS_PROVIDER, 'dashscope');
+  assert.equal(runtimeEnv.VOICE_DASHSCOPE_API_KEY, 'dashscope-secret');
+  assert.equal(runtimeEnv.VOICE_TTS_DASHSCOPE_VOICE, 'Cherry');
 });
 
 test('preserves tokens when save payload omits tokens', async () => {

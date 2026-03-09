@@ -1,6 +1,7 @@
 const SERVICE_NAME = 'free-agent-vtuber-openclaw';
 const OPENCLAW_ACCOUNT_NAME = 'openclaw-token';
 const NANOBOT_ACCOUNT_NAME = 'nanobot-api-key';
+const DASHSCOPE_ACCOUNT_NAME = 'dashscope-api-key';
 
 class KeytarSecretStore {
   constructor() {
@@ -126,6 +127,7 @@ class KeytarSecretStore {
 }
 
 module.exports = {
+  DASHSCOPE_ACCOUNT_NAME,
   OPENCLAW_ACCOUNT_NAME,
   NANOBOT_ACCOUNT_NAME,
   KeytarSecretStore,

@@ -1,8 +1,10 @@
 const assert = require('node:assert/strict');
+const { EventEmitter } = require('node:events');
 const test = require('node:test');
 
 const {
   createAsrProvider,
+  buildDashScopeAsrOptionsFromEnv,
   buildSherpaOnnxOptionsFromEnv,
   buildPythonAsrOptionsFromEnv,
 } = require('../services/voice/providerFactory');
@@ -11,6 +13,7 @@ const {
   prepareAudioSamples,
   createDefaultRecognizerConfig,
 } = require('../services/voice/providers/asr/sherpaOnnxProvider');
+const { createDashScopeAsrProvider } = require('../services/voice/providers/asr/dashscopeProvider');
 
 function createPcmBuffer(sampleCount, value = 1024) {
   const buffer = Buffer.alloc(sampleCount * 2);
@@ -72,6 +75,24 @@ test('buildPythonAsrOptionsFromEnv maps env values', () => {
   assert.equal(options.timeoutMs, '60000');
 });
 
+test('buildDashScopeAsrOptionsFromEnv maps env values', () => {
+  const options = buildDashScopeAsrOptionsFromEnv({
+    VOICE_DASHSCOPE_API_KEY: 'dashscope-key',
+    VOICE_DASHSCOPE_WORKSPACE: 'ws-001',
+    VOICE_DASHSCOPE_BASE_URL: 'wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime',
+    VOICE_ASR_DASHSCOPE_MODEL: 'qwen3-asr-flash-realtime',
+    VOICE_ASR_DASHSCOPE_LANGUAGE: 'zh',
+    VOICE_DASHSCOPE_TIMEOUT_MS: '90000',
+  });
+
+  assert.equal(options.apiKey, 'dashscope-key');
+  assert.equal(options.workspace, 'ws-001');
+  assert.equal(options.baseUrl, 'wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime');
+  assert.equal(options.model, 'qwen3-asr-flash-realtime');
+  assert.equal(options.language, 'zh');
+  assert.equal(options.timeoutMs, '90000');
+});
+
 test('createAsrProvider uses env default mock provider', async () => {
   const provider = createAsrProvider({
     env: {
@@ -93,6 +114,16 @@ test('createAsrProvider accepts python provider selection', () => {
   const provider = createAsrProvider({
     env: {
       VOICE_ASR_PROVIDER: 'python',
+    },
+  });
+
+  assert.equal(typeof provider.transcribe, 'function');
+});
+
+test('createAsrProvider accepts dashscope provider selection', () => {
+  const provider = createAsrProvider({
+    env: {
+      VOICE_ASR_PROVIDER: 'dashscope',
     },
   });
 
@@ -386,4 +417,79 @@ test('online recognizer mode resets stream after decode', async () => {
 
   assert.equal(result.text, 'ok');
   assert.equal(resetCalls, 1);
+});
+
+test('dashscope asr provider streams audio and returns transcript', async () => {
+  class FakeWebSocket extends EventEmitter {
+    constructor(url, options = {}) {
+      super();
+      this.url = url;
+      this.options = options;
+      this.sent = [];
+
+      setImmediate(() => {
+        this.emit('open');
+      });
+    }
+
+    send(payload) {
+      this.sent.push(JSON.parse(payload));
+      const last = this.sent[this.sent.length - 1];
+      if (last.type === 'session.update') {
+        setImmediate(() => {
+          this.emit('message', Buffer.from(JSON.stringify({ type: 'session.updated' })), false);
+        });
+      }
+      if (last.type === 'session.finish') {
+        setImmediate(() => {
+          this.emit(
+            'message',
+            Buffer.from(JSON.stringify({
+              type: 'conversation.item.input_audio_transcription.delta',
+              delta: '你好',
+            })),
+            false,
+          );
+          this.emit(
+            'message',
+            Buffer.from(JSON.stringify({
+              type: 'conversation.item.input_audio_transcription.completed',
+              transcript: '你好，世界',
+            })),
+            false,
+          );
+          this.emit('message', Buffer.from(JSON.stringify({ type: 'session.finished' })), false);
+          this.emit('close');
+        });
+      }
+    }
+
+    close() {}
+    terminate() {}
+  }
+
+  const provider = createDashScopeAsrProvider({
+    options: {
+      apiKey: 'dashscope-key',
+      model: 'qwen3-asr-flash-realtime',
+      language: 'zh',
+    },
+    WebSocketImpl: FakeWebSocket,
+  });
+
+  const partials = [];
+  const result = await provider.transcribe({
+    audioChunks: [
+      {
+        sampleRate: 16000,
+        channels: 1,
+        sampleFormat: 'pcm_s16le',
+        pcmChunk: createPcmBuffer(320),
+      },
+    ],
+    onPartial: (text) => partials.push(text),
+  });
+
+  assert.equal(result.text, '你好，世界');
+  assert.deepEqual(partials, ['你好']);
 });

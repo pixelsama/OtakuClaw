@@ -3,6 +3,7 @@ const path = require('node:path');
 
 const {
   KeytarSecretStore,
+  DASHSCOPE_ACCOUNT_NAME,
   OPENCLAW_ACCOUNT_NAME,
   NANOBOT_ACCOUNT_NAME,
 } = require('./secretStore');
@@ -30,6 +31,21 @@ const DEFAULT_SETTINGS = {
   chatBackend: 'openclaw',
   openclaw: { ...DEFAULT_OPENCLAW_SETTINGS },
   nanobot: { ...DEFAULT_NANOBOT_SETTINGS },
+  voice: {
+    asrProvider: 'inherit',
+    ttsProvider: 'inherit',
+    dashscope: {
+      workspace: '',
+      baseUrl: '',
+      asrModel: 'qwen3-asr-flash-realtime',
+      asrLanguage: 'zh',
+      ttsModel: 'qwen-tts-realtime-latest',
+      ttsVoice: 'Cherry',
+      ttsLanguage: 'Chinese',
+      ttsSampleRate: 24000,
+      ttsSpeechRate: 1,
+    },
+  },
 };
 
 function isObject(value) {
@@ -88,11 +104,44 @@ function normalizeNanobotSettings(settings = {}) {
   };
 }
 
+function normalizeVoiceProvider(value) {
+  const normalized = normalizeString(value).toLowerCase();
+  if (normalized === 'dashscope') {
+    return 'dashscope';
+  }
+  return 'inherit';
+}
+
+function normalizeVoiceSettings(settings = {}) {
+  const dashscope = isObject(settings.dashscope) ? settings.dashscope : {};
+  return {
+    asrProvider: normalizeVoiceProvider(settings.asrProvider),
+    ttsProvider: normalizeVoiceProvider(settings.ttsProvider),
+    dashscope: {
+      workspace: normalizeString(dashscope.workspace),
+      baseUrl: normalizeString(dashscope.baseUrl),
+      asrModel: normalizeString(dashscope.asrModel, DEFAULT_SETTINGS.voice.dashscope.asrModel),
+      asrLanguage: normalizeString(dashscope.asrLanguage, DEFAULT_SETTINGS.voice.dashscope.asrLanguage),
+      ttsModel: normalizeString(dashscope.ttsModel, DEFAULT_SETTINGS.voice.dashscope.ttsModel),
+      ttsVoice: normalizeString(dashscope.ttsVoice, DEFAULT_SETTINGS.voice.dashscope.ttsVoice),
+      ttsLanguage: normalizeString(dashscope.ttsLanguage, DEFAULT_SETTINGS.voice.dashscope.ttsLanguage),
+      ttsSampleRate: toPositiveInteger(dashscope.ttsSampleRate, DEFAULT_SETTINGS.voice.dashscope.ttsSampleRate),
+      ttsSpeechRate: toFiniteNumber(dashscope.ttsSpeechRate, DEFAULT_SETTINGS.voice.dashscope.ttsSpeechRate),
+    },
+  };
+}
+
 function cloneSettings(settings) {
   return {
     chatBackend: settings.chatBackend,
     openclaw: { ...settings.openclaw },
     nanobot: { ...settings.nanobot },
+    voice: {
+      ...settings.voice,
+      dashscope: {
+        ...(settings.voice?.dashscope || {}),
+      },
+    },
   };
 }
 
@@ -101,6 +150,7 @@ function isNextGenSettingsShape(settings = {}) {
     Object.prototype.hasOwnProperty.call(settings, 'chatBackend')
     || Object.prototype.hasOwnProperty.call(settings, 'openclaw')
     || Object.prototype.hasOwnProperty.call(settings, 'nanobot')
+    || Object.prototype.hasOwnProperty.call(settings, 'voice')
   );
 }
 
@@ -112,6 +162,7 @@ function normalizeFileSettings(settings = {}) {
       chatBackend: normalizeChatBackend(source.chatBackend),
       openclaw: normalizeOpenClawSettings(isObject(source.openclaw) ? source.openclaw : source),
       nanobot: normalizeNanobotSettings(isObject(source.nanobot) ? source.nanobot : {}),
+      voice: normalizeVoiceSettings(isObject(source.voice) ? source.voice : {}),
     };
   }
 
@@ -119,6 +170,7 @@ function normalizeFileSettings(settings = {}) {
     chatBackend: 'openclaw',
     openclaw: normalizeOpenClawSettings(source),
     nanobot: { ...DEFAULT_NANOBOT_SETTINGS },
+    voice: normalizeVoiceSettings({}),
   };
 }
 
@@ -130,10 +182,13 @@ function extractLegacySecrets(settings = {}) {
   const source = isObject(settings) ? settings : {};
   const openclaw = isObject(source.openclaw) ? source.openclaw : {};
   const nanobot = isObject(source.nanobot) ? source.nanobot : {};
+  const voice = isObject(source.voice) ? source.voice : {};
+  const dashscope = isObject(voice.dashscope) ? voice.dashscope : {};
 
   return {
     openclawToken: normalizeSecretValue(openclaw.token || source.token),
     nanobotApiKey: normalizeSecretValue(nanobot.apiKey || source.nanobotApiKey),
+    dashscopeApiKey: normalizeSecretValue(dashscope.apiKey || source.dashscopeApiKey),
   };
 }
 
@@ -196,6 +251,58 @@ function normalizePatch(partialSettings = {}) {
     patch.nanobot = nanobotPatch;
   }
 
+  const voicePatch = {};
+  const voiceSource = isObject(source.voice) ? source.voice : {};
+  const dashscopeSource = isObject(voiceSource.dashscope) ? voiceSource.dashscope : {};
+
+  if (Object.prototype.hasOwnProperty.call(voiceSource, 'asrProvider')) {
+    voicePatch.asrProvider = normalizeVoiceProvider(voiceSource.asrProvider);
+  }
+  if (Object.prototype.hasOwnProperty.call(voiceSource, 'ttsProvider')) {
+    voicePatch.ttsProvider = normalizeVoiceProvider(voiceSource.ttsProvider);
+  }
+
+  const dashscopePatch = {};
+  if (Object.prototype.hasOwnProperty.call(dashscopeSource, 'workspace')) {
+    dashscopePatch.workspace = normalizeString(dashscopeSource.workspace);
+  }
+  if (Object.prototype.hasOwnProperty.call(dashscopeSource, 'baseUrl')) {
+    dashscopePatch.baseUrl = normalizeString(dashscopeSource.baseUrl);
+  }
+  if (Object.prototype.hasOwnProperty.call(dashscopeSource, 'asrModel')) {
+    dashscopePatch.asrModel = normalizeString(dashscopeSource.asrModel);
+  }
+  if (Object.prototype.hasOwnProperty.call(dashscopeSource, 'asrLanguage')) {
+    dashscopePatch.asrLanguage = normalizeString(dashscopeSource.asrLanguage);
+  }
+  if (Object.prototype.hasOwnProperty.call(dashscopeSource, 'ttsModel')) {
+    dashscopePatch.ttsModel = normalizeString(dashscopeSource.ttsModel);
+  }
+  if (Object.prototype.hasOwnProperty.call(dashscopeSource, 'ttsVoice')) {
+    dashscopePatch.ttsVoice = normalizeString(dashscopeSource.ttsVoice);
+  }
+  if (Object.prototype.hasOwnProperty.call(dashscopeSource, 'ttsLanguage')) {
+    dashscopePatch.ttsLanguage = normalizeString(dashscopeSource.ttsLanguage);
+  }
+  if (Object.prototype.hasOwnProperty.call(dashscopeSource, 'ttsSampleRate')) {
+    dashscopePatch.ttsSampleRate = toPositiveInteger(
+      dashscopeSource.ttsSampleRate,
+      DEFAULT_SETTINGS.voice.dashscope.ttsSampleRate,
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(dashscopeSource, 'ttsSpeechRate')) {
+    dashscopePatch.ttsSpeechRate = toFiniteNumber(
+      dashscopeSource.ttsSpeechRate,
+      DEFAULT_SETTINGS.voice.dashscope.ttsSpeechRate,
+    );
+  }
+  if (Object.keys(dashscopePatch).length > 0) {
+    voicePatch.dashscope = dashscopePatch;
+  }
+  if (Object.keys(voicePatch).length > 0) {
+    patch.voice = voicePatch;
+  }
+
   const openclawTokenFromFlat = Object.prototype.hasOwnProperty.call(source, 'token')
     ? normalizeSecretValue(source.token)
     : null;
@@ -224,6 +331,20 @@ function normalizePatch(partialSettings = {}) {
 
   patch.clearNanobotApiKey = Boolean(source.clearNanobotApiKey || nanobotSource.clearApiKey);
 
+  const dashscopeApiKeyFromFlat = Object.prototype.hasOwnProperty.call(source, 'dashscopeApiKey')
+    ? normalizeSecretValue(source.dashscopeApiKey)
+    : null;
+  const dashscopeApiKeyFromNested = Object.prototype.hasOwnProperty.call(dashscopeSource, 'apiKey')
+    ? normalizeSecretValue(dashscopeSource.apiKey)
+    : null;
+  if (typeof dashscopeApiKeyFromNested === 'string') {
+    patch.dashscopeApiKey = dashscopeApiKeyFromNested;
+  } else if (typeof dashscopeApiKeyFromFlat === 'string') {
+    patch.dashscopeApiKey = dashscopeApiKeyFromFlat;
+  }
+
+  patch.clearDashscopeApiKey = Boolean(source.clearDashscopeApiKey || dashscopeSource.clearApiKey);
+
   return patch;
 }
 
@@ -237,6 +358,7 @@ class SettingsStore {
     this.secrets = {
       openclawToken: '',
       nanobotApiKey: '',
+      dashscopeApiKey: '',
     };
     this.hasSecureStorage = this.secretStore.isAvailable();
   }
@@ -270,13 +392,15 @@ class SettingsStore {
 
     const legacySecrets = extractLegacySecrets(parsed);
     const secureSecrets = this.hasSecureStorage
-      ? await this.safeGetSecrets([OPENCLAW_ACCOUNT_NAME, NANOBOT_ACCOUNT_NAME])
+      ? await this.safeGetSecrets([OPENCLAW_ACCOUNT_NAME, NANOBOT_ACCOUNT_NAME, DASHSCOPE_ACCOUNT_NAME])
       : {};
     const secureOpenclawToken = secureSecrets[OPENCLAW_ACCOUNT_NAME] || '';
     const secureNanobotApiKey = secureSecrets[NANOBOT_ACCOUNT_NAME] || '';
+    const secureDashscopeApiKey = secureSecrets[DASHSCOPE_ACCOUNT_NAME] || '';
 
     this.secrets.openclawToken = secureOpenclawToken || legacySecrets.openclawToken || '';
     this.secrets.nanobotApiKey = secureNanobotApiKey || legacySecrets.nanobotApiKey || '';
+    this.secrets.dashscopeApiKey = secureDashscopeApiKey || legacySecrets.dashscopeApiKey || '';
 
     if (this.hasSecureStorage && !secureOpenclawToken && legacySecrets.openclawToken) {
       await this.safeSetSecret(OPENCLAW_ACCOUNT_NAME, legacySecrets.openclawToken);
@@ -288,7 +412,12 @@ class SettingsStore {
       shouldPersist = true;
     }
 
-    if (legacySecrets.openclawToken || legacySecrets.nanobotApiKey) {
+    if (this.hasSecureStorage && !secureDashscopeApiKey && legacySecrets.dashscopeApiKey) {
+      await this.safeSetSecret(DASHSCOPE_ACCOUNT_NAME, legacySecrets.dashscopeApiKey);
+      shouldPersist = true;
+    }
+
+    if (legacySecrets.openclawToken || legacySecrets.nanobotApiKey || legacySecrets.dashscopeApiKey) {
       shouldPersist = true;
     }
 
@@ -300,6 +429,7 @@ class SettingsStore {
   getPublic() {
     const hasOpenclawToken = Boolean(this.secrets.openclawToken);
     const hasNanobotApiKey = Boolean(this.secrets.nanobotApiKey);
+    const hasDashscopeApiKey = Boolean(this.secrets.dashscopeApiKey);
 
     return {
       chatBackend: this.settings.chatBackend,
@@ -310,6 +440,13 @@ class SettingsStore {
       nanobot: {
         ...this.settings.nanobot,
         hasApiKey: hasNanobotApiKey,
+      },
+      voice: {
+        ...this.settings.voice,
+        dashscope: {
+          ...this.settings.voice.dashscope,
+          hasApiKey: hasDashscopeApiKey,
+        },
       },
       hasSecureStorage: this.hasSecureStorage,
 
@@ -331,6 +468,13 @@ class SettingsStore {
       nanobot: {
         ...this.settings.nanobot,
         apiKey: this.secrets.nanobotApiKey,
+      },
+      voice: {
+        ...this.settings.voice,
+        dashscope: {
+          ...this.settings.voice.dashscope,
+          apiKey: this.secrets.dashscopeApiKey,
+        },
       },
 
       // Legacy flat fields for backward compatibility.
@@ -361,6 +505,17 @@ class SettingsStore {
       });
     }
 
+    if (isObject(patch.voice)) {
+      this.settings.voice = normalizeVoiceSettings({
+        ...this.settings.voice,
+        ...patch.voice,
+        dashscope: {
+          ...this.settings.voice.dashscope,
+          ...(patch.voice.dashscope || {}),
+        },
+      });
+    }
+
     if (patch.clearOpenclawToken) {
       this.secrets.openclawToken = '';
       if (this.hasSecureStorage) {
@@ -382,6 +537,18 @@ class SettingsStore {
       this.secrets.nanobotApiKey = patch.nanobotApiKey;
       if (this.hasSecureStorage) {
         await this.safeSetSecret(NANOBOT_ACCOUNT_NAME, patch.nanobotApiKey);
+      }
+    }
+
+    if (patch.clearDashscopeApiKey) {
+      this.secrets.dashscopeApiKey = '';
+      if (this.hasSecureStorage) {
+        await this.safeDeleteSecret(DASHSCOPE_ACCOUNT_NAME);
+      }
+    } else if (Object.prototype.hasOwnProperty.call(patch, 'dashscopeApiKey') && patch.dashscopeApiKey) {
+      this.secrets.dashscopeApiKey = patch.dashscopeApiKey;
+      if (this.hasSecureStorage) {
+        await this.safeSetSecret(DASHSCOPE_ACCOUNT_NAME, patch.dashscopeApiKey);
       }
     }
 
@@ -416,6 +583,20 @@ class SettingsStore {
       merged.nanobot.apiKey = existingNanobotApiKey;
     }
 
+    if (isObject(patch.voice)) {
+      const existingDashscopeApiKey =
+        typeof merged.voice?.dashscope?.apiKey === 'string' ? merged.voice.dashscope.apiKey : '';
+      merged.voice = normalizeVoiceSettings({
+        ...merged.voice,
+        ...patch.voice,
+        dashscope: {
+          ...(merged.voice?.dashscope || {}),
+          ...(patch.voice.dashscope || {}),
+        },
+      });
+      merged.voice.dashscope.apiKey = existingDashscopeApiKey;
+    }
+
     if (patch.clearOpenclawToken) {
       merged.openclaw.token = '';
       merged.token = '';
@@ -430,7 +611,51 @@ class SettingsStore {
       merged.nanobot.apiKey = patch.nanobotApiKey;
     }
 
+    if (patch.clearDashscopeApiKey) {
+      merged.voice.dashscope.apiKey = '';
+    } else if (Object.prototype.hasOwnProperty.call(patch, 'dashscopeApiKey') && patch.dashscopeApiKey) {
+      merged.voice.dashscope.apiKey = patch.dashscopeApiKey;
+    }
+
     return merged;
+  }
+
+  getVoiceRuntimeEnv(baseEnv = process.env) {
+    const env = {
+      ...(baseEnv || {}),
+    };
+    const voiceSettings = this.getForMain().voice || {};
+    const dashscope = voiceSettings.dashscope || {};
+
+    if (voiceSettings.asrProvider === 'dashscope') {
+      env.VOICE_ASR_PROVIDER = 'dashscope';
+      env.VOICE_DASHSCOPE_API_KEY = dashscope.apiKey || '';
+      env.VOICE_ASR_DASHSCOPE_API_KEY = dashscope.apiKey || '';
+      env.VOICE_DASHSCOPE_WORKSPACE = dashscope.workspace || '';
+      env.VOICE_ASR_DASHSCOPE_WORKSPACE = dashscope.workspace || '';
+      env.VOICE_DASHSCOPE_BASE_URL = dashscope.baseUrl || '';
+      env.VOICE_ASR_DASHSCOPE_BASE_URL = dashscope.baseUrl || '';
+      env.VOICE_ASR_DASHSCOPE_MODEL = dashscope.asrModel || '';
+      env.VOICE_ASR_DASHSCOPE_LANGUAGE = dashscope.asrLanguage || '';
+    }
+
+    if (voiceSettings.ttsProvider === 'dashscope') {
+      env.VOICE_TTS_PROVIDER = 'dashscope';
+      env.VOICE_DASHSCOPE_API_KEY = dashscope.apiKey || '';
+      env.VOICE_TTS_DASHSCOPE_API_KEY = dashscope.apiKey || '';
+      env.VOICE_DASHSCOPE_WORKSPACE = dashscope.workspace || '';
+      env.VOICE_TTS_DASHSCOPE_WORKSPACE = dashscope.workspace || '';
+      env.VOICE_DASHSCOPE_BASE_URL = dashscope.baseUrl || '';
+      env.VOICE_TTS_DASHSCOPE_BASE_URL = dashscope.baseUrl || '';
+      env.VOICE_TTS_DASHSCOPE_MODEL = dashscope.ttsModel || '';
+      env.VOICE_TTS_DASHSCOPE_VOICE = dashscope.ttsVoice || '';
+      env.VOICE_TTS_DASHSCOPE_LANGUAGE = dashscope.ttsLanguage || '';
+      env.VOICE_TTS_DASHSCOPE_RESPONSE_FORMAT = 'pcm';
+      env.VOICE_TTS_DASHSCOPE_SAMPLE_RATE = String(dashscope.ttsSampleRate || '');
+      env.VOICE_TTS_DASHSCOPE_SPEECH_RATE = String(dashscope.ttsSpeechRate || '');
+    }
+
+    return env;
   }
 
   async persist() {
@@ -442,6 +667,9 @@ class SettingsStore {
       }
       if (this.secrets.nanobotApiKey) {
         filePayload.nanobot.apiKey = this.secrets.nanobotApiKey;
+      }
+      if (this.secrets.dashscopeApiKey) {
+        filePayload.voice.dashscope.apiKey = this.secrets.dashscopeApiKey;
       }
     }
 

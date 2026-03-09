@@ -60,11 +60,18 @@ function normalizeSettingsResponse(settings = {}) {
   const chatBackend = settings?.chatBackend === 'nanobot' ? 'nanobot' : 'openclaw';
   const openclaw = settings?.openclaw || {};
   const nanobot = settings?.nanobot || {};
+  const voice = settings?.voice || {};
+  const dashscope = voice?.dashscope || {};
   const hasToken = Boolean(settings?.hasToken || openclaw?.hasToken || (typeof settings?.token === 'string' && settings.token.trim()));
   const hasNanobotApiKey = Boolean(
     settings?.hasNanobotApiKey
       || nanobot?.hasApiKey
       || (typeof settings?.nanobotApiKey === 'string' && settings.nanobotApiKey.trim()),
+  );
+  const hasDashscopeApiKey = Boolean(
+    dashscope?.hasApiKey
+      || (typeof settings?.dashscopeApiKey === 'string' && settings.dashscopeApiKey.trim())
+      || (typeof dashscope?.apiKey === 'string' && dashscope.apiKey.trim()),
   );
 
   const normalized = {
@@ -98,6 +105,23 @@ function normalizeSettingsResponse(settings = {}) {
       reasoningEffort: typeof nanobot.reasoningEffort === 'string' ? nanobot.reasoningEffort.trim() : '',
       hasApiKey: hasNanobotApiKey,
     },
+    voice: {
+      asrProvider: voice?.asrProvider === 'dashscope' ? 'dashscope' : 'inherit',
+      ttsProvider: voice?.ttsProvider === 'dashscope' ? 'dashscope' : 'inherit',
+      dashscope: {
+        workspace: typeof dashscope.workspace === 'string' ? dashscope.workspace.trim() : '',
+        baseUrl: typeof dashscope.baseUrl === 'string' ? dashscope.baseUrl.trim() : '',
+        apiKey: typeof dashscope.apiKey === 'string' ? dashscope.apiKey.trim() : '',
+        hasApiKey: hasDashscopeApiKey,
+        asrModel: typeof dashscope.asrModel === 'string' ? dashscope.asrModel.trim() : 'qwen3-asr-flash-realtime',
+        asrLanguage: typeof dashscope.asrLanguage === 'string' ? dashscope.asrLanguage.trim() : 'zh',
+        ttsModel: typeof dashscope.ttsModel === 'string' ? dashscope.ttsModel.trim() : 'qwen-tts-realtime-latest',
+        ttsVoice: typeof dashscope.ttsVoice === 'string' ? dashscope.ttsVoice.trim() : 'Cherry',
+        ttsLanguage: typeof dashscope.ttsLanguage === 'string' ? dashscope.ttsLanguage.trim() : 'Chinese',
+        ttsSampleRate: Number.isFinite(dashscope.ttsSampleRate) ? dashscope.ttsSampleRate : 24000,
+        ttsSpeechRate: Number.isFinite(dashscope.ttsSpeechRate) ? dashscope.ttsSpeechRate : 1,
+      },
+    },
     hasSecureStorage: settings.hasSecureStorage !== false,
   };
 
@@ -109,6 +133,7 @@ function normalizeSettingsResponse(settings = {}) {
     agentId: normalized.openclaw.agentId,
     hasToken: normalized.openclaw.hasToken,
     hasNanobotApiKey: normalized.nanobot.hasApiKey,
+    dashscopeApiKey: normalized.voice.dashscope.apiKey,
   };
 }
 
@@ -259,6 +284,118 @@ function normalizeSettingsPatch(settings = {}) {
           },
         }
       : {}),
+    ...(Object.prototype.hasOwnProperty.call(settings, 'voice')
+      ? {
+          voice: {
+            ...(typeof settings.voice === 'object' && settings.voice
+              ? {
+                  ...(Object.prototype.hasOwnProperty.call(settings.voice, 'asrProvider')
+                    ? {
+                        asrProvider: settings.voice.asrProvider === 'dashscope' ? 'dashscope' : 'inherit',
+                      }
+                    : {}),
+                  ...(Object.prototype.hasOwnProperty.call(settings.voice, 'ttsProvider')
+                    ? {
+                        ttsProvider: settings.voice.ttsProvider === 'dashscope' ? 'dashscope' : 'inherit',
+                      }
+                    : {}),
+                  ...(Object.prototype.hasOwnProperty.call(settings.voice, 'dashscope')
+                    ? {
+                        dashscope:
+                          typeof settings.voice.dashscope === 'object' && settings.voice.dashscope
+                            ? {
+                                ...(Object.prototype.hasOwnProperty.call(settings.voice.dashscope, 'workspace')
+                                  ? {
+                                      workspace:
+                                        typeof settings.voice.dashscope.workspace === 'string'
+                                          ? settings.voice.dashscope.workspace.trim()
+                                          : '',
+                                    }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.voice.dashscope, 'baseUrl')
+                                  ? {
+                                      baseUrl:
+                                        typeof settings.voice.dashscope.baseUrl === 'string'
+                                          ? settings.voice.dashscope.baseUrl.trim()
+                                          : '',
+                                    }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.voice.dashscope, 'asrModel')
+                                  ? {
+                                      asrModel:
+                                        typeof settings.voice.dashscope.asrModel === 'string'
+                                          ? settings.voice.dashscope.asrModel.trim()
+                                          : '',
+                                    }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.voice.dashscope, 'asrLanguage')
+                                  ? {
+                                      asrLanguage:
+                                        typeof settings.voice.dashscope.asrLanguage === 'string'
+                                          ? settings.voice.dashscope.asrLanguage.trim()
+                                          : '',
+                                    }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.voice.dashscope, 'ttsModel')
+                                  ? {
+                                      ttsModel:
+                                        typeof settings.voice.dashscope.ttsModel === 'string'
+                                          ? settings.voice.dashscope.ttsModel.trim()
+                                          : '',
+                                    }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.voice.dashscope, 'ttsVoice')
+                                  ? {
+                                      ttsVoice:
+                                        typeof settings.voice.dashscope.ttsVoice === 'string'
+                                          ? settings.voice.dashscope.ttsVoice.trim()
+                                          : '',
+                                    }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.voice.dashscope, 'ttsLanguage')
+                                  ? {
+                                      ttsLanguage:
+                                        typeof settings.voice.dashscope.ttsLanguage === 'string'
+                                          ? settings.voice.dashscope.ttsLanguage.trim()
+                                          : '',
+                                    }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.voice.dashscope, 'ttsSampleRate')
+                                  ? {
+                                      ttsSampleRate: Number.isFinite(settings.voice.dashscope.ttsSampleRate)
+                                        ? settings.voice.dashscope.ttsSampleRate
+                                        : 24000,
+                                    }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.voice.dashscope, 'ttsSpeechRate')
+                                  ? {
+                                      ttsSpeechRate: Number.isFinite(settings.voice.dashscope.ttsSpeechRate)
+                                        ? settings.voice.dashscope.ttsSpeechRate
+                                        : 1,
+                                    }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.voice.dashscope, 'apiKey')
+                                  ? {
+                                      apiKey:
+                                        typeof settings.voice.dashscope.apiKey === 'string'
+                                          ? settings.voice.dashscope.apiKey.trim()
+                                          : '',
+                                    }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.voice.dashscope, 'clearApiKey')
+                                  ? {
+                                      clearApiKey: Boolean(settings.voice.dashscope.clearApiKey),
+                                    }
+                                  : {}),
+                              }
+                            : {},
+                      }
+                    : {}),
+                }
+              : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -299,6 +436,14 @@ function saveWebSettings(partialSettings = {}) {
       ...current.nanobot,
       ...(patch.nanobot || {}),
     },
+    voice: {
+      ...current.voice,
+      ...(patch.voice || {}),
+      dashscope: {
+        ...current.voice.dashscope,
+        ...(patch.voice?.dashscope || {}),
+      },
+    },
     hasSecureStorage: false,
   };
 
@@ -310,6 +455,10 @@ function saveWebSettings(partialSettings = {}) {
     merged.nanobot.apiKey = '';
   }
 
+  if (patch.voice?.dashscope?.clearApiKey === true) {
+    merged.voice.dashscope.apiKey = '';
+  }
+
   merged.openclaw.hasToken = Boolean(merged.openclaw.token);
   merged.nanobot.hasApiKey = Boolean(merged.nanobot.apiKey);
   merged.baseUrl = merged.openclaw.baseUrl;
@@ -317,6 +466,8 @@ function saveWebSettings(partialSettings = {}) {
   merged.agentId = merged.openclaw.agentId;
   merged.hasToken = merged.openclaw.hasToken;
   merged.hasNanobotApiKey = merged.nanobot.hasApiKey;
+  merged.voice.dashscope.hasApiKey = Boolean(merged.voice.dashscope.apiKey);
+  merged.dashscopeApiKey = merged.voice.dashscope.apiKey;
 
   if (typeof window !== 'undefined') {
     window.localStorage.setItem(
@@ -339,6 +490,22 @@ function saveWebSettings(partialSettings = {}) {
           maxTokens: merged.nanobot.maxTokens,
           temperature: merged.nanobot.temperature,
           reasoningEffort: merged.nanobot.reasoningEffort,
+        },
+        voice: {
+          asrProvider: merged.voice.asrProvider,
+          ttsProvider: merged.voice.ttsProvider,
+          dashscope: {
+            workspace: merged.voice.dashscope.workspace,
+            baseUrl: merged.voice.dashscope.baseUrl,
+            apiKey: merged.voice.dashscope.apiKey,
+            asrModel: merged.voice.dashscope.asrModel,
+            asrLanguage: merged.voice.dashscope.asrLanguage,
+            ttsModel: merged.voice.dashscope.ttsModel,
+            ttsVoice: merged.voice.dashscope.ttsVoice,
+            ttsLanguage: merged.voice.dashscope.ttsLanguage,
+            ttsSampleRate: merged.voice.dashscope.ttsSampleRate,
+            ttsSpeechRate: merged.voice.dashscope.ttsSpeechRate,
+          },
         },
       }),
     );

@@ -1,12 +1,15 @@
 const assert = require('node:assert/strict');
+const { EventEmitter } = require('node:events');
 const test = require('node:test');
 
 const {
   createTtsProvider,
+  buildDashScopeTtsOptionsFromEnv,
   buildSherpaOnnxTtsOptionsFromEnv,
   buildPythonTtsOptionsFromEnv,
 } = require('../services/voice/providerFactory');
 const { createPythonTtsProvider } = require('../services/voice/providers/tts/pythonProvider');
+const { createDashScopeTtsProvider } = require('../services/voice/providers/tts/dashscopeProvider');
 const {
   createSherpaOnnxTtsProvider,
   createDefaultTtsConfig,
@@ -94,6 +97,36 @@ test('buildPythonTtsOptionsFromEnv maps env values', () => {
   assert.equal(options.timeoutMs, '120000');
 });
 
+test('buildDashScopeTtsOptionsFromEnv maps env values', () => {
+  const options = buildDashScopeTtsOptionsFromEnv({
+    VOICE_DASHSCOPE_API_KEY: 'dashscope-key',
+    VOICE_DASHSCOPE_WORKSPACE: 'workspace-01',
+    VOICE_DASHSCOPE_BASE_URL: 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime',
+    VOICE_TTS_DASHSCOPE_MODEL: 'qwen-tts-realtime-latest',
+    VOICE_TTS_DASHSCOPE_VOICE: 'Cherry',
+    VOICE_TTS_DASHSCOPE_LANGUAGE: 'Chinese',
+    VOICE_TTS_DASHSCOPE_RESPONSE_FORMAT: 'pcm',
+    VOICE_TTS_DASHSCOPE_SAMPLE_RATE: '24000',
+    VOICE_TTS_DASHSCOPE_SPEECH_RATE: '1.1',
+    VOICE_TTS_DASHSCOPE_INSTRUCTIONS: 'Warm and calm',
+    VOICE_TTS_DASHSCOPE_OPTIMIZE_INSTRUCTIONS: '1',
+    VOICE_DASHSCOPE_TIMEOUT_MS: '80000',
+  });
+
+  assert.equal(options.apiKey, 'dashscope-key');
+  assert.equal(options.workspace, 'workspace-01');
+  assert.equal(options.baseUrl, 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime');
+  assert.equal(options.model, 'qwen-tts-realtime-latest');
+  assert.equal(options.voice, 'Cherry');
+  assert.equal(options.language, 'Chinese');
+  assert.equal(options.responseFormat, 'pcm');
+  assert.equal(options.sampleRate, '24000');
+  assert.equal(options.speechRate, '1.1');
+  assert.equal(options.instructions, 'Warm and calm');
+  assert.equal(options.optimizeInstructions, '1');
+  assert.equal(options.timeoutMs, '80000');
+});
+
 test('createTtsProvider uses env default mock provider', async () => {
   const provider = createTtsProvider({
     env: {
@@ -115,6 +148,16 @@ test('createTtsProvider accepts python provider selection', () => {
   const provider = createTtsProvider({
     env: {
       VOICE_TTS_PROVIDER: 'python',
+    },
+  });
+
+  assert.equal(typeof provider.synthesize, 'function');
+});
+
+test('createTtsProvider accepts dashscope provider selection', () => {
+  const provider = createTtsProvider({
+    env: {
+      VOICE_TTS_PROVIDER: 'dashscope',
     },
   });
 
@@ -463,4 +506,71 @@ test('sherpa tts provider splits long text into bounded segments', async () => {
   assert.ok(textCalls.length >= 2);
   assert.ok(textCalls.every((part) => typeof part === 'string' && part.length <= 40));
   assert.equal(result.sampleCount, textCalls.length * 160);
+});
+
+test('dashscope tts provider streams pcm chunks', async () => {
+  class FakeWebSocket extends EventEmitter {
+    constructor(url, options = {}) {
+      super();
+      this.url = url;
+      this.options = options;
+      this.sent = [];
+
+      setImmediate(() => {
+        this.emit('open');
+      });
+    }
+
+    send(payload) {
+      this.sent.push(JSON.parse(payload));
+      const last = this.sent[this.sent.length - 1];
+      if (last.type === 'session.update') {
+        setImmediate(() => {
+          this.emit('message', Buffer.from(JSON.stringify({ type: 'session.updated' })), false);
+        });
+      }
+      if (last.type === 'session.finish') {
+        setImmediate(() => {
+          this.emit(
+            'message',
+            Buffer.from(JSON.stringify({
+              type: 'response.audio.delta',
+              delta: Buffer.from([1, 2, 3, 4]).toString('base64'),
+            })),
+            false,
+          );
+          this.emit('message', Buffer.from(JSON.stringify({ type: 'session.finished' })), false);
+          this.emit('close');
+        });
+      }
+    }
+
+    close() {}
+    terminate() {}
+  }
+
+  const provider = createDashScopeTtsProvider({
+    options: {
+      apiKey: 'dashscope-key',
+      model: 'qwen-tts-realtime-latest',
+      voice: 'Cherry',
+      sampleRate: 24000,
+    },
+    WebSocketImpl: FakeWebSocket,
+  });
+
+  const chunks = [];
+  const result = await provider.synthesize({
+    text: '你好',
+    onChunk: async (chunk) => {
+      chunks.push(chunk);
+    },
+  });
+
+  assert.equal(chunks.length, 1);
+  assert.equal(chunks[0].codec, 'pcm_s16le');
+  assert.equal(chunks[0].sampleRate, 24000);
+  assert.equal(Buffer.from(chunks[0].audioChunk).length, 4);
+  assert.equal(result.sampleRate, 24000);
+  assert.equal(result.sampleCount, 2);
 });

@@ -738,10 +738,14 @@ async function bootstrap() {
       }
     },
     resolveVoiceEnv: () => {
+      const envWithVoiceSettings =
+        settingsStore && typeof settingsStore.getVoiceRuntimeEnv === 'function'
+          ? settingsStore.getVoiceRuntimeEnv(process.env)
+          : process.env;
       if (!voiceModelLibrary) {
-        return process.env;
+        return envWithVoiceSettings;
       }
-      return voiceModelLibrary.getRuntimeEnv(process.env);
+      return voiceModelLibrary.getRuntimeEnv(envWithVoiceSettings);
     },
     ttsBackpressureTimeoutMs: process.env.VOICE_TTS_BACKPRESSURE_TIMEOUT_MS,
   });

@@ -12,6 +12,8 @@ import { desktopBridge } from '../../services/desktopBridge.js';
 
 const ASR_TEST_RECORD_MS = 3000;
 const ASR_TEST_SAMPLE_RATE = 16000;
+const VOICE_SETTINGS_AUTOSAVE_DEBOUNCE_MS = 500;
+const MASKED_SECRET_VALUE = '********';
 
 function clampToInt16(sample) {
   const clamped = Math.max(-1, Math.min(1, sample));
@@ -177,6 +179,128 @@ function resolveTtsModelPath(bundle = {}) {
   return bundle?.tts?.modelPath || bundle?.runtime?.ttsModelDir || '';
 }
 
+function normalizeMaskedSecretInput(rawValue, hasSavedSecret) {
+  if (!hasSavedSecret) {
+    return rawValue;
+  }
+
+  const value = typeof rawValue === 'string' ? rawValue : '';
+  if (!value) {
+    return '';
+  }
+
+  if (/^\*+$/.test(value)) {
+    return '';
+  }
+
+  if (value.startsWith(MASKED_SECRET_VALUE)) {
+    return value.slice(MASKED_SECRET_VALUE.length);
+  }
+
+  return value;
+}
+
+const defaultVoiceProviderSettings = {
+  hasSecureStorage: true,
+  asrProvider: 'inherit',
+  ttsProvider: 'inherit',
+  dashscope: {
+    workspace: '',
+    baseUrl: '',
+    apiKey: '',
+    hasApiKey: false,
+    asrModel: 'qwen3-asr-flash-realtime',
+    asrLanguage: 'zh',
+    ttsModel: 'qwen-tts-realtime-latest',
+    ttsVoice: 'Cherry',
+    ttsLanguage: 'Chinese',
+    ttsSampleRate: 24000,
+    ttsSpeechRate: 1,
+  },
+};
+
+function normalizeVoiceProviderSettings(settings = {}) {
+  const voice = settings?.voice || settings || {};
+  const dashscope = voice?.dashscope || {};
+  return {
+    hasSecureStorage: settings?.hasSecureStorage !== false,
+    asrProvider: voice?.asrProvider === 'dashscope' ? 'dashscope' : 'inherit',
+    ttsProvider: voice?.ttsProvider === 'dashscope' ? 'dashscope' : 'inherit',
+    dashscope: {
+      workspace: typeof dashscope.workspace === 'string' ? dashscope.workspace.trim() : '',
+      baseUrl: typeof dashscope.baseUrl === 'string' ? dashscope.baseUrl.trim() : '',
+      apiKey: '',
+      hasApiKey: Boolean(dashscope.hasApiKey || (typeof dashscope.apiKey === 'string' && dashscope.apiKey.trim())),
+      asrModel: typeof dashscope.asrModel === 'string' && dashscope.asrModel.trim()
+        ? dashscope.asrModel.trim()
+        : defaultVoiceProviderSettings.dashscope.asrModel,
+      asrLanguage: typeof dashscope.asrLanguage === 'string' && dashscope.asrLanguage.trim()
+        ? dashscope.asrLanguage.trim()
+        : defaultVoiceProviderSettings.dashscope.asrLanguage,
+      ttsModel: typeof dashscope.ttsModel === 'string' && dashscope.ttsModel.trim()
+        ? dashscope.ttsModel.trim()
+        : defaultVoiceProviderSettings.dashscope.ttsModel,
+      ttsVoice: typeof dashscope.ttsVoice === 'string' && dashscope.ttsVoice.trim()
+        ? dashscope.ttsVoice.trim()
+        : defaultVoiceProviderSettings.dashscope.ttsVoice,
+      ttsLanguage: typeof dashscope.ttsLanguage === 'string' && dashscope.ttsLanguage.trim()
+        ? dashscope.ttsLanguage.trim()
+        : defaultVoiceProviderSettings.dashscope.ttsLanguage,
+      ttsSampleRate: Number.isFinite(dashscope.ttsSampleRate)
+        ? dashscope.ttsSampleRate
+        : defaultVoiceProviderSettings.dashscope.ttsSampleRate,
+      ttsSpeechRate: Number.isFinite(dashscope.ttsSpeechRate)
+        ? dashscope.ttsSpeechRate
+        : defaultVoiceProviderSettings.dashscope.ttsSpeechRate,
+    },
+  };
+}
+
+function buildVoiceProviderSettingsSnapshot(settings = {}) {
+  return {
+    asrProvider: settings.asrProvider === 'dashscope' ? 'dashscope' : 'inherit',
+    ttsProvider: settings.ttsProvider === 'dashscope' ? 'dashscope' : 'inherit',
+    dashscope: {
+      workspace: settings?.dashscope?.workspace || '',
+      baseUrl: settings?.dashscope?.baseUrl || '',
+      asrModel: settings?.dashscope?.asrModel || '',
+      asrLanguage: settings?.dashscope?.asrLanguage || '',
+      ttsModel: settings?.dashscope?.ttsModel || '',
+      ttsVoice: settings?.dashscope?.ttsVoice || '',
+      ttsLanguage: settings?.dashscope?.ttsLanguage || '',
+      ttsSampleRate: Number.isFinite(settings?.dashscope?.ttsSampleRate) ? settings.dashscope.ttsSampleRate : 24000,
+      ttsSpeechRate: Number.isFinite(settings?.dashscope?.ttsSpeechRate) ? settings.dashscope.ttsSpeechRate : 1,
+    },
+  };
+}
+
+function buildVoiceProviderSettingsPayload(settings = {}) {
+  const payload = {
+    voice: {
+      asrProvider: settings.asrProvider === 'dashscope' ? 'dashscope' : 'inherit',
+      ttsProvider: settings.ttsProvider === 'dashscope' ? 'dashscope' : 'inherit',
+      dashscope: {
+        workspace: settings?.dashscope?.workspace || '',
+        baseUrl: settings?.dashscope?.baseUrl || '',
+        asrModel: settings?.dashscope?.asrModel || '',
+        asrLanguage: settings?.dashscope?.asrLanguage || '',
+        ttsModel: settings?.dashscope?.ttsModel || '',
+        ttsVoice: settings?.dashscope?.ttsVoice || '',
+        ttsLanguage: settings?.dashscope?.ttsLanguage || '',
+        ttsSampleRate: Number.isFinite(settings?.dashscope?.ttsSampleRate) ? settings.dashscope.ttsSampleRate : 24000,
+        ttsSpeechRate: Number.isFinite(settings?.dashscope?.ttsSpeechRate) ? settings.dashscope.ttsSpeechRate : 1,
+      },
+    },
+  };
+
+  const apiKey = typeof settings?.dashscope?.apiKey === 'string' ? settings.dashscope.apiKey.trim() : '';
+  if (apiKey) {
+    payload.voice.dashscope.apiKey = apiKey;
+  }
+
+  return payload;
+}
+
 export function resolveCatalogSelectionFromBundle({
   bundles = [],
   selectedBundleId = '',
@@ -308,6 +432,13 @@ export default function VoiceSettingsPanel({
   });
   const ttsPreviewAudioRef = useRef(null);
 
+  const [voiceProviderSettings, setVoiceProviderSettings] = useState(defaultVoiceProviderSettings);
+  const [savedVoiceProviderSnapshot, setSavedVoiceProviderSnapshot] = useState(
+    buildVoiceProviderSettingsSnapshot(defaultVoiceProviderSettings),
+  );
+  const [voiceProviderLoaded, setVoiceProviderLoaded] = useState(false);
+  const [voiceProviderSaving, setVoiceProviderSaving] = useState(false);
+  const [voiceProviderError, setVoiceProviderError] = useState('');
   const [modelBundles, setModelBundles] = useState([]);
   const [selectedAsrBundleId, setSelectedAsrBundleId] = useState('');
   const [selectedTtsBundleId, setSelectedTtsBundleId] = useState('');
@@ -388,6 +519,14 @@ export default function VoiceSettingsPanel({
     selectedAsrCatalogId && !hasInstalledSelectedAsrCatalog ? null : activeAsrBundle;
   const effectiveActiveTtsBundle =
     selectedTtsCatalogId && !hasInstalledSelectedTtsCatalog ? null : activeTtsBundle;
+  const dashscopeActive = voiceProviderSettings.asrProvider === 'dashscope'
+    || voiceProviderSettings.ttsProvider === 'dashscope';
+  const dashscopeApiKeySaved = Boolean(
+    voiceProviderSettings.dashscope.hasApiKey && !(voiceProviderSettings.dashscope.apiKey || '').trim(),
+  );
+  const dashscopeApiKeyValue = dashscopeApiKeySaved
+    ? MASKED_SECRET_VALUE
+    : (voiceProviderSettings.dashscope.apiKey || '');
 
   const applyVoiceModelList = useCallback((result = {}) => {
     const bundles = Array.isArray(result.bundles) ? result.bundles : [];
@@ -407,6 +546,81 @@ export default function VoiceSettingsPanel({
       selectedTtsBundleId: nextSelectedTtsBundleId,
     });
   }, [onBuiltinTtsEnabledChange]);
+
+  const loadVoiceProviderSettings = useCallback(async () => {
+    if (!desktopMode) {
+      return;
+    }
+
+    try {
+      const settings = await desktopBridge.settings.get();
+      if (!mountedRef.current) {
+        return;
+      }
+
+      const normalized = normalizeVoiceProviderSettings(settings);
+      setVoiceProviderSettings(normalized);
+      setSavedVoiceProviderSnapshot(buildVoiceProviderSettingsSnapshot(normalized));
+      setVoiceProviderLoaded(true);
+      setVoiceProviderError('');
+    } catch (error) {
+      if (!mountedRef.current) {
+        return;
+      }
+
+      setVoiceProviderLoaded(true);
+      setVoiceProviderError(error?.message || '读取云端语音供应商设置失败。');
+    }
+  }, [desktopMode]);
+
+  const updateVoiceProviderSetting = useCallback((field, value) => {
+    setVoiceProviderSettings((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+    setVoiceProviderError('');
+  }, []);
+
+  const updateDashscopeSetting = useCallback((field, value) => {
+    setVoiceProviderSettings((prev) => ({
+      ...prev,
+      dashscope: {
+        ...prev.dashscope,
+        [field]: value,
+      },
+    }));
+    setVoiceProviderError('');
+  }, []);
+
+  const handleClearDashscopeApiKey = useCallback(async () => {
+    setVoiceProviderSaving(true);
+    setVoiceProviderError('');
+
+    try {
+      const saved = await desktopBridge.settings.save({
+        voice: {
+          dashscope: {
+            clearApiKey: true,
+          },
+        },
+      });
+      if (!mountedRef.current) {
+        return;
+      }
+
+      const normalized = normalizeVoiceProviderSettings(saved);
+      setVoiceProviderSettings(normalized);
+      setSavedVoiceProviderSnapshot(buildVoiceProviderSettingsSnapshot(normalized));
+    } catch (error) {
+      if (mountedRef.current) {
+        setVoiceProviderError(error?.message || '清除 DashScope API Key 失败。');
+      }
+    } finally {
+      if (mountedRef.current) {
+        setVoiceProviderSaving(false);
+      }
+    }
+  }, []);
 
   const loadVoiceModels = useCallback(async () => {
     if (!desktopMode) {
@@ -824,9 +1038,53 @@ export default function VoiceSettingsPanel({
   }, [ttsTestAudioUrl]);
 
   useEffect(() => {
+    void loadVoiceProviderSettings();
     void loadVoiceModels();
     void loadModelCatalog();
-  }, [loadModelCatalog, loadVoiceModels]);
+  }, [loadModelCatalog, loadVoiceModels, loadVoiceProviderSettings]);
+
+  useEffect(() => {
+    if (!desktopMode || !voiceProviderLoaded) {
+      return () => {};
+    }
+
+    const currentSnapshot = buildVoiceProviderSettingsSnapshot(voiceProviderSettings);
+    const snapshotChanged = JSON.stringify(currentSnapshot) !== JSON.stringify(savedVoiceProviderSnapshot);
+    const pendingApiKey = Boolean((voiceProviderSettings.dashscope.apiKey || '').trim());
+    if (!snapshotChanged && !pendingApiKey) {
+      return () => {};
+    }
+
+    const timer = setTimeout(() => {
+      void (async () => {
+        setVoiceProviderSaving(true);
+        setVoiceProviderError('');
+        try {
+          const payload = buildVoiceProviderSettingsPayload(voiceProviderSettings);
+          const saved = await desktopBridge.settings.save(payload);
+          if (!mountedRef.current) {
+            return;
+          }
+
+          const normalized = normalizeVoiceProviderSettings(saved);
+          setVoiceProviderSettings(normalized);
+          setSavedVoiceProviderSnapshot(buildVoiceProviderSettingsSnapshot(normalized));
+        } catch (error) {
+          if (mountedRef.current) {
+            setVoiceProviderError(error?.message || '保存云端语音供应商设置失败。');
+          }
+        } finally {
+          if (mountedRef.current) {
+            setVoiceProviderSaving(false);
+          }
+        }
+      })();
+    }, VOICE_SETTINGS_AUTOSAVE_DEBOUNCE_MS);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [desktopMode, savedVoiceProviderSnapshot, voiceProviderLoaded, voiceProviderSettings]);
 
   useEffect(() => {
     setSelectedAsrCatalogId((previous) => resolveCatalogSelectionFromBundle({
@@ -959,6 +1217,161 @@ export default function VoiceSettingsPanel({
 
       {desktopMode && (
         <Stack spacing={1.5} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5 }}>
+          <Box sx={{ fontWeight: 600 }}>云端语音供应商（未选择内置模型时生效）</Box>
+          <Alert severity="info">
+            内置模型优先级高于这里的云端设置。某一侧未选择内置模型时，会回退到环境变量或你在这里配置的 DashScope。
+          </Alert>
+          {!voiceProviderSettings.hasSecureStorage && (
+            <Alert severity="warning">系统密钥链不可用，DashScope API Key 将回退为本地明文存储。</Alert>
+          )}
+          <Stack spacing={1}>
+            <Box sx={{ fontWeight: 600 }}>ASR Provider</Box>
+            <TextField
+              select
+              label="ASR Provider"
+              value={voiceProviderSettings.asrProvider}
+              onChange={(event) => updateVoiceProviderSetting('asrProvider', event.target.value)}
+              disabled={voiceProviderSaving}
+              fullWidth
+            >
+              <MenuItem value="inherit">环境变量 / 内置模型</MenuItem>
+              <MenuItem value="dashscope">阿里百炼 DashScope</MenuItem>
+            </TextField>
+          </Stack>
+          <Stack spacing={1}>
+            <Box sx={{ fontWeight: 600 }}>TTS Provider</Box>
+            <TextField
+              select
+              label="TTS Provider"
+              value={voiceProviderSettings.ttsProvider}
+              onChange={(event) => updateVoiceProviderSetting('ttsProvider', event.target.value)}
+              disabled={voiceProviderSaving}
+              fullWidth
+            >
+              <MenuItem value="inherit">环境变量 / 内置模型</MenuItem>
+              <MenuItem value="dashscope">阿里百炼 DashScope</MenuItem>
+            </TextField>
+          </Stack>
+
+          {dashscopeActive && (
+            <Stack spacing={1}>
+              <Alert severity="info">
+                依据百炼官方 Realtime API，这里使用 `wss://dashscope.aliyuncs.com/api-ws/v1/realtime`，默认模型为
+                `qwen3-asr-flash-realtime` 与 `qwen-tts-realtime-latest`。
+              </Alert>
+              <TextField
+                label="DashScope WebSocket Base URL"
+                value={voiceProviderSettings.dashscope.baseUrl}
+                onChange={(event) => updateDashscopeSetting('baseUrl', event.target.value)}
+                placeholder="wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
+                helperText="留空时使用中国内地默认地址；国际站可填写 dashscope-intl 对应地址。"
+                disabled={voiceProviderSaving}
+                fullWidth
+              />
+              <TextField
+                label="DashScope Workspace"
+                value={voiceProviderSettings.dashscope.workspace}
+                onChange={(event) => updateDashscopeSetting('workspace', event.target.value)}
+                placeholder="可选"
+                disabled={voiceProviderSaving}
+                fullWidth
+              />
+              <TextField
+                label="DashScope API Key"
+                value={dashscopeApiKeyValue}
+                onChange={(event) => {
+                  const nextApiKey = normalizeMaskedSecretInput(event.target.value, dashscopeApiKeySaved);
+                  updateDashscopeSetting('apiKey', nextApiKey);
+                }}
+                type="password"
+                autoComplete="off"
+                placeholder={voiceProviderSettings.dashscope.hasApiKey ? '已保存 API Key' : ''}
+                helperText={dashscopeApiKeySaved ? '已保存 API Key' : ''}
+                disabled={voiceProviderSaving}
+                fullWidth
+              />
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: -0.5 }}>
+                <Button
+                  size="small"
+                  color="warning"
+                  onClick={handleClearDashscopeApiKey}
+                  disabled={voiceProviderSaving || !voiceProviderSettings.dashscope.hasApiKey}
+                >
+                  清除 DashScope API Key
+                </Button>
+              </Box>
+              <Stack direction="row" spacing={1}>
+                <TextField
+                  label="DashScope ASR Model"
+                  value={voiceProviderSettings.dashscope.asrModel}
+                  onChange={(event) => updateDashscopeSetting('asrModel', event.target.value)}
+                  disabled={voiceProviderSaving}
+                  fullWidth
+                />
+                <TextField
+                  label="ASR 语种"
+                  value={voiceProviderSettings.dashscope.asrLanguage}
+                  onChange={(event) => updateDashscopeSetting('asrLanguage', event.target.value)}
+                  placeholder="zh"
+                  disabled={voiceProviderSaving}
+                  fullWidth
+                />
+              </Stack>
+              <Stack direction="row" spacing={1}>
+                <TextField
+                  label="DashScope TTS Model"
+                  value={voiceProviderSettings.dashscope.ttsModel}
+                  onChange={(event) => updateDashscopeSetting('ttsModel', event.target.value)}
+                  disabled={voiceProviderSaving}
+                  fullWidth
+                />
+                <TextField
+                  label="TTS 音色"
+                  value={voiceProviderSettings.dashscope.ttsVoice}
+                  onChange={(event) => updateDashscopeSetting('ttsVoice', event.target.value)}
+                  placeholder="Cherry"
+                  disabled={voiceProviderSaving}
+                  fullWidth
+                />
+              </Stack>
+              <Stack direction="row" spacing={1}>
+                <TextField
+                  label="TTS 语言"
+                  value={voiceProviderSettings.dashscope.ttsLanguage}
+                  onChange={(event) => updateDashscopeSetting('ttsLanguage', event.target.value)}
+                  placeholder="Chinese"
+                  disabled={voiceProviderSaving}
+                  fullWidth
+                />
+                <TextField
+                  label="TTS Sample Rate"
+                  type="number"
+                  value={voiceProviderSettings.dashscope.ttsSampleRate}
+                  onChange={(event) =>
+                    updateDashscopeSetting('ttsSampleRate', Number.parseInt(event.target.value, 10) || 0)}
+                  disabled={voiceProviderSaving}
+                  fullWidth
+                />
+                <TextField
+                  label="TTS Speech Rate"
+                  type="number"
+                  value={voiceProviderSettings.dashscope.ttsSpeechRate}
+                  onChange={(event) =>
+                    updateDashscopeSetting('ttsSpeechRate', Number.parseFloat(event.target.value))}
+                  inputProps={{ step: 0.1 }}
+                  disabled={voiceProviderSaving}
+                  fullWidth
+                />
+              </Stack>
+            </Stack>
+          )}
+
+          {!!voiceProviderError && <Alert severity="warning">{voiceProviderError}</Alert>}
+        </Stack>
+      )}
+
+      {desktopMode && (
+        <Stack spacing={1.5} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5 }}>
           <Box sx={{ fontWeight: 600 }}>本地语音模型管理</Box>
           {catalogItems.length > 0 ? (
             <Stack spacing={1.5}>
@@ -974,7 +1387,7 @@ export default function VoiceSettingsPanel({
                   disabled={modelsLoading || isDownloadingModels}
                   fullWidth
                 >
-                  <MenuItem value="">不使用内置模型（回退环境变量）</MenuItem>
+                  <MenuItem value="">不使用内置模型（回退环境变量 / 云端供应商）</MenuItem>
                   {asrCatalogItems.map((item) => (
                     <MenuItem key={item.id} value={item.id}>
                       {item.asrOptionLabel || item.name}
@@ -1001,7 +1414,7 @@ export default function VoiceSettingsPanel({
                         : '所选 ASR 模型状态: 未下载'}
                   </Alert>
                 ) : (
-                  <Alert severity="info">所选 ASR 模型状态: 使用环境变量（未选择内置模型）</Alert>
+                  <Alert severity="info">所选 ASR 模型状态: 使用环境变量 / 云端供应商（未选择内置模型）</Alert>
                 )}
                 <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                   {!!selectedAsrCatalogId && (
@@ -1037,7 +1450,7 @@ export default function VoiceSettingsPanel({
                   disabled={modelsLoading || isDownloadingModels}
                   fullWidth
                 >
-                  <MenuItem value="">不使用内置模型（回退环境变量）</MenuItem>
+                  <MenuItem value="">不使用内置模型（回退环境变量 / 云端供应商）</MenuItem>
                   {ttsCatalogItems.map((item) => (
                     <MenuItem key={item.id} value={item.id}>
                       {item.ttsOptionLabel || item.name}
@@ -1064,7 +1477,7 @@ export default function VoiceSettingsPanel({
                         : '所选 TTS 模型状态: 未下载'}
                   </Alert>
                 ) : (
-                  <Alert severity="info">所选 TTS 模型状态: 使用环境变量（未选择内置模型）</Alert>
+                  <Alert severity="info">所选 TTS 模型状态: 使用环境变量 / 云端供应商（未选择内置模型）</Alert>
                 )}
                 <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                   {!!selectedTtsCatalogId && (

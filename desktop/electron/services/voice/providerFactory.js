@@ -2,6 +2,8 @@ const { createSherpaOnnxAsrProvider } = require('./providers/asr/sherpaOnnxProvi
 const { createSherpaOnnxTtsProvider } = require('./providers/tts/sherpaOnnxProvider');
 const { createPythonAsrProvider } = require('./providers/asr/pythonProvider');
 const { createPythonTtsProvider } = require('./providers/tts/pythonProvider');
+const { createDashScopeAsrProvider } = require('./providers/asr/dashscopeProvider');
+const { createDashScopeTtsProvider } = require('./providers/tts/dashscopeProvider');
 
 function createAbortError() {
   const error = new Error('aborted');
@@ -153,6 +155,34 @@ function buildPythonTtsOptionsFromEnv(env = process.env) {
   };
 }
 
+function buildDashScopeAsrOptionsFromEnv(env = process.env) {
+  return {
+    apiKey: env.VOICE_ASR_DASHSCOPE_API_KEY || env.VOICE_DASHSCOPE_API_KEY,
+    workspace: env.VOICE_ASR_DASHSCOPE_WORKSPACE || env.VOICE_DASHSCOPE_WORKSPACE,
+    baseUrl: env.VOICE_ASR_DASHSCOPE_BASE_URL || env.VOICE_DASHSCOPE_BASE_URL,
+    model: env.VOICE_ASR_DASHSCOPE_MODEL,
+    language: env.VOICE_ASR_DASHSCOPE_LANGUAGE,
+    timeoutMs: env.VOICE_ASR_DASHSCOPE_TIMEOUT_MS || env.VOICE_DASHSCOPE_TIMEOUT_MS,
+  };
+}
+
+function buildDashScopeTtsOptionsFromEnv(env = process.env) {
+  return {
+    apiKey: env.VOICE_TTS_DASHSCOPE_API_KEY || env.VOICE_DASHSCOPE_API_KEY,
+    workspace: env.VOICE_TTS_DASHSCOPE_WORKSPACE || env.VOICE_DASHSCOPE_WORKSPACE,
+    baseUrl: env.VOICE_TTS_DASHSCOPE_BASE_URL || env.VOICE_DASHSCOPE_BASE_URL,
+    model: env.VOICE_TTS_DASHSCOPE_MODEL,
+    voice: env.VOICE_TTS_DASHSCOPE_VOICE,
+    language: env.VOICE_TTS_DASHSCOPE_LANGUAGE,
+    responseFormat: env.VOICE_TTS_DASHSCOPE_RESPONSE_FORMAT,
+    sampleRate: env.VOICE_TTS_DASHSCOPE_SAMPLE_RATE,
+    speechRate: env.VOICE_TTS_DASHSCOPE_SPEECH_RATE,
+    instructions: env.VOICE_TTS_DASHSCOPE_INSTRUCTIONS,
+    optimizeInstructions: env.VOICE_TTS_DASHSCOPE_OPTIMIZE_INSTRUCTIONS,
+    timeoutMs: env.VOICE_TTS_DASHSCOPE_TIMEOUT_MS || env.VOICE_DASHSCOPE_TIMEOUT_MS,
+  };
+}
+
 function createAsrProvider({ provider = null, env = process.env } = {}) {
   const providerName = normalizeProviderName(provider) || normalizeProviderName(env.VOICE_ASR_PROVIDER) || 'mock';
 
@@ -169,6 +199,12 @@ function createAsrProvider({ provider = null, env = process.env } = {}) {
   if (providerName === 'python') {
     return createPythonAsrProvider({
       options: buildPythonAsrOptionsFromEnv(env),
+    });
+  }
+
+  if (providerName === 'dashscope') {
+    return createDashScopeAsrProvider({
+      options: buildDashScopeAsrOptionsFromEnv(env),
     });
   }
 
@@ -194,6 +230,12 @@ function createTtsProvider({ provider = null, env = process.env } = {}) {
     });
   }
 
+  if (providerName === 'dashscope') {
+    return createDashScopeTtsProvider({
+      options: buildDashScopeTtsOptionsFromEnv(env),
+    });
+  }
+
   throw new Error(`Unsupported TTS provider: ${providerName}`);
 }
 
@@ -205,4 +247,6 @@ module.exports = {
   buildSherpaOnnxTtsOptionsFromEnv,
   buildPythonAsrOptionsFromEnv,
   buildPythonTtsOptionsFromEnv,
+  buildDashScopeAsrOptionsFromEnv,
+  buildDashScopeTtsOptionsFromEnv,
 };
