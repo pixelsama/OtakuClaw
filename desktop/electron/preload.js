@@ -82,6 +82,21 @@ const nanobotDebug = {
   },
 };
 
+const nanobotSkills = {
+  list() {
+    return ipcRenderer.invoke('nanobot-skills:list');
+  },
+  importZip() {
+    return ipcRenderer.invoke('nanobot-skills:import-zip');
+  },
+  delete(payload) {
+    return ipcRenderer.invoke('nanobot-skills:delete', payload);
+  },
+  openLibrary() {
+    return ipcRenderer.invoke('nanobot-skills:open-library');
+  },
+};
+
 const windowMode = {
   setMode(mode) {
     return ipcRenderer.invoke('pet:set-mode', { mode });
@@ -240,6 +255,7 @@ contextBridge.exposeInMainWorld('desktop', {
   settings,
   nanobotRuntime,
   nanobotDebug,
+  nanobotSkills,
   windowMode,
   windowControls,
   voice,

@@ -34,7 +34,32 @@ const defaultNanobotRuntimeStatus = {
   managedByApp: false,
   installing: false,
 };
+const defaultNanobotSkillsState = {
+  libraryPath: '',
+  customSkills: [],
+  builtinSkills: [],
+};
 const SETTINGS_AUTOSAVE_DEBOUNCE_MS = 500;
+
+function normalizeSkillItem(item = {}) {
+  const skillName = typeof item.skillName === 'string' ? item.skillName.trim() : '';
+  return {
+    source: item?.source === 'builtin' ? 'builtin' : 'custom',
+    removable: Boolean(item?.removable),
+    skillName,
+    name: typeof item.name === 'string' && item.name.trim() ? item.name.trim() : skillName,
+    description: typeof item.description === 'string' ? item.description.trim() : '',
+    always: Boolean(item?.always),
+  };
+}
+
+function normalizeNanobotSkillsState(payload = {}) {
+  return {
+    libraryPath: typeof payload?.libraryPath === 'string' ? payload.libraryPath.trim() : '',
+    customSkills: Array.isArray(payload?.customSkills) ? payload.customSkills.map(normalizeSkillItem) : [],
+    builtinSkills: Array.isArray(payload?.builtinSkills) ? payload.builtinSkills.map(normalizeSkillItem) : [],
+  };
+}
 
 function buildComparableSettingsSnapshot(settings = {}) {
   const normalized = normalizeSettingsForState(settings);
@@ -170,6 +195,10 @@ export function useChatBackendSettings({ t, normalizeError }) {
   const [settingsError, setSettingsError] = useState('');
   const [nanobotRuntimeStatus, setNanobotRuntimeStatus] = useState(defaultNanobotRuntimeStatus);
   const [nanobotRuntimeInstalling, setNanobotRuntimeInstalling] = useState(false);
+  const [nanobotSkillsState, setNanobotSkillsState] = useState(defaultNanobotSkillsState);
+  const [nanobotSkillsLoading, setNanobotSkillsLoading] = useState(true);
+  const [nanobotSkillsImporting, setNanobotSkillsImporting] = useState(false);
+  const [nanobotSkillsDeletingName, setNanobotSkillsDeletingName] = useState('');
 
   const formatError = useCallback(
     (error) => formatChatBackendSettingsError({ error, normalizeError, t }),
@@ -186,6 +215,22 @@ export function useChatBackendSettings({ t, normalizeError }) {
       });
     } catch {
       setNanobotRuntimeStatus(defaultNanobotRuntimeStatus);
+    }
+  }, []);
+
+  const refreshNanobotSkills = useCallback(async () => {
+    setNanobotSkillsLoading(true);
+    try {
+      const result = await desktopBridge.nanobotSkills.list();
+      if (!result?.ok) {
+        setNanobotSkillsState(defaultNanobotSkillsState);
+        return;
+      }
+      setNanobotSkillsState(normalizeNanobotSkillsState(result));
+    } catch {
+      setNanobotSkillsState(defaultNanobotSkillsState);
+    } finally {
+      setNanobotSkillsLoading(false);
     }
   }, []);
 
@@ -210,11 +255,12 @@ export function useChatBackendSettings({ t, normalizeError }) {
 
     void loadSettings();
     void refreshNanobotRuntimeStatus();
+    void refreshNanobotSkills();
 
     return () => {
       mounted = false;
     };
-  }, [refreshNanobotRuntimeStatus]);
+  }, [refreshNanobotRuntimeStatus, refreshNanobotSkills]);
 
   useEffect(() => {
     if (!settingsLoaded) {
@@ -396,12 +442,102 @@ export function useChatBackendSettings({ t, normalizeError }) {
         setSettingsFeedback(t('app.nanobotRuntimeInstalled'));
       }
       await refreshNanobotRuntimeStatus();
+      await refreshNanobotSkills();
     } catch (error) {
       setSettingsError(formatError(error));
     } finally {
       setNanobotRuntimeInstalling(false);
     }
-  }, [formatError, refreshNanobotRuntimeStatus, t]);
+  }, [formatError, refreshNanobotRuntimeStatus, refreshNanobotSkills, t]);
+
+  const onImportNanobotSkillsZip = useCallback(async () => {
+    setNanobotSkillsImporting(true);
+    setSettingsError('');
+    setSettingsFeedback('');
+
+    try {
+      const result = await desktopBridge.nanobotSkills.importZip();
+      if (!result?.ok) {
+        if (!result?.canceled) {
+          setSettingsError(formatError(result?.error));
+        }
+        return result || { ok: false, canceled: true };
+      }
+
+      setNanobotSkillsState(normalizeNanobotSkillsState(result));
+      const importedCount = Number.isFinite(result?.imported?.count)
+        ? result.imported.count
+        : Array.isArray(result?.imported?.skills)
+          ? result.imported.skills.length
+          : 0;
+      setSettingsFeedback(t('app.nanobotSkillsImportSuccess', { count: importedCount }));
+      return result;
+    } catch (error) {
+      setSettingsError(formatError(error));
+      return {
+        ok: false,
+        canceled: false,
+        error,
+      };
+    } finally {
+      setNanobotSkillsImporting(false);
+    }
+  }, [formatError, t]);
+
+  const onDeleteNanobotSkill = useCallback(async (skillName) => {
+    const normalizedSkillName = typeof skillName === 'string' ? skillName.trim() : '';
+    if (!normalizedSkillName) {
+      return {
+        ok: false,
+        error: {
+          code: 'nanobot_skills_invalid_name',
+          message: 'Invalid skill name.',
+        },
+      };
+    }
+
+    setNanobotSkillsDeletingName(normalizedSkillName);
+    setSettingsError('');
+    setSettingsFeedback('');
+
+    try {
+      const result = await desktopBridge.nanobotSkills.delete({
+        skillName: normalizedSkillName,
+      });
+      if (!result?.ok) {
+        setSettingsError(formatError(result?.error));
+        return result;
+      }
+      setNanobotSkillsState(normalizeNanobotSkillsState(result));
+      setSettingsFeedback(t('app.nanobotSkillsDeleteSuccess', { name: normalizedSkillName }));
+      return result;
+    } catch (error) {
+      setSettingsError(formatError(error));
+      return {
+        ok: false,
+        error,
+      };
+    } finally {
+      setNanobotSkillsDeletingName('');
+    }
+  }, [formatError, t]);
+
+  const onOpenNanobotSkillsLibrary = useCallback(async () => {
+    setSettingsError('');
+    try {
+      const result = await desktopBridge.nanobotSkills.openLibrary();
+      if (!result?.ok) {
+        setSettingsError(formatError(result?.error));
+      }
+      return result;
+    } catch (error) {
+      setSettingsError(formatError(error));
+      return {
+        ok: false,
+        error,
+      };
+    }
+  }, [formatError]);
 
   const openClawSettings = useMemo(
     () => ({
@@ -429,6 +565,14 @@ export function useChatBackendSettings({ t, normalizeError }) {
     nanobotRuntimeInstalling,
     onInstallNanobotRuntime,
     refreshNanobotRuntimeStatus,
+    nanobotSkills: nanobotSkillsState,
+    nanobotSkillsLoading,
+    nanobotSkillsImporting,
+    nanobotSkillsDeletingName,
+    onImportNanobotSkillsZip,
+    onDeleteNanobotSkill,
+    onOpenNanobotSkillsLibrary,
+    refreshNanobotSkills,
   };
 }
 

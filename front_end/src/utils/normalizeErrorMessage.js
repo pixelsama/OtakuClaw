@@ -41,6 +41,24 @@ export function normalizeErrorMessage(error, t) {
   if (code === 'nanobot_unreachable') {
     return t('error.nanobotUnreachable');
   }
+  if (code === 'nanobot_skills_invalid_archive') {
+    return t('error.nanobotSkillsInvalidArchive');
+  }
+  if (code === 'nanobot_skills_conflict') {
+    return t('error.nanobotSkillsConflict');
+  }
+  if (code === 'nanobot_skills_not_found') {
+    return t('error.nanobotSkillsNotFound');
+  }
+  if (code === 'nanobot_skills_import_failed') {
+    return t('error.nanobotSkillsImportFailed');
+  }
+  if (code === 'nanobot_skills_delete_failed') {
+    return t('error.nanobotSkillsDeleteFailed');
+  }
+  if (code === 'nanobot_skills_open_library_failed') {
+    return t('error.nanobotSkillsOpenLibraryFailed');
+  }
 
   if (typeof error?.message === 'string' && error.message) {
     const streamStatusMatch = /^流式接口请求失败:\s*(\d+)/.exec(error.message);

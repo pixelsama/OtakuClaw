@@ -28,6 +28,7 @@ AGENT_CACHE_KEY: str | None = None
 AGENT_INSTANCE = None
 ACTIVE_TASKS: dict[str, asyncio.Task] = {}
 DESKTOP_PROMPT_PATCH_FLAG = "_openclaw_desktop_prompt_patched"
+DESKTOP_SKILLS_PATCH_FLAG = "_openclaw_desktop_skills_patched"
 
 DESKTOP_REALTIME_GUIDANCE = """## Desktop Realtime Conversation Guidance
 - You are speaking inside a realtime AI companion app.
@@ -89,6 +90,10 @@ def load_nanobot_modules() -> dict[str, Any]:
     try:
         from nanobot.agent.loop import AgentLoop
         from nanobot.agent.context import ContextBuilder
+        try:
+            from nanobot.agent.skills import SkillsLoader
+        except Exception:  # pragma: no cover - runtime-compat path
+            SkillsLoader = None
         from nanobot.bus.events import InboundMessage
         from nanobot.bus.queue import MessageBus
         from nanobot.config.schema import ExecToolConfig
@@ -104,6 +109,7 @@ def load_nanobot_modules() -> dict[str, Any]:
     return {
         "AgentLoop": AgentLoop,
         "ContextBuilder": ContextBuilder,
+        "SkillsLoader": SkillsLoader,
         "InboundMessage": InboundMessage,
         "MessageBus": MessageBus,
         "ExecToolConfig": ExecToolConfig,
@@ -128,6 +134,34 @@ def patch_context_builder(modules: dict[str, Any]) -> None:
 
     context_builder_cls._get_identity = patched_get_identity
     setattr(context_builder_cls, DESKTOP_PROMPT_PATCH_FLAG, True)
+
+
+def patch_skills_loader(modules: dict[str, Any]) -> None:
+    skills_loader_cls = modules.get("SkillsLoader")
+    if not skills_loader_cls:
+        return
+
+    skills_root = normalize_string(os.environ.get("NANOBOT_DESKTOP_SKILLS_PATH"))
+    if not skills_root:
+        return
+
+    if getattr(skills_loader_cls, DESKTOP_SKILLS_PATCH_FLAG, False):
+        return
+
+    custom_workspace_skills = Path(skills_root).expanduser().resolve()
+    custom_workspace_skills.mkdir(parents=True, exist_ok=True)
+    original_init = skills_loader_cls.__init__
+
+    def patched_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        try:
+            self.workspace_skills = custom_workspace_skills
+        except Exception:
+            # Runtime compatibility fallback: keep upstream default workspace skill path.
+            pass
+
+    skills_loader_cls.__init__ = patched_init
+    setattr(skills_loader_cls, DESKTOP_SKILLS_PATCH_FLAG, True)
 
 
 def create_provider(modules: dict[str, Any], config: dict[str, Any]):
@@ -165,6 +199,7 @@ def create_provider(modules: dict[str, Any], config: dict[str, Any]):
 def create_agent(config: dict[str, Any]):
     modules = load_nanobot_modules()
     patch_context_builder(modules)
+    patch_skills_loader(modules)
 
     workspace = Path(config["workspace"]).expanduser().resolve()
     workspace.mkdir(parents=True, exist_ok=True)

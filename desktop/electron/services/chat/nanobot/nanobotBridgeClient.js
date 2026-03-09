@@ -294,6 +294,9 @@ function createNanobotBridgeClient({
       const resolvedRepoPath =
         normalizeString(runtimeConfig.nanobotRepoPath)
         || resolveDefaultNanobotRepoPath(env);
+      const resolvedSkillsLibraryPath =
+        normalizeString(runtimeConfig.nanobotSkillsLibraryPath)
+        || normalizeString(env.NANOBOT_DESKTOP_SKILLS_PATH);
 
       const launchEnv = {
         ...env,
@@ -301,10 +304,14 @@ function createNanobotBridgeClient({
         PYTHONUNBUFFERED: '1',
         NANOBOT_REPO_PATH: resolvedRepoPath,
       };
+      if (resolvedSkillsLibraryPath) {
+        launchEnv.NANOBOT_DESKTOP_SKILLS_PATH = resolvedSkillsLibraryPath;
+      }
       const resolvedScriptPath = resolveExternalScriptPath(scriptPath);
       debug('bridge-launch', 'Launching Nanobot bridge process.', {
         pythonBin: resolvedPythonBin,
         repoPath: resolvedRepoPath,
+        skillsLibraryPath: resolvedSkillsLibraryPath,
         scriptPath: resolvedScriptPath,
       });
 

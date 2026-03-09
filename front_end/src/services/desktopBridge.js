@@ -589,6 +589,63 @@ export const desktopBridge = {
       return api.nanobotDebug.onLog(handler);
     },
   },
+  nanobotSkills: {
+    async list() {
+      const api = getDesktopApi();
+      if (api?.nanobotSkills?.list) {
+        return api.nanobotSkills.list();
+      }
+      return {
+        ok: false,
+        error: {
+          code: 'nanobot_runtime_not_ready',
+          message: 'Web 模式暂不支持 Nanobot Skills。',
+        },
+        libraryPath: '',
+        customSkills: [],
+        builtinSkills: [],
+      };
+    },
+    async importZip() {
+      const api = getDesktopApi();
+      if (api?.nanobotSkills?.importZip) {
+        return api.nanobotSkills.importZip();
+      }
+      return {
+        ok: false,
+        error: {
+          code: 'nanobot_runtime_not_ready',
+          message: 'Web 模式暂不支持导入 Nanobot Skills。',
+        },
+      };
+    },
+    async delete(payload = {}) {
+      const api = getDesktopApi();
+      if (api?.nanobotSkills?.delete) {
+        return api.nanobotSkills.delete(payload);
+      }
+      return {
+        ok: false,
+        error: {
+          code: 'nanobot_runtime_not_ready',
+          message: 'Web 模式暂不支持删除 Nanobot Skills。',
+        },
+      };
+    },
+    async openLibrary() {
+      const api = getDesktopApi();
+      if (api?.nanobotSkills?.openLibrary) {
+        return api.nanobotSkills.openLibrary();
+      }
+      return {
+        ok: false,
+        error: {
+          code: 'nanobot_runtime_not_ready',
+          message: 'Web 模式暂不支持打开 Nanobot Skills 目录。',
+        },
+      };
+    },
+  },
   capture: {
     beginWindowCapture() {
       const api = getDesktopApi();

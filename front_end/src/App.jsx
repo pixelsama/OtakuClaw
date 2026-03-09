@@ -141,6 +141,13 @@ function AppContent({ desktopMode }) {
     nanobotRuntimeStatus,
     nanobotRuntimeInstalling,
     onInstallNanobotRuntime,
+    nanobotSkills,
+    nanobotSkillsLoading,
+    nanobotSkillsImporting,
+    nanobotSkillsDeletingName,
+    onImportNanobotSkillsZip,
+    onDeleteNanobotSkill,
+    onOpenNanobotSkillsLibrary,
   } = useChatBackendSettings({
     t,
     normalizeError,
@@ -598,6 +605,13 @@ function AppContent({ desktopMode }) {
         nanobotRuntimeStatus={nanobotRuntimeStatus}
         nanobotRuntimeInstalling={nanobotRuntimeInstalling}
         onInstallNanobotRuntime={handleInstallNanobotRuntime}
+        nanobotSkills={nanobotSkills}
+        nanobotSkillsLoading={nanobotSkillsLoading}
+        nanobotSkillsImporting={nanobotSkillsImporting}
+        nanobotSkillsDeletingName={nanobotSkillsDeletingName}
+        onImportNanobotSkillsZip={onImportNanobotSkillsZip}
+        onDeleteNanobotSkill={onDeleteNanobotSkill}
+        onOpenNanobotSkillsLibrary={onOpenNanobotSkillsLibrary}
         nanobotDebugLogs={nanobotDebugLogs}
         onClearNanobotDebugLogs={clearNanobotDebugLogs}
         onOpenDownloadCenter={openDownloadTask}

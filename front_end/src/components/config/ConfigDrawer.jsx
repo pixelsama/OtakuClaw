@@ -93,6 +93,13 @@ export default function ConfigDrawer({
   nanobotRuntimeStatus = {},
   nanobotRuntimeInstalling = false,
   onInstallNanobotRuntime,
+  nanobotSkills = {},
+  nanobotSkillsLoading = false,
+  nanobotSkillsImporting = false,
+  nanobotSkillsDeletingName = '',
+  onImportNanobotSkillsZip,
+  onDeleteNanobotSkill,
+  onOpenNanobotSkillsLibrary,
   nanobotDebugLogs = [],
   onClearNanobotDebugLogs,
   onOpenDownloadCenter,
@@ -112,6 +119,8 @@ export default function ConfigDrawer({
   const nanobotApiKeySaved = Boolean(nanobotSettings.hasApiKey && !(nanobotSettings.apiKey || '').trim());
   const openClawTokenValue = openClawTokenSaved ? MASKED_SECRET_VALUE : (openClawSettings.token || '');
   const nanobotApiKeyValue = nanobotApiKeySaved ? MASKED_SECRET_VALUE : (nanobotSettings.apiKey || '');
+  const customNanobotSkills = Array.isArray(nanobotSkills?.customSkills) ? nanobotSkills.customSkills : [];
+  const builtinNanobotSkills = Array.isArray(nanobotSkills?.builtinSkills) ? nanobotSkills.builtinSkills : [];
   const testButtonDisabled = settingsSaving
     || settingsTesting
     || (selectedBackend === 'nanobot' && !nanobotSettings.enabled);
@@ -348,6 +357,144 @@ export default function ConfigDrawer({
                       >
                         {t('app.nanobotWorkspaceBrowse')}
                       </Button>
+                    </Stack>
+
+                    <Stack spacing={1}>
+                      <Box component="span" sx={{ fontSize: 14, fontWeight: 600 }}>
+                        {t('app.nanobotSkillsTitle')}
+                      </Box>
+                      <Alert severity="info">{t('app.nanobotSkillsHelper')}</Alert>
+                      <Stack direction="row" spacing={1}>
+                        <Button
+                          variant="outlined"
+                          onClick={() => {
+                            void onImportNanobotSkillsZip?.();
+                          }}
+                          disabled={!desktopMode || settingsSaving || settingsTesting || nanobotSkillsImporting}
+                        >
+                          {nanobotSkillsImporting ? t('app.nanobotSkillsImporting') : t('app.nanobotSkillsImportZip')}
+                        </Button>
+                        <Button
+                          variant="text"
+                          onClick={() => {
+                            void onOpenNanobotSkillsLibrary?.();
+                          }}
+                          disabled={!desktopMode || settingsSaving || settingsTesting}
+                        >
+                          {t('app.nanobotSkillsOpenLibrary')}
+                        </Button>
+                      </Stack>
+                      {nanobotSkillsLoading ? (
+                        <Box sx={{ color: 'text.secondary', fontSize: 13 }}>
+                          {t('app.nanobotSkillsLoading')}
+                        </Box>
+                      ) : (
+                        <Stack spacing={1}>
+                          <Box sx={{ color: 'text.secondary', fontSize: 13 }}>
+                            {t('app.nanobotSkillsInstalled')}
+                          </Box>
+                          <Box
+                            sx={{
+                              p: 1.25,
+                              borderRadius: 1,
+                              border: '1px solid',
+                              borderColor: 'divider',
+                              bgcolor: 'background.paper',
+                            }}
+                          >
+                            {customNanobotSkills.length ? (
+                              <Stack spacing={1}>
+                                {customNanobotSkills.map((skill) => {
+                                  const skillName = skill.skillName || skill.name || '';
+                                  const skillDescription = skill.description || t('app.nanobotSkillsNoDescription');
+                                  return (
+                                    <Stack
+                                      key={`custom-skill-${skillName}`}
+                                      direction="row"
+                                      spacing={1}
+                                      alignItems="center"
+                                      justifyContent="space-between"
+                                    >
+                                      <Box sx={{ minWidth: 0 }}>
+                                        <Box sx={{ fontSize: 14, fontWeight: 600, wordBreak: 'break-word' }}>
+                                          {skill.name || skillName}
+                                        </Box>
+                                        <Box sx={{ color: 'text.secondary', fontSize: 12, wordBreak: 'break-word' }}>
+                                          {skillDescription}
+                                        </Box>
+                                      </Box>
+                                      <Button
+                                        color="warning"
+                                        size="small"
+                                        disabled={
+                                          !desktopMode
+                                          || settingsSaving
+                                          || settingsTesting
+                                          || !skillName
+                                          || nanobotSkillsDeletingName === skillName
+                                        }
+                                        onClick={() => {
+                                          if (!skillName) {
+                                            return;
+                                          }
+                                          const confirmed =
+                                            typeof window === 'undefined'
+                                              ? true
+                                              : window.confirm(t('app.nanobotSkillsDeleteConfirm', { name: skillName }));
+                                          if (!confirmed) {
+                                            return;
+                                          }
+                                          void onDeleteNanobotSkill?.(skillName);
+                                        }}
+                                      >
+                                        {nanobotSkillsDeletingName === skillName
+                                          ? t('app.nanobotSkillsDeleting')
+                                          : t('common.delete')}
+                                      </Button>
+                                    </Stack>
+                                  );
+                                })}
+                              </Stack>
+                            ) : (
+                              <Box sx={{ color: 'text.secondary', fontSize: 13 }}>
+                                {t('app.nanobotSkillsEmpty')}
+                              </Box>
+                            )}
+                          </Box>
+
+                          <Box sx={{ color: 'text.secondary', fontSize: 13 }}>
+                            {t('app.nanobotSkillsBuiltin')}
+                          </Box>
+                          <Box
+                            sx={{
+                              p: 1.25,
+                              borderRadius: 1,
+                              border: '1px solid',
+                              borderColor: 'divider',
+                              bgcolor: 'background.paper',
+                            }}
+                          >
+                            {builtinNanobotSkills.length ? (
+                              <Stack spacing={1}>
+                                {builtinNanobotSkills.map((skill) => (
+                                  <Box key={`builtin-skill-${skill.skillName || skill.name}`}>
+                                    <Box sx={{ fontSize: 14, fontWeight: 600, wordBreak: 'break-word' }}>
+                                      {skill.name || skill.skillName}
+                                    </Box>
+                                    <Box sx={{ color: 'text.secondary', fontSize: 12, wordBreak: 'break-word' }}>
+                                      {skill.description || t('app.nanobotSkillsNoDescription')}
+                                    </Box>
+                                  </Box>
+                                ))}
+                              </Stack>
+                            ) : (
+                              <Box sx={{ color: 'text.secondary', fontSize: 13 }}>
+                                {t('app.nanobotSkillsBuiltinEmpty')}
+                              </Box>
+                            )}
+                          </Box>
+                        </Stack>
+                      )}
                     </Stack>
 
                     <Alert severity={nanobotSettings.allowHighRiskTools ? 'warning' : 'info'}>

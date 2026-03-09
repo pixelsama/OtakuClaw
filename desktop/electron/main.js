@@ -14,6 +14,7 @@ const {
 const { registerChatStreamIpc } = require('./ipc/chatStream');
 const { registerConversationIpc } = require('./ipc/conversation');
 const { registerLive2DModelsIpc } = require('./ipc/live2dModels');
+const { registerNanobotSkillsIpc } = require('./ipc/nanobotSkills');
 const { registerNanobotRuntimeIpc } = require('./ipc/nanobotRuntime');
 const { registerSettingsIpc } = require('./ipc/settings');
 const { registerScreenshotCaptureIpc } = require('./ipc/screenshotCapture');
@@ -24,6 +25,7 @@ const { createChatBackendManager } = require('./services/chat/backendManager');
 const { NanobotBackendAdapter } = require('./services/chat/backends/nanobotBackend');
 const { OpenClawBackendAdapter } = require('./services/chat/backends/openclawBackend');
 const { NanobotRuntimeManager } = require('./services/chat/nanobot/nanobotRuntimeManager');
+const { NanobotSkillsLibrary } = require('./services/chat/nanobot/nanobotSkillsLibrary');
 const { Live2DModelLibrary, MODEL_PROTOCOL } = require('./services/live2dModelLibrary');
 const { PythonEnvManager } = require('./services/python/pythonEnvManager');
 const { PythonRuntimeManager } = require('./services/python/pythonRuntimeManager');
@@ -54,6 +56,7 @@ let disposeConversationHandlers = null;
 let disposeModeHandlers = null;
 let disposeLive2DModelsHandlers = null;
 let disposeNanobotRuntimeHandlers = null;
+let disposeNanobotSkillsHandlers = null;
 let disposeVoiceModelsHandlers = null;
 let disposeVoiceSessionHandlers = null;
 let disposeScreenshotCaptureHandlers = null;
@@ -69,6 +72,7 @@ let pythonRuntimeManager = null;
 let pythonEnvManager = null;
 let voiceModelLibrary = null;
 let nanobotRuntimeManager = null;
+let nanobotSkillsLibrary = null;
 let isQuitting = false;
 let chatBackendManager = null;
 const legacyConversationMirrorEnabled = (() => {
@@ -375,11 +379,18 @@ async function bootstrap() {
     pythonEnvManager,
   });
   await nanobotRuntimeManager.init();
+  nanobotSkillsLibrary = new NanobotSkillsLibrary(app, {
+    nanobotRuntimeManager,
+  });
+  await nanobotSkillsLibrary.init();
   chatBackendManager = createChatBackendManager({
     backends: [
       new OpenClawBackendAdapter(),
       new NanobotBackendAdapter({
-        resolveRuntime: () => nanobotRuntimeManager.resolveLaunchConfig(),
+        resolveRuntime: () => ({
+          ...nanobotRuntimeManager.resolveLaunchConfig(),
+          nanobotSkillsLibraryPath: nanobotSkillsLibrary.getRootDir(),
+        }),
         resolveCapture: (captureId) => screenshotCaptureService?.resolveCapture(captureId) || null,
         emitDebugLog: (payload = {}) => {
           if (!mainWindow || mainWindow.isDestroyed()) {
@@ -451,6 +462,11 @@ async function bootstrap() {
       }
       mainWindow.webContents.send('nanobot-runtime:progress', payload);
     },
+  });
+  disposeNanobotSkillsHandlers = registerNanobotSkillsIpc({
+    ipcMain,
+    getWindow: () => mainWindow,
+    skillsLibrary: nanobotSkillsLibrary,
   });
   disposeVoiceModelsHandlers = registerVoiceModelsIpc({
     ipcMain,
@@ -697,6 +713,9 @@ app.on('before-quit', () => {
   if (disposeNanobotRuntimeHandlers) {
     disposeNanobotRuntimeHandlers();
   }
+  if (disposeNanobotSkillsHandlers) {
+    disposeNanobotSkillsHandlers();
+  }
   if (disposeScreenshotCaptureHandlers) {
     disposeScreenshotCaptureHandlers();
   }
@@ -714,6 +733,7 @@ app.on('before-quit', () => {
   pythonEnvManager = null;
   voiceModelLibrary = null;
   nanobotRuntimeManager = null;
+  nanobotSkillsLibrary = null;
   screenshotCaptureService = null;
   screenshotSelectionService = null;
 
