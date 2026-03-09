@@ -103,6 +103,21 @@ const normalizeDesktopChatConversationEvent = (event = {}) => {
   return { streamId, type, payload };
 };
 
+export const buildDesktopConversationRequest = (sessionId, content, extras = {}) => {
+  const safeExtras = extras && typeof extras === 'object' ? extras : {};
+  const { policy, options: nestedOptions = {}, ...legacyOptions } = safeExtras;
+
+  return {
+    sessionId,
+    content,
+    policy: policy || 'latest-wins',
+    options: {
+      ...legacyOptions,
+      ...(nestedOptions && typeof nestedOptions === 'object' ? nestedOptions : {}),
+    },
+  };
+};
+
 const resolveDesktopPending = (streamId, pending, endedBy, payload = null) => {
   const isActiveStream = activeDesktopStreamId === streamId;
   if (endedBy === 'done') {
@@ -274,14 +289,9 @@ const ensureDesktopEventListener = () => {
 const startDesktopStreaming = async (sessionId, content, extras, emitDone) => {
   ensureDesktopEventListener();
 
-  const startResult = await desktopBridge.conversation.submitUserText({
-    sessionId,
-    content,
-    policy: extras?.policy || 'latest-wins',
-    options: {
-      ...(extras?.options || {}),
-    },
-  });
+  const startResult = await desktopBridge.conversation.submitUserText(
+    buildDesktopConversationRequest(sessionId, content, extras),
+  );
 
   if (!startResult?.ok) {
     throw new Error(startResult?.reason || 'desktop_stream_start_failed');

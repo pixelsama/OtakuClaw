@@ -112,6 +112,7 @@ function createNanobotBridgeClient({
   let disposed = false;
   let requestSeq = 0;
   let readyPromise = null;
+  let readyState = null;
   let processPromise = null;
   let stdoutBuffer = '';
   const bridgeDebugEnabled = isTruthyEnv(env?.NANOBOT_BRIDGE_DEBUG, false);
@@ -338,6 +339,31 @@ function createNanobotBridgeClient({
         }
       });
 
+      const resolveReady = () => {
+        if (!readyState) {
+          return;
+        }
+
+        const { timeoutId, onReadyData, resolve } = readyState;
+        readyState = null;
+        clearTimeout(timeoutId);
+        child?.stdout?.off('data', onReadyData);
+        child?.stdout?.on('data', pushStdout);
+        resolve();
+      };
+
+      const rejectReady = (error) => {
+        if (!readyState) {
+          return;
+        }
+
+        const { timeoutId, onReadyData, reject } = readyState;
+        readyState = null;
+        clearTimeout(timeoutId);
+        child?.stdout?.off('data', onReadyData);
+        reject(error);
+      };
+
       child.on('error', (error) => {
         debug('bridge-error', 'Nanobot bridge process emitted error.', {
           message: error?.message || 'unknown error',
@@ -346,6 +372,7 @@ function createNanobotBridgeClient({
           'nanobot_boot_failed',
           `Nanobot bridge process error: ${error?.message || 'unknown error'}`,
         );
+        rejectReady(bridgeError);
         settleAllPending(bridgeError);
       });
 
@@ -356,6 +383,7 @@ function createNanobotBridgeClient({
         });
         const reason = `Nanobot bridge exited (code=${code}, signal=${signal || 'none'}).`;
         const bridgeError = createBridgeError('nanobot_unreachable', reason);
+        rejectReady(bridgeError);
         child = null;
         readyPromise = null;
         settleAllPending(bridgeError);
@@ -364,6 +392,7 @@ function createNanobotBridgeClient({
       readyPromise = new Promise((resolve, reject) => {
         const timeoutId = setTimeout(() => {
           debug('bridge-timeout', 'Nanobot bridge init timeout.');
+          readyState = null;
           reject(createBridgeError('nanobot_boot_failed', 'Nanobot bridge init timeout.'));
         }, 5000);
 
@@ -390,10 +419,7 @@ function createNanobotBridgeClient({
 
             if (message?.type === 'ready') {
               debug('bridge-ready', 'Nanobot bridge ready handshake completed.');
-              clearTimeout(timeoutId);
-              child?.stdout?.off('data', onReadyData);
-              child?.stdout?.on('data', pushStdout);
-              resolve();
+              resolveReady();
               return;
             }
 
@@ -401,6 +427,12 @@ function createNanobotBridgeClient({
           }
         };
 
+        readyState = {
+          timeoutId,
+          onReadyData,
+          resolve,
+          reject,
+        };
         child?.stdout?.off('data', pushStdout);
         child?.stdout?.on('data', onReadyData);
       });
@@ -562,6 +594,7 @@ function createNanobotBridgeClient({
       child.kill();
     }
     child = null;
+    readyState = null;
     readyPromise = null;
   };
 

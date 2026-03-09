@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { shouldAutoAdoptDesktopStreamEvent } from '../src/hooks/useStreamingChat.js';
+import {
+  buildDesktopConversationRequest,
+  shouldAutoAdoptDesktopStreamEvent,
+} from '../src/hooks/useStreamingChat.js';
 
 describe('shouldAutoAdoptDesktopStreamEvent', () => {
   it('rejects unknown text stream events to avoid stale reply adoption', () => {
@@ -45,3 +48,39 @@ describe('shouldAutoAdoptDesktopStreamEvent', () => {
   });
 });
 
+describe('buildDesktopConversationRequest', () => {
+  it('keeps legacy top-level attachments when routing desktop requests', () => {
+    const result = buildDesktopConversationRequest('text-composer', '请问网站是？', {
+      attachments: [{ kind: 'capture-image', captureId: 'cap-1' }],
+    });
+
+    expect(result).toEqual({
+      sessionId: 'text-composer',
+      content: '请问网站是？',
+      policy: 'latest-wins',
+      options: {
+        attachments: [{ kind: 'capture-image', captureId: 'cap-1' }],
+      },
+    });
+  });
+
+  it('merges nested options over legacy desktop extras', () => {
+    const result = buildDesktopConversationRequest('text-composer', 'hello', {
+      attachments: [{ kind: 'capture-image', captureId: 'cap-1' }],
+      options: {
+        source: 'voice-asr',
+      },
+      policy: 'queue',
+    });
+
+    expect(result).toEqual({
+      sessionId: 'text-composer',
+      content: 'hello',
+      policy: 'queue',
+      options: {
+        attachments: [{ kind: 'capture-image', captureId: 'cap-1' }],
+        source: 'voice-asr',
+      },
+    });
+  });
+});

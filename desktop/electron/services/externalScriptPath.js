@@ -11,21 +11,20 @@ function resolveExternalScriptPath(scriptPath = '') {
     return '';
   }
 
+  const asarSegment = `${path.sep}app.asar${path.sep}`;
+  if (normalized.includes(asarSegment)) {
+    const unpackedPath = normalized.replace(asarSegment, `${path.sep}app.asar.unpacked${path.sep}`);
+    if (fs.existsSync(unpackedPath)) {
+      return unpackedPath;
+    }
+    return unpackedPath;
+  }
+
   if (fs.existsSync(normalized)) {
     return normalized;
   }
 
-  const asarSegment = `${path.sep}app.asar${path.sep}`;
-  if (!normalized.includes(asarSegment)) {
-    return normalized;
-  }
-
-  const unpackedPath = normalized.replace(asarSegment, `${path.sep}app.asar.unpacked${path.sep}`);
-  if (fs.existsSync(unpackedPath)) {
-    return unpackedPath;
-  }
-
-  return unpackedPath;
+  return normalized;
 }
 
 module.exports = {
