@@ -2,15 +2,16 @@
   "name": "free-agent-vtuber-openclaw-desktop",
   "version": "0.2.0",
   "private": true,
+  "packageManager": "pnpm@10.28.0",
   "main": "desktop/electron/main.js",
   "scripts": {
-    "frontend:dev": "npm --prefix front_end run dev -- --host 127.0.0.1 --port 3000 --strictPort",
-    "frontend:build": "npm --prefix front_end run build",
-    "desktop:dev:renderer": "npm run frontend:dev",
+    "frontend:dev": "pnpm --dir front_end run dev -- --host 127.0.0.1 --port 3000 --strictPort",
+    "frontend:build": "pnpm --dir front_end run build",
+    "desktop:dev:renderer": "pnpm run frontend:dev",
     "desktop:dev:electron": "node desktop/electron/scripts/waitForDevServer.js && cross-env ELECTRON_DEV_SERVER_URL=http://127.0.0.1:3000 electron .",
-    "desktop:dev": "concurrently -k \"npm:desktop:dev:renderer\" \"npm:desktop:dev:electron\"",
-    "desktop:build": "npm run frontend:build && electron-builder",
-    "test:frontend": "npm --prefix front_end run test -- --run",
+    "desktop:dev": "concurrently -k \"pnpm run desktop:dev:renderer\" \"pnpm run desktop:dev:electron\"",
+    "desktop:build": "pnpm run frontend:build && electron-builder",
+    "test:frontend": "pnpm --dir front_end exec vitest --run",
     "test:desktop": "node --test desktop/electron/tests/*.test.js"
   },
   "devDependencies": {
@@ -22,6 +23,15 @@
   "optionalDependencies": {
     "keytar": "^7.9.0",
     "sherpa-onnx-node": "^1.12.28"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "electron-winstaller",
+      "esbuild",
+      "keytar",
+      "protobufjs"
+    ]
   },
   "build": {
     "appId": "com.freeagent.vtuber.openclaw",

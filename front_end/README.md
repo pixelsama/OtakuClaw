@@ -8,8 +8,8 @@
 
 ```bash
 cd front_end
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
 默认地址：`http://localhost:3000`
@@ -17,7 +17,7 @@ npm run dev
 如需完整桌面联调，请在仓库根目录运行：
 
 ```bash
-npm run desktop:dev
+pnpm run desktop:dev
 ```
 
 ## Live2D 模型放置目录（推荐）

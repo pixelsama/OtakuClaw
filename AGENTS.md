@@ -26,16 +26,15 @@
 
 ## Build, Test, and Run
 - Install deps:
-  - Root: `npm install`
-  - Frontend: `cd front_end && npm install`
+  - Root workspace: `pnpm install`
 - Desktop dev:
-  - `npm run desktop:dev`
+  - `pnpm run desktop:dev`
 - Build desktop package:
-  - `npm run desktop:build`
+  - `pnpm run desktop:build`
 - Tests:
-  - Desktop main-process tests: `npm run test:desktop`
-  - Frontend tests: `npm run test:frontend`
-  - Frontend lint: `cd front_end && npm run lint`
+  - Desktop main-process tests: `pnpm run test:desktop`
+  - Frontend tests: `pnpm run test:frontend`
+  - Frontend lint: `cd front_end && pnpm run lint`
 
 ## Voice Runtime Notes (Current State)
 - Providers currently supported in main process:
@@ -100,10 +99,10 @@
     - `openclaw-model:///folder/file`
     - `openclaw-model://folder/file`
   - path traversal rejection for custom protocol resolution
-- When changing voice model, provider, worker, or protocol logic, run `npm run test:desktop`.
+- When changing voice model, provider, worker, or protocol logic, run `pnpm run test:desktop`.
 - When changing `VoiceSettingsPanel` or voice renderer hooks, run:
-  - `npm run test:frontend`
-  - `cd front_end && npm run lint`
+  - `pnpm run test:frontend`
+  - `cd front_end && pnpm run lint`
 
 ## Commit & PR Guidelines
 - Conventional commit style: `feat:`, `fix:`, `test:`, `chore:`.

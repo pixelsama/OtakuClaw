@@ -19,7 +19,7 @@
 开启主进程日志：
 
 ```bash
-VOICE_SEGMENT_DEBUG=1 npm run desktop:dev
+VOICE_SEGMENT_DEBUG=1 pnpm run desktop:dev
 ```
 
 日志会输出每个 segment 的关键信息：

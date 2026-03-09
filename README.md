@@ -13,14 +13,13 @@
 1. 安装依赖
 
 ```bash
-npm install
-cd front_end && npm install && cd ..
+pnpm install
 ```
 
 2. 启动 Electron + 前端开发服务器
 
 ```bash
-npm run desktop:dev
+pnpm run desktop:dev
 ```
 
 3. 在应用内打开“设置”面板，填写：
@@ -33,7 +32,7 @@ npm run desktop:dev
 ## 打包发布
 
 ```bash
-npm run desktop:build
+pnpm run desktop:build
 ```
 
 默认会先构建前端，再用 `electron-builder` 生成安装包（Win/macOS/Linux）。
@@ -41,8 +40,8 @@ npm run desktop:build
 ## 测试
 
 ```bash
-npm run test:desktop
-npm run test:frontend
+pnpm run test:desktop
+pnpm run test:frontend
 ```
 
 `desktop` 测试覆盖设置存储、IPC 流式映射与中断行为。

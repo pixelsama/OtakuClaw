@@ -461,7 +461,7 @@ export default function VoiceSettingsPanel({
       if (!result?.ok) {
         setModelError(
           result?.error?.message
-            || '读取内置模型列表失败。请完全退出桌面应用后重新执行 npm run desktop:dev。',
+            || '读取内置模型列表失败。请完全退出桌面应用后重新执行 pnpm run desktop:dev。',
         );
       } else if (!items.length) {
         setModelError('当前没有可用的内置模型清单。请确认已拉取最新代码并重启桌面应用。');

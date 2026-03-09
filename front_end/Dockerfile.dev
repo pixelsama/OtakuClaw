@@ -1,14 +1,26 @@
 # 开发环境Dockerfile - 支持热重载
-FROM node:18-alpine
+# 使用仓库根目录作为 build context，例如：
+# docker build -f front_end/Dockerfile.dev .
+FROM node:20-alpine
+
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
 
 WORKDIR /app
 
+RUN corepack enable
+
 # 安装依赖
-COPY package*.json ./
-RUN npm install
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json .npmrc ./
+COPY front_end/package.json front_end/package.json
+RUN pnpm install --frozen-lockfile
+
+COPY front_end ./front_end
+
+WORKDIR /app/front_end
 
 # 暴露端口
 EXPOSE 3000
 
 # 启动开发服务器
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+CMD ["pnpm", "run", "dev", "--", "--host", "0.0.0.0"]
