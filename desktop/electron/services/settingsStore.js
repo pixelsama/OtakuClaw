@@ -402,18 +402,18 @@ class SettingsStore {
     this.secrets.nanobotApiKey = secureNanobotApiKey || legacySecrets.nanobotApiKey || '';
     this.secrets.dashscopeApiKey = secureDashscopeApiKey || legacySecrets.dashscopeApiKey || '';
 
-    if (this.hasSecureStorage && !secureOpenclawToken && legacySecrets.openclawToken) {
-      await this.safeSetSecret(OPENCLAW_ACCOUNT_NAME, legacySecrets.openclawToken);
-      shouldPersist = true;
+    const migrationSecrets = {};
+    if (!secureOpenclawToken && legacySecrets.openclawToken) {
+      migrationSecrets[OPENCLAW_ACCOUNT_NAME] = legacySecrets.openclawToken;
     }
-
-    if (this.hasSecureStorage && !secureNanobotApiKey && legacySecrets.nanobotApiKey) {
-      await this.safeSetSecret(NANOBOT_ACCOUNT_NAME, legacySecrets.nanobotApiKey);
-      shouldPersist = true;
+    if (!secureNanobotApiKey && legacySecrets.nanobotApiKey) {
+      migrationSecrets[NANOBOT_ACCOUNT_NAME] = legacySecrets.nanobotApiKey;
     }
-
-    if (this.hasSecureStorage && !secureDashscopeApiKey && legacySecrets.dashscopeApiKey) {
-      await this.safeSetSecret(DASHSCOPE_ACCOUNT_NAME, legacySecrets.dashscopeApiKey);
+    if (!secureDashscopeApiKey && legacySecrets.dashscopeApiKey) {
+      migrationSecrets[DASHSCOPE_ACCOUNT_NAME] = legacySecrets.dashscopeApiKey;
+    }
+    if (this.hasSecureStorage && Object.keys(migrationSecrets).length > 0) {
+      await this.safeSetSecrets(migrationSecrets);
       shouldPersist = true;
     }
 
@@ -518,37 +518,49 @@ class SettingsStore {
 
     if (patch.clearOpenclawToken) {
       this.secrets.openclawToken = '';
-      if (this.hasSecureStorage) {
-        await this.safeDeleteSecret(OPENCLAW_ACCOUNT_NAME);
-      }
     } else if (Object.prototype.hasOwnProperty.call(patch, 'openclawToken') && patch.openclawToken) {
       this.secrets.openclawToken = patch.openclawToken;
-      if (this.hasSecureStorage) {
-        await this.safeSetSecret(OPENCLAW_ACCOUNT_NAME, patch.openclawToken);
-      }
     }
 
     if (patch.clearNanobotApiKey) {
       this.secrets.nanobotApiKey = '';
-      if (this.hasSecureStorage) {
-        await this.safeDeleteSecret(NANOBOT_ACCOUNT_NAME);
-      }
     } else if (Object.prototype.hasOwnProperty.call(patch, 'nanobotApiKey') && patch.nanobotApiKey) {
       this.secrets.nanobotApiKey = patch.nanobotApiKey;
-      if (this.hasSecureStorage) {
-        await this.safeSetSecret(NANOBOT_ACCOUNT_NAME, patch.nanobotApiKey);
-      }
     }
 
     if (patch.clearDashscopeApiKey) {
       this.secrets.dashscopeApiKey = '';
-      if (this.hasSecureStorage) {
-        await this.safeDeleteSecret(DASHSCOPE_ACCOUNT_NAME);
-      }
     } else if (Object.prototype.hasOwnProperty.call(patch, 'dashscopeApiKey') && patch.dashscopeApiKey) {
       this.secrets.dashscopeApiKey = patch.dashscopeApiKey;
-      if (this.hasSecureStorage) {
-        await this.safeSetSecret(DASHSCOPE_ACCOUNT_NAME, patch.dashscopeApiKey);
+    }
+
+    if (this.hasSecureStorage) {
+      const clearAccounts = [];
+      const setSecrets = {};
+
+      if (patch.clearOpenclawToken) {
+        clearAccounts.push(OPENCLAW_ACCOUNT_NAME);
+      } else if (Object.prototype.hasOwnProperty.call(patch, 'openclawToken') && patch.openclawToken) {
+        setSecrets[OPENCLAW_ACCOUNT_NAME] = patch.openclawToken;
+      }
+
+      if (patch.clearNanobotApiKey) {
+        clearAccounts.push(NANOBOT_ACCOUNT_NAME);
+      } else if (Object.prototype.hasOwnProperty.call(patch, 'nanobotApiKey') && patch.nanobotApiKey) {
+        setSecrets[NANOBOT_ACCOUNT_NAME] = patch.nanobotApiKey;
+      }
+
+      if (patch.clearDashscopeApiKey) {
+        clearAccounts.push(DASHSCOPE_ACCOUNT_NAME);
+      } else if (Object.prototype.hasOwnProperty.call(patch, 'dashscopeApiKey') && patch.dashscopeApiKey) {
+        setSecrets[DASHSCOPE_ACCOUNT_NAME] = patch.dashscopeApiKey;
+      }
+
+      if (clearAccounts.length || Object.keys(setSecrets).length) {
+        await this.safeUpdateSecrets({
+          clear: clearAccounts,
+          set: setSecrets,
+        });
       }
     }
 
@@ -734,6 +746,86 @@ class SettingsStore {
       return false;
     } catch (error) {
       console.warn('Failed to write token into secure storage, falling back to local file:', error);
+      this.hasSecureStorage = false;
+      return false;
+    }
+  }
+
+  async safeSetSecrets(secretMap = {}) {
+    const entries = Object.entries(isObject(secretMap) ? secretMap : {}).filter(([accountName, value]) => {
+      return Boolean(normalizeString(accountName)) && Boolean(normalizeSecretValue(value));
+    });
+    if (!entries.length) {
+      return true;
+    }
+
+    try {
+      if (typeof this.secretStore.setSecrets === 'function') {
+        const stored = await this.secretStore.setSecrets(Object.fromEntries(entries));
+        if (!stored) {
+          this.hasSecureStorage = false;
+        }
+        return stored;
+      }
+
+      for (const [accountName, value] of entries) {
+        const stored = await this.safeSetSecret(accountName, value);
+        if (!stored) {
+          this.hasSecureStorage = false;
+          return false;
+        }
+      }
+      return true;
+    } catch (error) {
+      console.warn('Failed to write tokens into secure storage, falling back to local file:', error);
+      this.hasSecureStorage = false;
+      return false;
+    }
+  }
+
+  async safeUpdateSecrets({ set = {}, clear = [] } = {}) {
+    const setEntries = Object.entries(isObject(set) ? set : {}).filter(([accountName, value]) => {
+      return Boolean(normalizeString(accountName)) && Boolean(normalizeSecretValue(value));
+    });
+    const clearAccounts = (Array.isArray(clear) ? clear : [])
+      .map((accountName) => normalizeString(accountName))
+      .filter(Boolean);
+
+    if (!setEntries.length && !clearAccounts.length) {
+      return true;
+    }
+
+    try {
+      if (typeof this.secretStore.updateSecrets === 'function') {
+        const updated = await this.secretStore.updateSecrets({
+          set: Object.fromEntries(setEntries),
+          clear: clearAccounts,
+        });
+        if (!updated) {
+          this.hasSecureStorage = false;
+        }
+        return updated;
+      }
+
+      for (const accountName of clearAccounts) {
+        const deleted = await this.safeDeleteSecret(accountName);
+        if (!deleted) {
+          this.hasSecureStorage = false;
+          return false;
+        }
+      }
+
+      for (const [accountName, value] of setEntries) {
+        const stored = await this.safeSetSecret(accountName, value);
+        if (!stored) {
+          this.hasSecureStorage = false;
+          return false;
+        }
+      }
+
+      return true;
+    } catch (error) {
+      console.warn('Failed to update tokens in secure storage, falling back to local file:', error);
       this.hasSecureStorage = false;
       return false;
     }

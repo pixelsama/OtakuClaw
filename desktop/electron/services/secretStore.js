@@ -2,11 +2,61 @@ const SERVICE_NAME = 'free-agent-vtuber-openclaw';
 const OPENCLAW_ACCOUNT_NAME = 'openclaw-token';
 const NANOBOT_ACCOUNT_NAME = 'nanobot-api-key';
 const DASHSCOPE_ACCOUNT_NAME = 'dashscope-api-key';
+const BUNDLED_ACCOUNT_NAME = 'secrets-bundle-v1';
+
+function normalizeAccountName(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeAccountNames(accountNames = []) {
+  const normalized = Array.isArray(accountNames)
+    ? accountNames
+      .map((value) => normalizeAccountName(value))
+      .filter(Boolean)
+    : [];
+  return [...new Set(normalized)];
+}
+
+function normalizeSecretValue(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value;
+}
+
+function parseSecretBundle(rawValue) {
+  if (typeof rawValue !== 'string' || !rawValue.trim()) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {};
+    }
+
+    return Object.entries(parsed).reduce((result, [key, value]) => {
+      const accountName = normalizeAccountName(key);
+      const secretValue = normalizeSecretValue(value);
+      if (!accountName || !secretValue) {
+        return result;
+      }
+      result[accountName] = secretValue;
+      return result;
+    }, {});
+  } catch (error) {
+    console.warn('Failed to parse keychain secret bundle, ignoring bundle:', error?.message || error);
+    return {};
+  }
+}
 
 class KeytarSecretStore {
   constructor() {
     this.keytar = null;
     this.keytarLoadAttempted = false;
+    this.bundleLoaded = false;
+    this.bundleExists = false;
+    this.bundleSecrets = {};
   }
 
   isAvailable() {
@@ -32,18 +82,13 @@ class KeytarSecretStore {
   }
 
   async getSecret(accountName) {
-    const account = typeof accountName === 'string' ? accountName.trim() : '';
+    const account = normalizeAccountName(accountName);
     if (!account) {
       return null;
     }
 
-    const keytar = this.loadKeytar();
-    if (!keytar) {
-      return null;
-    }
-
-    const token = await keytar.getPassword(SERVICE_NAME, account);
-    return token || null;
+    const secrets = await this.getSecrets([account]);
+    return secrets[account] || null;
   }
 
   async getSecrets(accountNames = []) {
@@ -52,64 +97,100 @@ class KeytarSecretStore {
       return {};
     }
 
-    const requestedAccounts = Array.isArray(accountNames)
-      ? accountNames
-        .map((value) => (typeof value === 'string' ? value.trim() : ''))
-        .filter(Boolean)
-      : [];
-
+    const requestedAccounts = normalizeAccountNames(accountNames);
     if (!requestedAccounts.length) {
       return {};
     }
 
-    if (typeof keytar.findCredentials === 'function') {
-      const credentials = await keytar.findCredentials(SERVICE_NAME);
-      const accountSet = new Set(requestedAccounts);
-      return credentials.reduce((result, entry = {}) => {
-        const account = typeof entry.account === 'string' ? entry.account.trim() : '';
-        if (!account || !accountSet.has(account)) {
-          return result;
-        }
+    const bundle = await this.loadBundle({ keytar });
 
-        result[account] = entry.password || null;
-        return result;
-      }, {});
-    }
-
-    const result = {};
-    for (const account of requestedAccounts) {
-      result[account] = await keytar.getPassword(SERVICE_NAME, account);
-    }
-    return result;
+    return requestedAccounts.reduce((result, account) => {
+      result[account] = normalizeSecretValue(bundle[account]) || null;
+      return result;
+    }, {});
   }
 
   async setSecret(accountName, value) {
-    const account = typeof accountName === 'string' ? accountName.trim() : '';
+    const account = normalizeAccountName(accountName);
     if (!account) {
       return false;
     }
 
-    const keytar = this.loadKeytar();
-    if (!keytar) {
-      return false;
-    }
+    return this.updateSecrets({
+      set: {
+        [account]: value,
+      },
+    });
+  }
 
-    await keytar.setPassword(SERVICE_NAME, account, value);
-    return true;
+  async setSecrets(secretMap = {}) {
+    return this.updateSecrets({
+      set: secretMap,
+    });
   }
 
   async deleteSecret(accountName) {
-    const account = typeof accountName === 'string' ? accountName.trim() : '';
+    const account = normalizeAccountName(accountName);
     if (!account) {
       return false;
     }
 
+    return this.updateSecrets({
+      clear: [account],
+    });
+  }
+
+  async deleteSecrets(accountNames = []) {
+    const accounts = normalizeAccountNames(accountNames);
+    if (!accounts.length) {
+      return false;
+    }
+
+    return this.updateSecrets({
+      clear: accounts,
+    });
+  }
+
+  async updateSecrets({ set = {}, clear = [] } = {}) {
     const keytar = this.loadKeytar();
     if (!keytar) {
       return false;
     }
 
-    await keytar.deletePassword(SERVICE_NAME, account);
+    const setEntries = Object.entries(set || {}).reduce((result, [key, value]) => {
+      const account = normalizeAccountName(key);
+      if (!account) {
+        return result;
+      }
+
+      const secretValue = normalizeSecretValue(value);
+      if (!secretValue) {
+        return result;
+      }
+
+      result[account] = secretValue;
+      return result;
+    }, {});
+    const clearAccounts = normalizeAccountNames(clear);
+
+    if (!Object.keys(setEntries).length && !clearAccounts.length) {
+      return true;
+    }
+
+    const bundle = await this.loadBundle({ keytar });
+    const nextBundle = {
+      ...bundle,
+      ...setEntries,
+    };
+
+    for (const account of clearAccounts) {
+      delete nextBundle[account];
+    }
+
+    await keytar.setPassword(SERVICE_NAME, BUNDLED_ACCOUNT_NAME, JSON.stringify(nextBundle));
+    this.bundleLoaded = true;
+    this.bundleExists = true;
+    this.bundleSecrets = nextBundle;
     return true;
   }
 
@@ -124,11 +205,23 @@ class KeytarSecretStore {
   async deleteToken() {
     return this.deleteSecret(OPENCLAW_ACCOUNT_NAME);
   }
+
+  async loadBundle({ keytar } = {}) {
+    if (!this.bundleLoaded) {
+      const rawBundle = await keytar.getPassword(SERVICE_NAME, BUNDLED_ACCOUNT_NAME);
+      this.bundleLoaded = true;
+      this.bundleExists = Boolean(typeof rawBundle === 'string' && rawBundle.trim());
+      this.bundleSecrets = parseSecretBundle(rawBundle);
+    }
+
+    return this.bundleSecrets;
+  }
 }
 
 module.exports = {
   DASHSCOPE_ACCOUNT_NAME,
   OPENCLAW_ACCOUNT_NAME,
   NANOBOT_ACCOUNT_NAME,
+  BUNDLED_ACCOUNT_NAME,
   KeytarSecretStore,
 };
