@@ -579,8 +579,6 @@ export default function VoiceSettingsPanel({
     || (voiceProviderSettings.ttsProvider === 'dashscope' ? CLOUD_TTS_DASHSCOPE_OPTION : '');
   const isAsrCloudSelected = selectedAsrModelOptionValue === CLOUD_ASR_DASHSCOPE_OPTION;
   const isTtsCloudSelected = selectedTtsModelOptionValue === CLOUD_TTS_DASHSCOPE_OPTION;
-  const dashscopeActive = voiceProviderSettings.asrProvider === 'dashscope'
-    || voiceProviderSettings.ttsProvider === 'dashscope';
   const dashscopeApiKeySaved = Boolean(
     voiceProviderSettings.dashscope.hasApiKey && !(voiceProviderSettings.dashscope.apiKey || '').trim(),
   );
@@ -1325,162 +1323,99 @@ export default function VoiceSettingsPanel({
 
       {desktopMode && (
         <Stack spacing={1.5} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5 }}>
-          <Box sx={{ fontWeight: 600 }}>云端供应商配置（在清单中选择云端项后生效）</Box>
-          <Alert severity="info">
-            ASR/TTS 清单已合并本地与云端项。选中“阿里百炼（云端）”后，这里的参数会生效。
-          </Alert>
-          {!voiceProviderSettings.hasSecureStorage && (
-            <Alert severity="warning">系统密钥链不可用，DashScope API Key 将回退为本地明文存储。</Alert>
-          )}
-
-          {dashscopeActive && (
-            <Stack spacing={1}>
-              <Alert severity="info">
-                依据百炼官方 Realtime API，这里使用 `wss://dashscope.aliyuncs.com/api-ws/v1/realtime`，默认模型为
-                `qwen3-asr-flash-realtime` 与 `qwen-tts-realtime-latest`。
-              </Alert>
-              <TextField
-                label="DashScope WebSocket Base URL"
-                value={voiceProviderSettings.dashscope.baseUrl}
-                onChange={(event) => updateDashscopeSetting('baseUrl', event.target.value)}
-                placeholder="wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
-                helperText="留空时使用中国内地默认地址；国际站可填写 dashscope-intl 对应地址。"
-                disabled={voiceProviderSaving}
-                fullWidth
-              />
-              <TextField
-                label="DashScope Workspace"
-                value={voiceProviderSettings.dashscope.workspace}
-                onChange={(event) => updateDashscopeSetting('workspace', event.target.value)}
-                placeholder="可选"
-                disabled={voiceProviderSaving}
-                fullWidth
-              />
-              <TextField
-                label="DashScope API Key"
-                value={dashscopeApiKeyValue}
-                onChange={(event) => {
-                  const nextApiKey = normalizeMaskedSecretInput(event.target.value, dashscopeApiKeySaved);
-                  updateDashscopeSetting('apiKey', nextApiKey);
-                }}
-                type="password"
-                autoComplete="off"
-                placeholder={voiceProviderSettings.dashscope.hasApiKey ? '已保存 API Key' : ''}
-                helperText={dashscopeApiKeySaved ? '已保存 API Key' : ''}
-                disabled={voiceProviderSaving}
-                fullWidth
-              />
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: -0.5 }}>
-                <Button
-                  size="small"
-                  color="warning"
-                  onClick={handleClearDashscopeApiKey}
-                  disabled={voiceProviderSaving || !voiceProviderSettings.dashscope.hasApiKey}
-                >
-                  清除 DashScope API Key
-                </Button>
-              </Box>
-              <Stack direction="row" spacing={1}>
-                <TextField
-                  label="DashScope ASR Model"
-                  value={voiceProviderSettings.dashscope.asrModel}
-                  onChange={(event) => updateDashscopeSetting('asrModel', event.target.value)}
-                  disabled={voiceProviderSaving}
-                  fullWidth
-                />
-                <TextField
-                  label="ASR 语种"
-                  value={voiceProviderSettings.dashscope.asrLanguage}
-                  onChange={(event) => updateDashscopeSetting('asrLanguage', event.target.value)}
-                  placeholder="zh"
-                  disabled={voiceProviderSaving}
-                  fullWidth
-                />
-              </Stack>
-              <Stack direction="row" spacing={1}>
-                <TextField
-                  label="DashScope TTS Model"
-                  value={voiceProviderSettings.dashscope.ttsModel}
-                  onChange={(event) => updateDashscopeSetting('ttsModel', event.target.value)}
-                  disabled={voiceProviderSaving}
-                  fullWidth
-                />
-                <TextField
-                  label="TTS 音色"
-                  value={voiceProviderSettings.dashscope.ttsVoice}
-                  onChange={(event) => updateDashscopeSetting('ttsVoice', event.target.value)}
-                  placeholder="Cherry"
-                  disabled={voiceProviderSaving}
-                  fullWidth
-                />
-              </Stack>
-              <Stack direction="row" spacing={1}>
-                <TextField
-                  label="TTS 语言"
-                  value={voiceProviderSettings.dashscope.ttsLanguage}
-                  onChange={(event) => updateDashscopeSetting('ttsLanguage', event.target.value)}
-                  placeholder="Chinese"
-                  disabled={voiceProviderSaving}
-                  fullWidth
-                />
-                <TextField
-                  label="TTS Sample Rate"
-                  type="number"
-                  value={voiceProviderSettings.dashscope.ttsSampleRate}
-                  onChange={(event) =>
-                    updateDashscopeSetting('ttsSampleRate', Number.parseInt(event.target.value, 10) || 0)}
-                  disabled={voiceProviderSaving}
-                  fullWidth
-                />
-                <TextField
-                  label="TTS Speech Rate"
-                  type="number"
-                  value={voiceProviderSettings.dashscope.ttsSpeechRate}
-                  onChange={(event) =>
-                    updateDashscopeSetting('ttsSpeechRate', Number.parseFloat(event.target.value))}
-                  inputProps={{ step: 0.1 }}
-                  disabled={voiceProviderSaving}
-                  fullWidth
-                />
-              </Stack>
-            </Stack>
-          )}
-
-          {!!voiceProviderError && <Alert severity="warning">{voiceProviderError}</Alert>}
-        </Stack>
-      )}
-
-      {desktopMode && (
-        <Stack spacing={1.5} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5 }}>
           <Box sx={{ fontWeight: 600 }}>语音模型清单（本地 + 云端）</Box>
-          {catalogItems.length > 0 ? (
-            <Stack spacing={1.5}>
-              <Stack spacing={1}>
-                <Box sx={{ fontWeight: 600 }}>ASR</Box>
-                <TextField
-                  select
-                  label="ASR 模型列表"
-                  value={selectedAsrModelOptionValue}
-                  onChange={(event) => {
-                    void handleChangeAsrCatalog(event.target.value);
-                  }}
-                  disabled={modelsLoading || isDownloadingModels}
-                  fullWidth
-                >
-                  {asrModelOptions.map((option) => (
-                    <MenuItem key={option.value || 'asr-auto'} value={option.value}>
-                      {option.label}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                {!!selectedAsrCatalogId && (
+          <Stack spacing={1.5}>
+            <Stack spacing={1}>
+              <Box sx={{ fontWeight: 600 }}>ASR</Box>
+              <TextField
+                select
+                label="ASR 模型列表"
+                value={selectedAsrModelOptionValue}
+                onChange={(event) => {
+                  void handleChangeAsrCatalog(event.target.value);
+                }}
+                disabled={modelsLoading || isDownloadingModels}
+                fullWidth
+              >
+                {asrModelOptions.map((option) => (
+                  <MenuItem key={option.value || 'asr-auto'} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+              {isAsrCloudSelected && (
+                <Stack spacing={1}>
+                  <Alert severity="success">已选择阿里百炼（云端）ASR。</Alert>
+                  {!voiceProviderSettings.hasSecureStorage && (
+                    <Alert severity="warning">系统密钥链不可用，DashScope API Key 将回退为本地明文存储。</Alert>
+                  )}
+                  <TextField
+                    label="DashScope WebSocket Base URL"
+                    value={voiceProviderSettings.dashscope.baseUrl}
+                    onChange={(event) => updateDashscopeSetting('baseUrl', event.target.value)}
+                    placeholder="wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
+                    helperText="留空时使用中国内地默认地址；国际站可填写 dashscope-intl 对应地址。"
+                    disabled={voiceProviderSaving}
+                    fullWidth
+                  />
+                  <TextField
+                    label="DashScope Workspace"
+                    value={voiceProviderSettings.dashscope.workspace}
+                    onChange={(event) => updateDashscopeSetting('workspace', event.target.value)}
+                    placeholder="可选"
+                    disabled={voiceProviderSaving}
+                    fullWidth
+                  />
+                  <TextField
+                    label="DashScope API Key"
+                    value={dashscopeApiKeyValue}
+                    onChange={(event) => {
+                      const nextApiKey = normalizeMaskedSecretInput(event.target.value, dashscopeApiKeySaved);
+                      updateDashscopeSetting('apiKey', nextApiKey);
+                    }}
+                    type="password"
+                    autoComplete="off"
+                    placeholder={voiceProviderSettings.dashscope.hasApiKey ? '已保存 API Key' : ''}
+                    helperText={dashscopeApiKeySaved ? '已保存 API Key' : ''}
+                    disabled={voiceProviderSaving}
+                    fullWidth
+                  />
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: -0.5 }}>
+                    <Button
+                      size="small"
+                      color="warning"
+                      onClick={handleClearDashscopeApiKey}
+                      disabled={voiceProviderSaving || !voiceProviderSettings.dashscope.hasApiKey}
+                    >
+                      清除 DashScope API Key
+                    </Button>
+                  </Box>
+                  <Stack direction="row" spacing={1}>
+                    <TextField
+                      label="DashScope ASR Model"
+                      value={voiceProviderSettings.dashscope.asrModel}
+                      onChange={(event) => updateDashscopeSetting('asrModel', event.target.value)}
+                      disabled={voiceProviderSaving}
+                      fullWidth
+                    />
+                    <TextField
+                      label="ASR 语种"
+                      value={voiceProviderSettings.dashscope.asrLanguage}
+                      onChange={(event) => updateDashscopeSetting('asrLanguage', event.target.value)}
+                      placeholder="zh"
+                      disabled={voiceProviderSaving}
+                      fullWidth
+                    />
+                  </Stack>
+                </Stack>
+              )}
+
+              {!!selectedAsrCatalogId && (
+                <Stack spacing={1}>
                   <Alert severity="info">
                     {`ASR: ${resolveLocalModelShortLabel(selectedAsrCatalogItem, 'asr')}（本地）`}
                   </Alert>
-                )}
-                {isAsrCloudSelected ? (
-                  <Alert severity="success">所选 ASR 模型状态: 阿里百炼（云端）已生效</Alert>
-                ) : selectedAsrCatalogId ? (
                   <Alert
                     severity={
                       isSelectedAsrCatalogActive
@@ -1494,11 +1429,7 @@ export default function VoiceSettingsPanel({
                         ? '所选 ASR 模型状态: 已下载，但当前未生效'
                         : '所选 ASR 模型状态: 未下载'}
                   </Alert>
-                ) : (
-                  <Alert severity="info">所选 ASR 模型状态: 跟随环境变量（自动）</Alert>
-                )}
-                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                  {!!selectedAsrCatalogId && (
+                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                     <Button
                       variant="contained"
                       size="small"
@@ -1507,44 +1438,139 @@ export default function VoiceSettingsPanel({
                     >
                       {hasInstalledSelectedAsrCatalog ? '重新下载 ASR 模型' : '下载 ASR 模型'}
                     </Button>
+                  </Stack>
+                  {!!resolveAsrModelPath(effectiveActiveAsrBundle) && (
+                    <TextField
+                      label="ASR Model Path"
+                      value={resolveAsrModelPath(effectiveActiveAsrBundle)}
+                      disabled
+                      fullWidth
+                    />
                   )}
                 </Stack>
-                {!!resolveAsrModelPath(effectiveActiveAsrBundle) && (
+              )}
+            </Stack>
+
+            <Stack spacing={1}>
+              <Box sx={{ fontWeight: 600 }}>TTS</Box>
+              <TextField
+                select
+                label="TTS 模型列表"
+                value={selectedTtsModelOptionValue}
+                onChange={(event) => {
+                  void handleChangeTtsCatalog(event.target.value);
+                }}
+                disabled={modelsLoading || isDownloadingModels}
+                fullWidth
+              >
+                {ttsModelOptions.map((option) => (
+                  <MenuItem key={option.value || 'tts-auto'} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+              {isTtsCloudSelected && (
+                <Stack spacing={1}>
+                  <Alert severity="success">已选择阿里百炼（云端）TTS。</Alert>
+                  {!voiceProviderSettings.hasSecureStorage && (
+                    <Alert severity="warning">系统密钥链不可用，DashScope API Key 将回退为本地明文存储。</Alert>
+                  )}
                   <TextField
-                    label="ASR Model Path"
-                    value={resolveAsrModelPath(effectiveActiveAsrBundle)}
-                    disabled
+                    label="DashScope WebSocket Base URL"
+                    value={voiceProviderSettings.dashscope.baseUrl}
+                    onChange={(event) => updateDashscopeSetting('baseUrl', event.target.value)}
+                    placeholder="wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
+                    helperText="留空时使用中国内地默认地址；国际站可填写 dashscope-intl 对应地址。"
+                    disabled={voiceProviderSaving}
                     fullWidth
                   />
-                )}
-              </Stack>
+                  <TextField
+                    label="DashScope Workspace"
+                    value={voiceProviderSettings.dashscope.workspace}
+                    onChange={(event) => updateDashscopeSetting('workspace', event.target.value)}
+                    placeholder="可选"
+                    disabled={voiceProviderSaving}
+                    fullWidth
+                  />
+                  <TextField
+                    label="DashScope API Key"
+                    value={dashscopeApiKeyValue}
+                    onChange={(event) => {
+                      const nextApiKey = normalizeMaskedSecretInput(event.target.value, dashscopeApiKeySaved);
+                      updateDashscopeSetting('apiKey', nextApiKey);
+                    }}
+                    type="password"
+                    autoComplete="off"
+                    placeholder={voiceProviderSettings.dashscope.hasApiKey ? '已保存 API Key' : ''}
+                    helperText={dashscopeApiKeySaved ? '已保存 API Key' : ''}
+                    disabled={voiceProviderSaving}
+                    fullWidth
+                  />
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: -0.5 }}>
+                    <Button
+                      size="small"
+                      color="warning"
+                      onClick={handleClearDashscopeApiKey}
+                      disabled={voiceProviderSaving || !voiceProviderSettings.dashscope.hasApiKey}
+                    >
+                      清除 DashScope API Key
+                    </Button>
+                  </Box>
+                  <Stack direction="row" spacing={1}>
+                    <TextField
+                      label="DashScope TTS Model"
+                      value={voiceProviderSettings.dashscope.ttsModel}
+                      onChange={(event) => updateDashscopeSetting('ttsModel', event.target.value)}
+                      disabled={voiceProviderSaving}
+                      fullWidth
+                    />
+                    <TextField
+                      label="TTS 音色"
+                      value={voiceProviderSettings.dashscope.ttsVoice}
+                      onChange={(event) => updateDashscopeSetting('ttsVoice', event.target.value)}
+                      placeholder="Cherry"
+                      disabled={voiceProviderSaving}
+                      fullWidth
+                    />
+                  </Stack>
+                  <Stack direction="row" spacing={1}>
+                    <TextField
+                      label="TTS 语言"
+                      value={voiceProviderSettings.dashscope.ttsLanguage}
+                      onChange={(event) => updateDashscopeSetting('ttsLanguage', event.target.value)}
+                      placeholder="Chinese"
+                      disabled={voiceProviderSaving}
+                      fullWidth
+                    />
+                    <TextField
+                      label="TTS Sample Rate"
+                      type="number"
+                      value={voiceProviderSettings.dashscope.ttsSampleRate}
+                      onChange={(event) =>
+                        updateDashscopeSetting('ttsSampleRate', Number.parseInt(event.target.value, 10) || 0)}
+                      disabled={voiceProviderSaving}
+                      fullWidth
+                    />
+                    <TextField
+                      label="TTS Speech Rate"
+                      type="number"
+                      value={voiceProviderSettings.dashscope.ttsSpeechRate}
+                      onChange={(event) =>
+                        updateDashscopeSetting('ttsSpeechRate', Number.parseFloat(event.target.value))}
+                      inputProps={{ step: 0.1 }}
+                      disabled={voiceProviderSaving}
+                      fullWidth
+                    />
+                  </Stack>
+                </Stack>
+              )}
 
-              <Stack spacing={1}>
-                <Box sx={{ fontWeight: 600 }}>TTS</Box>
-                <TextField
-                  select
-                  label="TTS 模型列表"
-                  value={selectedTtsModelOptionValue}
-                  onChange={(event) => {
-                    void handleChangeTtsCatalog(event.target.value);
-                  }}
-                  disabled={modelsLoading || isDownloadingModels}
-                  fullWidth
-                >
-                  {ttsModelOptions.map((option) => (
-                    <MenuItem key={option.value || 'tts-auto'} value={option.value}>
-                      {option.label}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                {!!selectedTtsCatalogId && (
+              {!!selectedTtsCatalogId && (
+                <Stack spacing={1}>
                   <Alert severity="info">
                     {`TTS: ${resolveLocalModelShortLabel(selectedTtsCatalogItem, 'tts')}（本地）`}
                   </Alert>
-                )}
-                {isTtsCloudSelected ? (
-                  <Alert severity="success">所选 TTS 模型状态: 阿里百炼（云端）已生效</Alert>
-                ) : selectedTtsCatalogId ? (
                   <Alert
                     severity={
                       isSelectedTtsCatalogActive
@@ -1558,11 +1584,7 @@ export default function VoiceSettingsPanel({
                         ? '所选 TTS 模型状态: 已下载，但当前未生效'
                         : '所选 TTS 模型状态: 未下载'}
                   </Alert>
-                ) : (
-                  <Alert severity="info">所选 TTS 模型状态: 跟随环境变量（自动）</Alert>
-                )}
-                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                  {!!selectedTtsCatalogId && (
+                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                     <Button
                       variant="contained"
                       size="small"
@@ -1571,32 +1593,30 @@ export default function VoiceSettingsPanel({
                     >
                       {hasInstalledSelectedTtsCatalog ? '重新下载 TTS 模型' : '下载 TTS 模型'}
                     </Button>
+                  </Stack>
+                  {!!resolveTtsModelPath(effectiveActiveTtsBundle) && (
+                    <TextField
+                      label="TTS Model Path"
+                      value={resolveTtsModelPath(effectiveActiveTtsBundle)}
+                      disabled
+                      fullWidth
+                    />
                   )}
                 </Stack>
-                {!!resolveTtsModelPath(effectiveActiveTtsBundle) && (
-                  <TextField
-                    label="TTS Model Path"
-                    value={resolveTtsModelPath(effectiveActiveTtsBundle)}
-                    disabled
-                    fullWidth
-                  />
-                )}
-              </Stack>
-
-              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                <Button
-                  variant="text"
-                  size="small"
-                  onClick={handleRefreshModels}
-                  disabled={modelsLoading || isDownloadingModels}
-                >
-                  刷新模型状态
-                </Button>
-              </Stack>
+              )}
             </Stack>
-          ) : (
-            <Alert severity="warning">当前没有可用的内置模型清单。</Alert>
-          )}
+
+            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+              <Button
+                variant="text"
+                size="small"
+                onClick={handleRefreshModels}
+                disabled={modelsLoading || isDownloadingModels}
+              >
+                刷新模型状态
+              </Button>
+            </Stack>
+          </Stack>
 
           {!!modelProgress && (
             <Button size="small" variant="outlined" onClick={() => onOpenDownloadCenter?.('voice-models')}>
@@ -1604,6 +1624,7 @@ export default function VoiceSettingsPanel({
             </Button>
           )}
 
+          {!!voiceProviderError && <Alert severity="warning">{voiceProviderError}</Alert>}
           {!!modelError && <Alert severity="warning">{modelError}</Alert>}
           {!!modelFeedback && <Alert severity="success">{modelFeedback}</Alert>}
         </Stack>
