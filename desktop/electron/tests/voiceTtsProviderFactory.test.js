@@ -9,7 +9,10 @@ const {
   buildPythonTtsOptionsFromEnv,
 } = require('../services/voice/providerFactory');
 const { createPythonTtsProvider } = require('../services/voice/providers/tts/pythonProvider');
-const { createDashScopeTtsProvider } = require('../services/voice/providers/tts/dashscopeProvider');
+const {
+  createDashScopeTtsProvider,
+  resolveDashScopeTtsModelProfile,
+} = require('../services/voice/providers/tts/dashscopeProvider');
 const {
   createSherpaOnnxTtsProvider,
   createDefaultTtsConfig,
@@ -515,6 +518,7 @@ test('dashscope tts provider streams pcm chunks', async () => {
       this.url = url;
       this.options = options;
       this.sent = [];
+      FakeWebSocket.lastInstance = this;
 
       setImmediate(() => {
         this.emit('open');
@@ -573,4 +577,103 @@ test('dashscope tts provider streams pcm chunks', async () => {
   assert.equal(Buffer.from(chunks[0].audioChunk).length, 4);
   assert.equal(result.sampleRate, 24000);
   assert.equal(result.sampleCount, 2);
+});
+
+test('dashscope tts provider switches to CosyVoice inference protocol by model', async () => {
+  let capturedUrl = '';
+  let capturedSent = [];
+
+  class FakeWebSocket extends EventEmitter {
+    constructor(url, options = {}) {
+      super();
+      this.url = url;
+      this.options = options;
+      this.sent = [];
+      capturedUrl = url;
+      capturedSent = this.sent;
+
+      setImmediate(() => {
+        this.emit('open');
+      });
+    }
+
+    send(payload) {
+      this.sent.push(JSON.parse(payload));
+      const last = this.sent[this.sent.length - 1];
+      const action = last?.header?.action;
+      if (action === 'run-task') {
+        setImmediate(() => {
+          this.emit(
+            'message',
+            Buffer.from(JSON.stringify({ header: { event: 'task-started' }, payload: { output: {} } })),
+            false,
+          );
+        });
+      }
+      if (action === 'continue-task') {
+        setImmediate(() => {
+          this.emit(
+            'message',
+            Buffer.from(JSON.stringify({
+              header: { event: 'result-generated' },
+              payload: {
+                output: {
+                  audio: Buffer.from([10, 11, 12, 13]).toString('base64'),
+                },
+              },
+            })),
+            false,
+          );
+        });
+      }
+      if (action === 'finish-task') {
+        setImmediate(() => {
+          this.emit(
+            'message',
+            Buffer.from(JSON.stringify({ header: { event: 'task-finished' }, payload: { output: {} } })),
+            false,
+          );
+          this.emit('close');
+        });
+      }
+    }
+
+    close() {}
+    terminate() {}
+  }
+
+  const provider = createDashScopeTtsProvider({
+    options: {
+      apiKey: 'dashscope-key',
+      model: 'cosyvoice-v3-flash',
+      voice: 'longxiaochun_v2',
+      sampleRate: 22050,
+    },
+    WebSocketImpl: FakeWebSocket,
+  });
+
+  const chunks = [];
+  const result = await provider.synthesize({
+    text: '你好',
+    onChunk: async (chunk) => {
+      chunks.push(chunk);
+    },
+  });
+
+  assert.equal(chunks.length, 1);
+  assert.equal(chunks[0].codec, 'pcm_s16le');
+  assert.equal(chunks[0].sampleRate, 22050);
+  assert.equal(Buffer.from(chunks[0].audioChunk).length, 4);
+  assert.match(capturedUrl, /\/api-ws\/v1\/inference/);
+  assert.equal(capturedSent[0]?.header?.action, 'run-task');
+  assert.equal(result.sampleRate, 22050);
+  assert.equal(result.sampleCount, 2);
+});
+
+test('dashscope tts model profile resolves family by model id', () => {
+  const qwenProfile = resolveDashScopeTtsModelProfile('qwen-tts-realtime-latest');
+  const cosyProfile = resolveDashScopeTtsModelProfile('cosyvoice-v3-flash');
+
+  assert.equal(qwenProfile.family, 'qwen-realtime');
+  assert.equal(cosyProfile.family, 'cosyvoice');
 });

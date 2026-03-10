@@ -2,6 +2,7 @@ const crypto = require('node:crypto');
 const wsModule = require('ws');
 
 const DEFAULT_DASHSCOPE_REALTIME_URL = 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime';
+const DEFAULT_DASHSCOPE_INFERENCE_URL = 'wss://dashscope.aliyuncs.com/api-ws/v1/inference';
 const DEFAULT_DASHSCOPE_TIMEOUT_MS = 120000;
 
 function createAbortError() {
@@ -78,23 +79,34 @@ function createEventId(prefix = 'dashscope') {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function resolveRealtimeUrl({ baseUrl, model } = {}) {
-  const fallbackUrl = sanitizeText(baseUrl, DEFAULT_DASHSCOPE_REALTIME_URL);
+function resolveDashScopeWsUrl({
+  baseUrl,
+  model,
+  fallbackUrl,
+  fallbackPath,
+} = {}) {
+  const resolvedFallbackUrl = sanitizeText(baseUrl, fallbackUrl);
   let parsedUrl;
 
   try {
-    parsedUrl = new URL(fallbackUrl);
+    parsedUrl = new URL(resolvedFallbackUrl);
   } catch (error) {
     throw createVoiceProviderError(
       'voice_dashscope_invalid_url',
-      `Invalid DashScope realtime URL: ${fallbackUrl}`,
+      `Invalid DashScope websocket URL: ${resolvedFallbackUrl}`,
       'connecting',
       false,
     );
   }
 
-  if (!parsedUrl.pathname || parsedUrl.pathname === '/') {
-    parsedUrl.pathname = '/api-ws/v1/realtime';
+  const normalizedPath = sanitizeText(parsedUrl.pathname || '/');
+  if (
+    !normalizedPath
+    || normalizedPath === '/'
+    || normalizedPath === '/api-ws/v1/realtime'
+    || normalizedPath === '/api-ws/v1/inference'
+  ) {
+    parsedUrl.pathname = fallbackPath;
   }
 
   const normalizedModel = sanitizeText(model);
@@ -103,6 +115,24 @@ function resolveRealtimeUrl({ baseUrl, model } = {}) {
   }
 
   return parsedUrl.toString();
+}
+
+function resolveRealtimeUrl({ baseUrl, model } = {}) {
+  return resolveDashScopeWsUrl({
+    baseUrl,
+    model,
+    fallbackUrl: DEFAULT_DASHSCOPE_REALTIME_URL,
+    fallbackPath: '/api-ws/v1/realtime',
+  });
+}
+
+function resolveInferenceUrl({ baseUrl, model } = {}) {
+  return resolveDashScopeWsUrl({
+    baseUrl,
+    model,
+    fallbackUrl: DEFAULT_DASHSCOPE_INFERENCE_URL,
+    fallbackPath: '/api-ws/v1/inference',
+  });
 }
 
 function buildDashScopeHeaders({ apiKey, workspace } = {}) {
@@ -198,6 +228,7 @@ function extractDashScopeError(message, {
 }
 
 module.exports = {
+  DEFAULT_DASHSCOPE_INFERENCE_URL,
   DEFAULT_DASHSCOPE_REALTIME_URL,
   DEFAULT_DASHSCOPE_TIMEOUT_MS,
   buildDashScopeHeaders,
@@ -208,6 +239,7 @@ module.exports = {
   extractDashScopeError,
   getWebSocketImpl,
   parseMessageData,
+  resolveInferenceUrl,
   resolveRealtimeUrl,
   safeCloseWebSocket,
   sanitizeText,

@@ -16,6 +16,27 @@ const VOICE_SETTINGS_AUTOSAVE_DEBOUNCE_MS = 500;
 const MASKED_SECRET_VALUE = '********';
 const CLOUD_ASR_DASHSCOPE_OPTION = 'cloud:dashscope:asr';
 const CLOUD_TTS_DASHSCOPE_OPTION = 'cloud:dashscope:tts';
+const DASHSCOPE_ASR_MODEL_OPTIONS = [
+  { value: '', label: '默认（qwen3-asr-flash-realtime）' },
+  { value: 'qwen3-asr-flash-realtime', label: 'Qwen3 ASR Flash Realtime' },
+  { value: 'qwen3-asr-realtime', label: 'Qwen3 ASR Realtime' },
+  { value: 'qwen3-asr-realtime-beta', label: 'Qwen3 ASR Realtime Beta' },
+];
+const DASHSCOPE_TTS_MODEL_OPTIONS = [
+  { value: '', label: '默认（qwen-tts-realtime-latest）' },
+  { value: 'qwen3-tts-flash-realtime', label: 'Qwen3 TTS Flash Realtime（Qwen Realtime）' },
+  { value: 'qwen3-tts-instruct-flash-realtime', label: 'Qwen3 TTS Instruct Flash Realtime（Qwen Realtime）' },
+  { value: 'qwen-tts-realtime-latest', label: 'Qwen TTS Realtime Latest（Qwen Realtime）' },
+  { value: 'qwen-tts-realtime', label: 'Qwen TTS Realtime（Qwen Realtime）' },
+  { value: 'qwen-tts-realtime-2025-07-15', label: 'Qwen TTS Realtime 2025-07-15（Qwen Realtime）' },
+  { value: 'cosyvoice-v3-plus', label: 'CosyVoice V3 Plus' },
+  { value: 'cosyvoice-v3', label: 'CosyVoice V3' },
+  { value: 'cosyvoice-v3-flash', label: 'CosyVoice V3 Flash' },
+  { value: 'cosyvoice-v2', label: 'CosyVoice V2' },
+  { value: 'cosyvoice-v1', label: 'CosyVoice V1' },
+];
+const QWEN_REALTIME_TTS_SAMPLE_RATE_OPTIONS = [8000, 16000, 24000, 48000];
+const COSYVOICE_TTS_SAMPLE_RATE_OPTIONS = [8000, 16000, 22050, 24000, 32000, 44100, 48000];
 
 function clampToInt16(sample) {
   const clamped = Math.max(-1, Math.min(1, sample));
@@ -228,6 +249,10 @@ function normalizeMaskedSecretInput(rawValue, hasSavedSecret) {
   }
 
   return value;
+}
+
+function isCosyVoiceModel(modelId = '') {
+  return typeof modelId === 'string' && modelId.trim().toLowerCase().startsWith('cosyvoice-');
 }
 
 const defaultVoiceProviderSettings = {
@@ -579,6 +604,30 @@ export default function VoiceSettingsPanel({
     || (voiceProviderSettings.ttsProvider === 'dashscope' ? CLOUD_TTS_DASHSCOPE_OPTION : '');
   const isAsrCloudSelected = selectedAsrModelOptionValue === CLOUD_ASR_DASHSCOPE_OPTION;
   const isTtsCloudSelected = selectedTtsModelOptionValue === CLOUD_TTS_DASHSCOPE_OPTION;
+  const isDashscopeCosyVoiceTtsModel = isCosyVoiceModel(voiceProviderSettings.dashscope.ttsModel);
+  const dashscopeTtsSampleRateOptions = isDashscopeCosyVoiceTtsModel
+    ? COSYVOICE_TTS_SAMPLE_RATE_OPTIONS
+    : QWEN_REALTIME_TTS_SAMPLE_RATE_OPTIONS;
+  const dashscopeAsrModelOptions = useMemo(() => {
+    const current = (voiceProviderSettings.dashscope.asrModel || '').trim();
+    if (!current) {
+      return DASHSCOPE_ASR_MODEL_OPTIONS;
+    }
+    if (DASHSCOPE_ASR_MODEL_OPTIONS.some((item) => item.value === current)) {
+      return DASHSCOPE_ASR_MODEL_OPTIONS;
+    }
+    return [{ value: current, label: `${current}（自定义）` }, ...DASHSCOPE_ASR_MODEL_OPTIONS];
+  }, [voiceProviderSettings.dashscope.asrModel]);
+  const dashscopeTtsModelOptions = useMemo(() => {
+    const current = (voiceProviderSettings.dashscope.ttsModel || '').trim();
+    if (!current) {
+      return DASHSCOPE_TTS_MODEL_OPTIONS;
+    }
+    if (DASHSCOPE_TTS_MODEL_OPTIONS.some((item) => item.value === current)) {
+      return DASHSCOPE_TTS_MODEL_OPTIONS;
+    }
+    return [{ value: current, label: `${current}（自定义）` }, ...DASHSCOPE_TTS_MODEL_OPTIONS];
+  }, [voiceProviderSettings.dashscope.ttsModel]);
   const dashscopeApiKeySaved = Boolean(
     voiceProviderSettings.dashscope.hasApiKey && !(voiceProviderSettings.dashscope.apiKey || '').trim(),
   );
@@ -1355,7 +1404,7 @@ export default function VoiceSettingsPanel({
                     value={voiceProviderSettings.dashscope.baseUrl}
                     onChange={(event) => updateDashscopeSetting('baseUrl', event.target.value)}
                     placeholder="wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
-                    helperText="留空时使用中国内地默认地址；国际站可填写 dashscope-intl 对应地址。"
+                    helperText="留空时自动使用默认地址；后台会依据所选模型自动走 Realtime（Qwen）或 Inference（CosyVoice）路径。"
                     disabled={voiceProviderSaving}
                     fullWidth
                   />
@@ -1393,12 +1442,19 @@ export default function VoiceSettingsPanel({
                   </Box>
                   <Stack direction="row" spacing={1}>
                     <TextField
+                      select
                       label="DashScope ASR Model"
                       value={voiceProviderSettings.dashscope.asrModel}
                       onChange={(event) => updateDashscopeSetting('asrModel', event.target.value)}
                       disabled={voiceProviderSaving}
                       fullWidth
-                    />
+                    >
+                      {dashscopeAsrModelOptions.map((option) => (
+                        <MenuItem key={option.value} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))}
+                    </TextField>
                     <TextField
                       label="ASR 语种"
                       value={voiceProviderSettings.dashscope.asrLanguage}
@@ -1481,7 +1537,7 @@ export default function VoiceSettingsPanel({
                     value={voiceProviderSettings.dashscope.baseUrl}
                     onChange={(event) => updateDashscopeSetting('baseUrl', event.target.value)}
                     placeholder="wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
-                    helperText="留空时使用中国内地默认地址；国际站可填写 dashscope-intl 对应地址。"
+                    helperText="留空时自动使用默认地址；后台会依据所选模型自动走 Realtime（Qwen）或 Inference（CosyVoice）路径。"
                     disabled={voiceProviderSaving}
                     fullWidth
                   />
@@ -1519,12 +1575,19 @@ export default function VoiceSettingsPanel({
                   </Box>
                   <Stack direction="row" spacing={1}>
                     <TextField
+                      select
                       label="DashScope TTS Model"
                       value={voiceProviderSettings.dashscope.ttsModel}
                       onChange={(event) => updateDashscopeSetting('ttsModel', event.target.value)}
                       disabled={voiceProviderSaving}
                       fullWidth
-                    />
+                    >
+                      {dashscopeTtsModelOptions.map((option) => (
+                        <MenuItem key={option.value} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))}
+                    </TextField>
                     <TextField
                       label="TTS 音色"
                       value={voiceProviderSettings.dashscope.ttsVoice}
@@ -1534,26 +1597,44 @@ export default function VoiceSettingsPanel({
                       fullWidth
                     />
                   </Stack>
+                  {isDashscopeCosyVoiceTtsModel && (
+                    <Alert severity="info">
+                      当前 TTS 模型是 CosyVoice。后台会自动使用 Inference 协议，并按 CosyVoice 参数模板请求。
+                    </Alert>
+                  )}
+                  {!isDashscopeCosyVoiceTtsModel && (
+                    <Alert severity="info">
+                      当前 TTS 模型是 Qwen Realtime TTS。后台会自动使用 Realtime 协议，并按 Qwen Realtime 参数模板请求。
+                    </Alert>
+                  )}
                   <Stack direction="row" spacing={1}>
+                    {!isDashscopeCosyVoiceTtsModel && (
+                      <TextField
+                        label="TTS 语言"
+                        value={voiceProviderSettings.dashscope.ttsLanguage}
+                        onChange={(event) => updateDashscopeSetting('ttsLanguage', event.target.value)}
+                        placeholder="Chinese"
+                        disabled={voiceProviderSaving}
+                        fullWidth
+                      />
+                    )}
                     <TextField
-                      label="TTS 语言"
-                      value={voiceProviderSettings.dashscope.ttsLanguage}
-                      onChange={(event) => updateDashscopeSetting('ttsLanguage', event.target.value)}
-                      placeholder="Chinese"
-                      disabled={voiceProviderSaving}
-                      fullWidth
-                    />
-                    <TextField
+                      select
                       label="TTS Sample Rate"
-                      type="number"
                       value={voiceProviderSettings.dashscope.ttsSampleRate}
                       onChange={(event) =>
                         updateDashscopeSetting('ttsSampleRate', Number.parseInt(event.target.value, 10) || 0)}
                       disabled={voiceProviderSaving}
                       fullWidth
-                    />
+                    >
+                      {dashscopeTtsSampleRateOptions.map((value) => (
+                        <MenuItem key={value} value={value}>
+                          {value}
+                        </MenuItem>
+                      ))}
+                    </TextField>
                     <TextField
-                      label="TTS Speech Rate"
+                      label={isDashscopeCosyVoiceTtsModel ? 'CosyVoice Rate' : 'TTS Speech Rate'}
                       type="number"
                       value={voiceProviderSettings.dashscope.ttsSpeechRate}
                       onChange={(event) =>
