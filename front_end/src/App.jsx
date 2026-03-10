@@ -4,6 +4,7 @@ import { useTheme } from '@mui/material/styles';
 import ConfigDrawer from './components/config/ConfigDrawer.jsx';
 import ChatSidebar from './components/chat/ChatSidebar.jsx';
 import UnifiedDownloadDialog from './components/download/UnifiedDownloadDialog.jsx';
+import FirstRunOnboardingDialog from './components/onboarding/FirstRunOnboardingDialog.jsx';
 import { useScreenCaptureController } from './hooks/chat/useScreenCaptureController.js';
 import { useStreamingSubtitleBridge } from './hooks/chat/useStreamingSubtitleBridge.js';
 import { useTextComposerController } from './hooks/chat/useTextComposerController.js';
@@ -42,6 +43,7 @@ function AppContent({ desktopMode }) {
   const [expressions, setExpressions] = useState([]);
   const [nanobotDebugLogs, setNanobotDebugLogs] = useState([]);
   const [builtinTtsEnabled, setBuiltinTtsEnabled] = useState(false);
+  const [firstRunOnboardingOpen, setFirstRunOnboardingOpen] = useState(false);
   const platform = usePlatformInfo({ desktopMode });
 
   // Chat history — persists to localStorage
@@ -373,6 +375,38 @@ function AppContent({ desktopMode }) {
     };
   }, [desktopMode, syncBuiltinTtsEnabled]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!desktopMode) {
+      setFirstRunOnboardingOpen(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const loadOnboardingState = async () => {
+      try {
+        const settings = await desktopBridge.settings.get();
+        if (cancelled) {
+          return;
+        }
+        const completed = Boolean(settings?.ui?.onboarding?.completed);
+        setFirstRunOnboardingOpen(!completed);
+      } catch {
+        if (!cancelled) {
+          setFirstRunOnboardingOpen(true);
+        }
+      }
+    };
+
+    void loadOnboardingState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [desktopMode]);
+
   const handleInstallNanobotRuntime = useCallback(async () => {
     ensureDownloadTask({
       taskId: 'nanobot-runtime',
@@ -381,6 +415,23 @@ function AppContent({ desktopMode }) {
     openDownloadTask('nanobot-runtime');
     await onInstallNanobotRuntime();
   }, [ensureDownloadTask, onInstallNanobotRuntime, openDownloadTask, t]);
+
+  const handleFinishFirstRunOnboarding = useCallback(async () => {
+    try {
+      await desktopBridge.settings.save({
+        ui: {
+          onboarding: {
+            completed: true,
+            completedAt: new Date().toISOString(),
+          },
+        },
+      });
+    } catch (error) {
+      console.warn('Failed to persist onboarding completion state:', error);
+    } finally {
+      setFirstRunOnboardingOpen(false);
+    }
+  }, []);
 
   const { showConfigPanel, openConfigPanel: _openConfigPanel, closeConfigPanel } = useConfigPanelController({
     isPetMode,
@@ -762,6 +813,25 @@ function AppContent({ desktopMode }) {
         onClearHistory={clearHistory}
         isStreaming={isStreaming}
         {...textComposerWithVoiceProps}
+      />
+      <FirstRunOnboardingDialog
+        open={firstRunOnboardingOpen}
+        desktopMode={desktopMode}
+        chatBackendSettings={chatBackendSettings}
+        settingsSaving={settingsSaving}
+        settingsTesting={settingsTesting}
+        settingsFeedback={settingsFeedback}
+        settingsError={settingsError}
+        onChatBackendChange={onChatBackendChange}
+        onOpenClawSettingChange={onOpenClawSettingChange}
+        onNanobotSettingChange={onNanobotSettingChange}
+        onPickNanobotWorkspace={onPickNanobotWorkspace}
+        onTestChatBackendSettings={onTestChatBackendSettings}
+        nanobotRuntimeStatus={nanobotRuntimeStatus}
+        nanobotRuntimeInstalling={nanobotRuntimeInstalling}
+        onInstallNanobotRuntime={handleInstallNanobotRuntime}
+        onOpenDownloadCenter={openDownloadTask}
+        onFinish={handleFinishFirstRunOnboarding}
       />
       <UnifiedDownloadDialog
         open={downloadDialogOpen}

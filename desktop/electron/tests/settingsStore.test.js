@@ -394,3 +394,29 @@ test('falls back when secure storage throws at runtime', async () => {
   assert.equal(persisted.openclaw.token, 'fallback-openclaw-token');
   assert.equal(persisted.nanobot.apiKey, 'fallback-nanobot-api-key');
 });
+
+test('persists first-run onboarding completion state', async () => {
+  const { store, tmpDir } = await setupTempStore({
+    secretStore: new FakeSecretStore({ available: true }),
+  });
+
+  assert.equal(store.getPublic().ui.onboarding.completed, false);
+
+  await store.save({
+    ui: {
+      onboarding: {
+        completed: true,
+        completedAt: '2026-03-10T09:30:00.000Z',
+      },
+    },
+  });
+
+  const publicSettings = store.getPublic();
+  assert.equal(publicSettings.ui.onboarding.completed, true);
+  assert.equal(publicSettings.ui.onboarding.completedAt, '2026-03-10T09:30:00.000Z');
+
+  const fileRaw = await fs.readFile(path.join(tmpDir, 'openclaw-settings.json'), 'utf-8');
+  const persisted = JSON.parse(fileRaw);
+  assert.equal(persisted.ui.onboarding.completed, true);
+  assert.equal(persisted.ui.onboarding.completedAt, '2026-03-10T09:30:00.000Z');
+});

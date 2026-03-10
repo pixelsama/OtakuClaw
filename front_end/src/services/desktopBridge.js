@@ -122,6 +122,15 @@ function normalizeSettingsResponse(settings = {}) {
         ttsSpeechRate: Number.isFinite(dashscope.ttsSpeechRate) ? dashscope.ttsSpeechRate : 1,
       },
     },
+    ui: {
+      onboarding: {
+        completed: Boolean(settings?.ui?.onboarding?.completed),
+        completedAt:
+          typeof settings?.ui?.onboarding?.completedAt === 'string'
+            ? settings.ui.onboarding.completedAt.trim()
+            : '',
+      },
+    },
     hasSecureStorage: settings.hasSecureStorage !== false,
   };
 
@@ -396,6 +405,38 @@ function normalizeSettingsPatch(settings = {}) {
           },
         }
       : {}),
+    ...(Object.prototype.hasOwnProperty.call(settings, 'ui')
+      ? {
+          ui: {
+            ...(typeof settings.ui === 'object' && settings.ui
+              ? {
+                  ...(Object.prototype.hasOwnProperty.call(settings.ui, 'onboarding')
+                    ? {
+                        onboarding:
+                          typeof settings.ui.onboarding === 'object' && settings.ui.onboarding
+                            ? {
+                                ...(Object.prototype.hasOwnProperty.call(settings.ui.onboarding, 'completed')
+                                  ? {
+                                      completed: Boolean(settings.ui.onboarding.completed),
+                                    }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.ui.onboarding, 'completedAt')
+                                  ? {
+                                      completedAt:
+                                        typeof settings.ui.onboarding.completedAt === 'string'
+                                          ? settings.ui.onboarding.completedAt.trim()
+                                          : '',
+                                    }
+                                  : {}),
+                              }
+                            : {},
+                      }
+                    : {}),
+                }
+              : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -442,6 +483,14 @@ function saveWebSettings(partialSettings = {}) {
       dashscope: {
         ...current.voice.dashscope,
         ...(patch.voice?.dashscope || {}),
+      },
+    },
+    ui: {
+      ...(current.ui || {}),
+      ...(patch.ui || {}),
+      onboarding: {
+        ...(current.ui?.onboarding || {}),
+        ...(patch.ui?.onboarding || {}),
       },
     },
     hasSecureStorage: false,
@@ -505,6 +554,12 @@ function saveWebSettings(partialSettings = {}) {
             ttsLanguage: merged.voice.dashscope.ttsLanguage,
             ttsSampleRate: merged.voice.dashscope.ttsSampleRate,
             ttsSpeechRate: merged.voice.dashscope.ttsSpeechRate,
+          },
+        },
+        ui: {
+          onboarding: {
+            completed: Boolean(merged.ui?.onboarding?.completed),
+            completedAt: merged.ui?.onboarding?.completedAt || '',
           },
         },
       }),

@@ -27,6 +27,13 @@ const DEFAULT_NANOBOT_SETTINGS = {
   reasoningEffort: '',
 };
 
+const DEFAULT_UI_SETTINGS = {
+  onboarding: {
+    completed: false,
+    completedAt: '',
+  },
+};
+
 const DEFAULT_SETTINGS = {
   chatBackend: 'openclaw',
   openclaw: { ...DEFAULT_OPENCLAW_SETTINGS },
@@ -44,6 +51,12 @@ const DEFAULT_SETTINGS = {
       ttsLanguage: 'Chinese',
       ttsSampleRate: 24000,
       ttsSpeechRate: 1,
+    },
+  },
+  ui: {
+    ...DEFAULT_UI_SETTINGS,
+    onboarding: {
+      ...DEFAULT_UI_SETTINGS.onboarding,
     },
   },
 };
@@ -131,6 +144,20 @@ function normalizeVoiceSettings(settings = {}) {
   };
 }
 
+function normalizeOnboardingSettings(settings = {}) {
+  return {
+    completed: Boolean(settings.completed),
+    completedAt: normalizeString(settings.completedAt, ''),
+  };
+}
+
+function normalizeUiSettings(settings = {}) {
+  const onboarding = isObject(settings.onboarding) ? settings.onboarding : {};
+  return {
+    onboarding: normalizeOnboardingSettings(onboarding),
+  };
+}
+
 function cloneSettings(settings) {
   return {
     chatBackend: settings.chatBackend,
@@ -142,6 +169,12 @@ function cloneSettings(settings) {
         ...(settings.voice?.dashscope || {}),
       },
     },
+    ui: {
+      ...(settings.ui || DEFAULT_UI_SETTINGS),
+      onboarding: {
+        ...(settings.ui?.onboarding || DEFAULT_UI_SETTINGS.onboarding),
+      },
+    },
   };
 }
 
@@ -151,6 +184,7 @@ function isNextGenSettingsShape(settings = {}) {
     || Object.prototype.hasOwnProperty.call(settings, 'openclaw')
     || Object.prototype.hasOwnProperty.call(settings, 'nanobot')
     || Object.prototype.hasOwnProperty.call(settings, 'voice')
+    || Object.prototype.hasOwnProperty.call(settings, 'ui')
   );
 }
 
@@ -163,6 +197,7 @@ function normalizeFileSettings(settings = {}) {
       openclaw: normalizeOpenClawSettings(isObject(source.openclaw) ? source.openclaw : source),
       nanobot: normalizeNanobotSettings(isObject(source.nanobot) ? source.nanobot : {}),
       voice: normalizeVoiceSettings(isObject(source.voice) ? source.voice : {}),
+      ui: normalizeUiSettings(isObject(source.ui) ? source.ui : {}),
     };
   }
 
@@ -171,6 +206,7 @@ function normalizeFileSettings(settings = {}) {
     openclaw: normalizeOpenClawSettings(source),
     nanobot: { ...DEFAULT_NANOBOT_SETTINGS },
     voice: normalizeVoiceSettings({}),
+    ui: normalizeUiSettings({}),
   };
 }
 
@@ -301,6 +337,23 @@ function normalizePatch(partialSettings = {}) {
   }
   if (Object.keys(voicePatch).length > 0) {
     patch.voice = voicePatch;
+  }
+
+  const uiPatch = {};
+  const uiSource = isObject(source.ui) ? source.ui : {};
+  const onboardingSource = isObject(uiSource.onboarding) ? uiSource.onboarding : {};
+  const onboardingPatch = {};
+  if (Object.prototype.hasOwnProperty.call(onboardingSource, 'completed')) {
+    onboardingPatch.completed = Boolean(onboardingSource.completed);
+  }
+  if (Object.prototype.hasOwnProperty.call(onboardingSource, 'completedAt')) {
+    onboardingPatch.completedAt = normalizeString(onboardingSource.completedAt);
+  }
+  if (Object.keys(onboardingPatch).length > 0) {
+    uiPatch.onboarding = onboardingPatch;
+  }
+  if (Object.keys(uiPatch).length > 0) {
+    patch.ui = uiPatch;
   }
 
   const openclawTokenFromFlat = Object.prototype.hasOwnProperty.call(source, 'token')
@@ -448,6 +501,12 @@ class SettingsStore {
           hasApiKey: hasDashscopeApiKey,
         },
       },
+      ui: {
+        ...this.settings.ui,
+        onboarding: {
+          ...(this.settings.ui?.onboarding || {}),
+        },
+      },
       hasSecureStorage: this.hasSecureStorage,
 
       // Legacy flat fields for backward compatibility.
@@ -474,6 +533,12 @@ class SettingsStore {
         dashscope: {
           ...this.settings.voice.dashscope,
           apiKey: this.secrets.dashscopeApiKey,
+        },
+      },
+      ui: {
+        ...this.settings.ui,
+        onboarding: {
+          ...(this.settings.ui?.onboarding || {}),
         },
       },
 
@@ -512,6 +577,17 @@ class SettingsStore {
         dashscope: {
           ...this.settings.voice.dashscope,
           ...(patch.voice.dashscope || {}),
+        },
+      });
+    }
+
+    if (isObject(patch.ui)) {
+      this.settings.ui = normalizeUiSettings({
+        ...this.settings.ui,
+        ...patch.ui,
+        onboarding: {
+          ...(this.settings.ui?.onboarding || {}),
+          ...(patch.ui.onboarding || {}),
         },
       });
     }
@@ -607,6 +683,17 @@ class SettingsStore {
         },
       });
       merged.voice.dashscope.apiKey = existingDashscopeApiKey;
+    }
+
+    if (isObject(patch.ui)) {
+      merged.ui = normalizeUiSettings({
+        ...merged.ui,
+        ...patch.ui,
+        onboarding: {
+          ...(merged.ui?.onboarding || {}),
+          ...(patch.ui.onboarding || {}),
+        },
+      });
     }
 
     if (patch.clearOpenclawToken) {
