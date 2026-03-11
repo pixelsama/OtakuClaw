@@ -76,6 +76,7 @@ let nanobotRuntimeManager = null;
 let nanobotSkillsLibrary = null;
 let isQuitting = false;
 let chatBackendManager = null;
+const PINNED_NANOBOT_ARCHIVE_URL = 'https://codeload.github.com/HKUDS/nanobot/tar.gz/refs/tags/v0.1.4.post4';
 const legacyConversationMirrorEnabled = (() => {
   const value = process.env.OPENCLAW_ENABLE_LEGACY_STREAM_EVENTS;
   if (typeof value !== 'string') {
@@ -84,6 +85,10 @@ const legacyConversationMirrorEnabled = (() => {
   const normalized = value.trim().toLowerCase();
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 })();
+
+function normalizeEnvText(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
 
 function getDefaultVoiceToggleAccelerator() {
   if (process.platform === 'darwin') {
@@ -472,6 +477,13 @@ async function bootstrap() {
   nanobotRuntimeManager = new NanobotRuntimeManager(app, {
     pythonRuntimeManager,
     pythonEnvManager,
+    env: {
+      ...process.env,
+      NANOBOT_RUNTIME_ARCHIVE_URL:
+        normalizeEnvText(process.env.NANOBOT_RUNTIME_ARCHIVE_URL)
+        || normalizeEnvText(process.env.NANOBOT_DOWNLOAD_URL)
+        || PINNED_NANOBOT_ARCHIVE_URL,
+    },
   });
   await nanobotRuntimeManager.init();
   nanobotSkillsLibrary = new NanobotSkillsLibrary(app, {

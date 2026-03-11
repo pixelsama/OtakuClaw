@@ -7,6 +7,7 @@ Protocol: JSON Lines over stdin/stdout.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 import re
@@ -119,6 +120,48 @@ def load_nanobot_modules() -> dict[str, Any]:
     }
 
 
+def ensure_runtime_compat(modules: dict[str, Any]) -> None:
+    agent_loop_cls = modules["AgentLoop"]
+    context_builder_cls = modules["ContextBuilder"]
+
+    missing_agent_methods = []
+    for method_name in ("_process_message", "process_direct"):
+        if not callable(getattr(agent_loop_cls, method_name, None)):
+            missing_agent_methods.append(method_name)
+    if missing_agent_methods:
+        raise BridgeError(
+            "nanobot_runtime_not_ready",
+            f"Nanobot runtime incompatible: AgentLoop missing methods {', '.join(missing_agent_methods)}.",
+        )
+
+    if not callable(getattr(context_builder_cls, "_get_identity", None)):
+        raise BridgeError(
+            "nanobot_runtime_not_ready",
+            "Nanobot runtime incompatible: ContextBuilder._get_identity is unavailable.",
+        )
+
+    try:
+        init_signature = inspect.signature(agent_loop_cls.__init__)
+    except Exception:
+        return
+
+    required_parameters = ("bus", "provider", "workspace")
+    parameters = init_signature.parameters
+    supports_var_kwargs = any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+    if supports_var_kwargs:
+        return
+
+    missing_parameters = [name for name in required_parameters if name not in parameters]
+    if missing_parameters:
+        raise BridgeError(
+            "nanobot_runtime_not_ready",
+            f"Nanobot runtime incompatible: AgentLoop.__init__ missing params {', '.join(missing_parameters)}.",
+        )
+
+
 def patch_context_builder(modules: dict[str, Any]) -> None:
     context_builder_cls = modules["ContextBuilder"]
     if getattr(context_builder_cls, DESKTOP_PROMPT_PATCH_FLAG, False):
@@ -198,6 +241,7 @@ def create_provider(modules: dict[str, Any], config: dict[str, Any]):
 
 def create_agent(config: dict[str, Any]):
     modules = load_nanobot_modules()
+    ensure_runtime_compat(modules)
     patch_context_builder(modules)
     patch_skills_loader(modules)
 
@@ -209,19 +253,44 @@ def create_agent(config: dict[str, Any]):
     message_bus_cls = modules["MessageBus"]
     exec_tool_config_cls = modules["ExecToolConfig"]
 
-    agent = agent_loop_cls(
-        bus=message_bus_cls(),
-        provider=provider,
-        workspace=workspace,
-        model=config["model"],
-        temperature=config["temperature"],
-        max_tokens=config["maxTokens"],
-        max_iterations=12,
-        memory_window=50,
-        reasoning_effort=config["reasoningEffort"] or None,
-        exec_config=exec_tool_config_cls(timeout=15),
-        restrict_to_workspace=True,
-    )
+    agent_kwargs = {
+        "bus": message_bus_cls(),
+        "provider": provider,
+        "workspace": workspace,
+        "model": config["model"],
+        "temperature": config["temperature"],
+        "max_tokens": config["maxTokens"],
+        "max_iterations": 12,
+        # Keep compatibility with multiple Nanobot AgentLoop signatures.
+        "memory_window": 50,
+        "context_window_tokens": 65_536,
+        "reasoning_effort": config["reasoningEffort"] or None,
+        "exec_config": exec_tool_config_cls(timeout=15),
+        "restrict_to_workspace": True,
+    }
+    try:
+        signature = inspect.signature(agent_loop_cls.__init__)
+        supports_var_kwargs = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in signature.parameters.values()
+        )
+        if not supports_var_kwargs:
+            allowed = set(signature.parameters.keys())
+            agent_kwargs = {
+                key: value
+                for key, value in agent_kwargs.items()
+                if key in allowed
+            }
+    except Exception:
+        # Best effort filtering; if signature probing fails we fall back to raw kwargs.
+        pass
+
+    agent = agent_loop_cls(**agent_kwargs)
+    if not hasattr(agent, "tools") or not callable(getattr(agent.tools, "unregister", None)):
+        raise BridgeError(
+            "nanobot_runtime_not_ready",
+            "Nanobot runtime incompatible: AgentLoop.tools.unregister is unavailable.",
+        )
 
     if not config["allowHighRiskTools"]:
         # Keep the default desktop profile file-scoped unless the user explicitly opts in.
