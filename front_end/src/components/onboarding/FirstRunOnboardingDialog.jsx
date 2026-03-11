@@ -262,6 +262,28 @@ function isDownloadRunningPhase(phase) {
   return Boolean(value && value !== 'idle' && value !== 'completed' && value !== 'failed');
 }
 
+function shouldAutoExpandDownloadDetails(task = {}, nowMs = Date.now()) {
+  const phase = typeof task?.phase === 'string' ? task.phase.trim().toLowerCase() : '';
+  if (phase !== 'installing' && phase !== 'extracting') {
+    return false;
+  }
+
+  const totalBytes = Number.isFinite(task?.fileTotalBytes) ? task.fileTotalBytes : 0;
+  const downloadedBytes = Number.isFinite(task?.fileDownloadedBytes) ? task.fileDownloadedBytes : 0;
+  if (totalBytes > 0 || downloadedBytes > 0) {
+    return false;
+  }
+
+  const phaseStartedAtMs = Number.isFinite(task?.phaseStartedAtMs) && task.phaseStartedAtMs > 0
+    ? task.phaseStartedAtMs
+    : (Number.isFinite(task?.startedAtMs) ? task.startedAtMs : 0);
+  if (phaseStartedAtMs <= 0) {
+    return false;
+  }
+
+  return nowMs - phaseStartedAtMs >= AUTO_EXPAND_DETAILS_DELAY_MS;
+}
+
 function findVoiceDownloadTaskByCapability({
   taskMap = {},
   capability = 'asr',
@@ -325,6 +347,12 @@ function findVoiceDownloadTaskByCapability({
 }
 
 const BACKEND_SUB_STEP_COUNT = 3;
+const AUTO_EXPAND_DETAILS_DELAY_MS = 6000;
+const BACKEND_SUB_STEP_LABEL_KEYS = [
+  'onboarding.backend.subStep.source',
+  'onboarding.backend.subStep.config',
+  'onboarding.backend.subStep.enableTest',
+];
 const TOTAL_STEPS = 4;
 
 export default function FirstRunOnboardingDialog({
@@ -390,6 +418,17 @@ export default function FirstRunOnboardingDialog({
     ],
     [t],
   );
+  const currentBackendSubStepLabel = t(
+    BACKEND_SUB_STEP_LABEL_KEYS[Math.min(BACKEND_SUB_STEP_COUNT - 1, Math.max(0, backendSubStep))],
+  );
+  const backendSubStepProgressText = t('onboarding.backend.subStepProgress', {
+    current: Math.min(BACKEND_SUB_STEP_COUNT, Math.max(1, backendSubStep + 1)),
+    total: BACKEND_SUB_STEP_COUNT,
+    name: currentBackendSubStepLabel,
+  });
+  const nextBackendSubStepLabel = backendSubStep < BACKEND_SUB_STEP_COUNT - 1
+    ? t(BACKEND_SUB_STEP_LABEL_KEYS[backendSubStep + 1])
+    : '';
 
   const selectedBackend = chatBackendSettings?.chatBackend === 'nanobot' ? 'nanobot' : 'openclaw';
   const openClawSettings = chatBackendSettings?.openclaw || {};
@@ -416,17 +455,19 @@ export default function FirstRunOnboardingDialog({
   );
   const asrDownloadPhase = typeof asrDownloadTask?.phase === 'string' ? asrDownloadTask.phase : 'idle';
   const ttsDownloadPhase = typeof ttsDownloadTask?.phase === 'string' ? ttsDownloadTask.phase : 'idle';
+  const asrDownloadRunning = isInstallingAsr || isDownloadRunningPhase(asrDownloadPhase);
+  const ttsDownloadRunning = isInstallingTts || isDownloadRunningPhase(ttsDownloadPhase);
   const hasRunningInlineDownload = nanobotRuntimeDownloading
-    || isDownloadRunningPhase(asrDownloadPhase)
-    || isDownloadRunningPhase(ttsDownloadPhase);
+    || asrDownloadRunning
+    || ttsDownloadRunning;
   const [downloadNowMs, setDownloadNowMs] = useState(() => Date.now());
   const shouldShowAsrDownloadCard = asrSource === 'local'
-    && (isDownloadRunningPhase(asrDownloadPhase)
+    && (asrDownloadRunning
       || asrDownloadPhase === 'completed'
       || asrDownloadPhase === 'failed'
       || (Array.isArray(asrDownloadTask?.logs) && asrDownloadTask.logs.length > 0));
   const shouldShowTtsDownloadCard = (ttsSource === 'cloud-no-key' || ttsSource === 'local')
-    && (isDownloadRunningPhase(ttsDownloadPhase)
+    && (ttsDownloadRunning
       || ttsDownloadPhase === 'completed'
       || ttsDownloadPhase === 'failed'
       || (Array.isArray(ttsDownloadTask?.logs) && ttsDownloadTask.logs.length > 0));
@@ -449,6 +490,34 @@ export default function FirstRunOnboardingDialog({
       window.clearInterval(intervalId);
     };
   }, [hasRunningInlineDownload, open]);
+
+  const shouldAutoExpandBackendDetails = shouldAutoExpandDownloadDetails(
+    nanobotRuntimeDownloadTask,
+    downloadNowMs,
+  );
+  const shouldAutoExpandAsrDetails = shouldAutoExpandDownloadDetails(asrDownloadTask, downloadNowMs);
+  const shouldAutoExpandTtsDetails = shouldAutoExpandDownloadDetails(ttsDownloadTask, downloadNowMs);
+
+  useEffect(() => {
+    if (!open || backendDownloadDetailsOpen || !shouldAutoExpandBackendDetails) {
+      return;
+    }
+    setBackendDownloadDetailsOpen(true);
+  }, [backendDownloadDetailsOpen, open, shouldAutoExpandBackendDetails]);
+
+  useEffect(() => {
+    if (!open || asrDownloadDetailsOpen || !shouldAutoExpandAsrDetails) {
+      return;
+    }
+    setAsrDownloadDetailsOpen(true);
+  }, [asrDownloadDetailsOpen, open, shouldAutoExpandAsrDetails]);
+
+  useEffect(() => {
+    if (!open || ttsDownloadDetailsOpen || !shouldAutoExpandTtsDetails) {
+      return;
+    }
+    setTtsDownloadDetailsOpen(true);
+  }, [open, shouldAutoExpandTtsDetails, ttsDownloadDetailsOpen]);
 
   const isBusy = settingsSaving
     || settingsTesting
@@ -1361,8 +1430,10 @@ export default function FirstRunOnboardingDialog({
               ))}
             </TextField>
 
-            <Alert severity={installedAsrBundle ? 'success' : 'warning'}>
-              {installedAsrBundle ? t('onboarding.model.installed') : t('onboarding.model.notInstalled')}
+            <Alert severity={installedAsrBundle ? 'success' : (asrDownloadRunning ? 'info' : 'warning')}>
+              {installedAsrBundle
+                ? t('onboarding.model.installed')
+                : (asrDownloadRunning ? t('onboarding.model.downloadingNotInstalled') : t('onboarding.model.notInstalled'))}
             </Alert>
 
             <Stack direction="row" spacing={1}>
@@ -1587,8 +1658,10 @@ export default function FirstRunOnboardingDialog({
               ))}
             </TextField>
 
-            <Alert severity={installedTtsBundle ? 'success' : 'warning'}>
-              {installedTtsBundle ? t('onboarding.model.installed') : t('onboarding.model.notInstalled')}
+            <Alert severity={installedTtsBundle ? 'success' : (ttsDownloadRunning ? 'info' : 'warning')}>
+              {installedTtsBundle
+                ? t('onboarding.model.installed')
+                : (ttsDownloadRunning ? t('onboarding.model.downloadingNotInstalled') : t('onboarding.model.notInstalled'))}
             </Alert>
 
             <Stack direction="row" spacing={1}>
@@ -1656,9 +1729,22 @@ export default function FirstRunOnboardingDialog({
   }
 
   const backDisabled = activeStep === 0 || isBusy;
+  const nextButtonText = activeStep >= TOTAL_STEPS - 1
+    ? t('onboarding.finish')
+    : (
+      activeStep === 1 && backendSubStep < BACKEND_SUB_STEP_COUNT - 1
+        ? t('onboarding.backend.nextSubStep', { name: nextBackendSubStepLabel })
+        : t('common.next')
+    );
 
   return (
-    <Dialog open={open} fullWidth maxWidth="sm" disableEscapeKeyDown>
+    <Dialog
+      open={open}
+      fullWidth
+      maxWidth="sm"
+      disableEscapeKeyDown
+      sx={{ '& .MuiButton-root': { textTransform: 'none' } }}
+    >
       <DialogTitle>{t('onboarding.title')}</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 0.5 }}>
@@ -1675,6 +1761,11 @@ export default function FirstRunOnboardingDialog({
               </Step>
             ))}
           </Stepper>
+          {activeStep === 1 && (
+            <Typography variant="caption" color="text.secondary">
+              {backendSubStepProgressText}
+            </Typography>
+          )}
 
           {activeStep === 0 && renderLanguageStep()}
           {activeStep === 1 && renderBackendStep()}
@@ -1699,7 +1790,7 @@ export default function FirstRunOnboardingDialog({
         </Button>
         <Button onClick={handleBack} disabled={backDisabled}>{t('common.back')}</Button>
         <Button onClick={handleNext} variant="contained" disabled={isBusy}>
-          {activeStep >= TOTAL_STEPS - 1 ? t('onboarding.finish') : t('common.next')}
+          {nextButtonText}
         </Button>
       </DialogActions>
     </Dialog>

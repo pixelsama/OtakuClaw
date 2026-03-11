@@ -16,6 +16,7 @@ function createTask(id, title = '') {
     downloadSpeedBytesPerSec: 0,
     estimatedRemainingSeconds: null,
     startedAtMs: 0,
+    phaseStartedAtMs: 0,
     logs: [],
     updatedAt: Date.now(),
   };
@@ -144,54 +145,66 @@ export function useUnifiedDownloader() {
     const installTarget = typeof payload?.installTarget === 'string' ? payload.installTarget.trim().toLowerCase() : '';
     const nowMs = Date.now();
 
-    upsertTask(taskId, (current) => ({
-      ...current,
-      id: taskId,
-      title: title || current.title || taskId,
-      catalogId: catalogId || current.catalogId || '',
-      installTarget: installTarget || current.installTarget || '',
-      phase,
-      completedTasks:
-        hasCompletedTasks && Number.isFinite(payload?.completedTasks)
-          ? payload.completedTasks
-          : (phase === 'started' ? 0 : current.completedTasks),
-      totalTasks:
-        hasTotalTasks && Number.isFinite(payload?.totalTasks)
-          ? payload.totalTasks
-          : (phase === 'started' ? 0 : current.totalTasks),
-      currentFile:
-        hasCurrentFile
-          ? decodeDisplayText(payload?.currentFile)
-          : (phase === 'started' ? '' : current.currentFile),
-      overallProgress:
-        hasOverallProgress && Number.isFinite(payload?.overallProgress)
-          ? payload.overallProgress
-          : (phase === 'started' ? 0 : current.overallProgress),
-      fileDownloadedBytes:
-        hasDownloadedBytes && Number.isFinite(payload?.fileDownloadedBytes)
-          ? payload.fileDownloadedBytes
-          : (phase === 'started' ? 0 : current.fileDownloadedBytes),
-      fileTotalBytes:
-        hasTotalBytes && Number.isFinite(payload?.fileTotalBytes)
-          ? payload.fileTotalBytes
-          : (phase === 'started' ? 0 : current.fileTotalBytes),
-      downloadSpeedBytesPerSec: Number.isFinite(payload?.downloadSpeedBytesPerSec)
-        ? payload.downloadSpeedBytesPerSec
-        : (phase === 'started' || (hasSpeed && !Number.isFinite(payload?.downloadSpeedBytesPerSec))
-          ? 0
-          : current.downloadSpeedBytesPerSec),
-      estimatedRemainingSeconds: hasEta && Number.isFinite(payload?.estimatedRemainingSeconds)
-        ? payload.estimatedRemainingSeconds
-        : (phase === 'started' || (hasEta && !Number.isFinite(payload?.estimatedRemainingSeconds))
-          ? null
-          : current.estimatedRemainingSeconds),
-      startedAtMs:
-        phase === 'started'
+    upsertTask(taskId, (current) => {
+      const currentPhase = normalizePhase(current?.phase);
+      const phaseChanged = phase !== currentPhase;
+      const fallbackStartedAtMs = Number.isFinite(current.startedAtMs) && current.startedAtMs > 0
+        ? current.startedAtMs
+        : nowMs;
+
+      return {
+        ...current,
+        id: taskId,
+        title: title || current.title || taskId,
+        catalogId: catalogId || current.catalogId || '',
+        installTarget: installTarget || current.installTarget || '',
+        phase,
+        completedTasks:
+          hasCompletedTasks && Number.isFinite(payload?.completedTasks)
+            ? payload.completedTasks
+            : (phase === 'started' ? 0 : current.completedTasks),
+        totalTasks:
+          hasTotalTasks && Number.isFinite(payload?.totalTasks)
+            ? payload.totalTasks
+            : (phase === 'started' ? 0 : current.totalTasks),
+        currentFile:
+          hasCurrentFile
+            ? decodeDisplayText(payload?.currentFile)
+            : (phase === 'started' ? '' : current.currentFile),
+        overallProgress:
+          hasOverallProgress && Number.isFinite(payload?.overallProgress)
+            ? payload.overallProgress
+            : (phase === 'started' ? 0 : current.overallProgress),
+        fileDownloadedBytes:
+          hasDownloadedBytes && Number.isFinite(payload?.fileDownloadedBytes)
+            ? payload.fileDownloadedBytes
+            : (phase === 'started' ? 0 : current.fileDownloadedBytes),
+        fileTotalBytes:
+          hasTotalBytes && Number.isFinite(payload?.fileTotalBytes)
+            ? payload.fileTotalBytes
+            : (phase === 'started' ? 0 : current.fileTotalBytes),
+        downloadSpeedBytesPerSec: Number.isFinite(payload?.downloadSpeedBytesPerSec)
+          ? payload.downloadSpeedBytesPerSec
+          : (phase === 'started' || (hasSpeed && !Number.isFinite(payload?.downloadSpeedBytesPerSec))
+            ? 0
+            : current.downloadSpeedBytesPerSec),
+        estimatedRemainingSeconds: hasEta && Number.isFinite(payload?.estimatedRemainingSeconds)
+          ? payload.estimatedRemainingSeconds
+          : (phase === 'started' || (hasEta && !Number.isFinite(payload?.estimatedRemainingSeconds))
+            ? null
+            : current.estimatedRemainingSeconds),
+        startedAtMs: phase === 'started' ? nowMs : fallbackStartedAtMs,
+        phaseStartedAtMs: (phase === 'started' || phaseChanged)
           ? nowMs
-          : (Number.isFinite(current.startedAtMs) && current.startedAtMs > 0 ? current.startedAtMs : nowMs),
-      logs: phase === 'started' ? [] : current.logs,
-      updatedAt: nowMs,
-    }));
+          : (
+            Number.isFinite(current.phaseStartedAtMs) && current.phaseStartedAtMs > 0
+              ? current.phaseStartedAtMs
+              : fallbackStartedAtMs
+          ),
+        logs: phase === 'started' ? [] : current.logs,
+        updatedAt: nowMs,
+      };
+    });
 
     if (phase === 'started') {
       appendLog(taskId, '任务开始。', `${phase}|start`);

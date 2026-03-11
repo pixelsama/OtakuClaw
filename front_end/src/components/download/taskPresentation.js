@@ -90,7 +90,10 @@ export function resolveTaskStatsText(task = {}, t) {
     return `${formatBytesPerSecond(speedBytesPerSec)}${etaPart}`;
   }
 
-  const startedAtMs = Number.isFinite(task?.startedAtMs) ? task.startedAtMs : 0;
+  const phaseStartedAtMs = Number.isFinite(task?.phaseStartedAtMs) ? task.phaseStartedAtMs : 0;
+  const startedAtMs = phaseStartedAtMs > 0
+    ? phaseStartedAtMs
+    : (Number.isFinite(task?.startedAtMs) ? task.startedAtMs : 0);
   if (startedAtMs > 0 && phase !== 'idle') {
     const elapsedSeconds = formatElapsedSeconds((nowMs - startedAtMs) / 1000);
     return t('download.elapsedStats', { seconds: elapsedSeconds });
