@@ -238,6 +238,7 @@ export default function FirstRunOnboardingDialog({
   const [voiceSaving, setVoiceSaving] = useState(false);
   const [voiceError, setVoiceError] = useState('');
   const [voiceFeedback, setVoiceFeedback] = useState('');
+  const [dashscopeApiKeySaved, setDashscopeApiKeySaved] = useState(false);
 
   const [catalogItems, setCatalogItems] = useState([]);
   const [modelBundles, setModelBundles] = useState([]);
@@ -262,6 +263,15 @@ export default function FirstRunOnboardingDialog({
   const selectedBackend = chatBackendSettings?.chatBackend === 'nanobot' ? 'nanobot' : 'openclaw';
   const openClawSettings = chatBackendSettings?.openclaw || {};
   const nanobotSettings = chatBackendSettings?.nanobot || {};
+  const isBusy = settingsSaving
+    || settingsTesting
+    || nanobotRuntimeInstalling
+    || voiceLoading
+    || voiceSaving
+    || isInstallingAsr
+    || isInstallingTts
+    || asrTesting
+    || ttsTesting;
 
   const asrCatalogItems = useMemo(
     () => (Array.isArray(catalogItems) ? catalogItems.filter((item) => item?.hasAsr) : []),
@@ -343,6 +353,7 @@ export default function FirstRunOnboardingDialog({
           ? dashscope.ttsSpeechRate
           : DEFAULT_DASHSCOPE_SETTINGS.ttsSpeechRate,
       });
+      setDashscopeApiKeySaved(Boolean(dashscope?.hasApiKey));
 
       setAsrSource(voice?.asrProvider === 'dashscope' ? 'cloud' : (selectedAsrBundle ? 'local' : 'skip'));
       setTtsSource(voice?.ttsProvider === 'dashscope' ? 'cloud' : (selectedTtsBundle ? 'local' : 'skip'));
@@ -415,6 +426,12 @@ export default function FirstRunOnboardingDialog({
     }
 
     if (asrSource === 'cloud') {
+      const hasApiKey = Boolean((dashscopeSettings.apiKey || '').trim()) || dashscopeApiKeySaved;
+      if (!hasApiKey) {
+        setVoiceError('请填写 DashScope API Key。');
+        return false;
+      }
+
       const saved = await saveVoiceSettings({
         voice: {
           asrProvider: 'dashscope',
@@ -430,6 +447,7 @@ export default function FirstRunOnboardingDialog({
       if (!saved) {
         return false;
       }
+      setDashscopeApiKeySaved(true);
 
       const selected = await desktopBridge.voiceModels.select({ asrBundleId: '' });
       if (!selected?.ok) {
@@ -474,7 +492,7 @@ export default function FirstRunOnboardingDialog({
     }
 
     return false;
-  }, [asrSource, dashscopeSettings, modelBundles, saveVoiceSettings, selectedAsrCatalogId]);
+  }, [asrSource, dashscopeApiKeySaved, dashscopeSettings, modelBundles, saveVoiceSettings, selectedAsrCatalogId]);
 
   const applyTtsConfig = useCallback(async () => {
     setVoiceError('');
@@ -486,6 +504,12 @@ export default function FirstRunOnboardingDialog({
     }
 
     if (ttsSource === 'cloud') {
+      const hasApiKey = Boolean((dashscopeSettings.apiKey || '').trim()) || dashscopeApiKeySaved;
+      if (!hasApiKey) {
+        setVoiceError('请填写 DashScope API Key。');
+        return false;
+      }
+
       const saved = await saveVoiceSettings({
         voice: {
           ttsProvider: 'dashscope',
@@ -504,6 +528,7 @@ export default function FirstRunOnboardingDialog({
       if (!saved) {
         return false;
       }
+      setDashscopeApiKeySaved(true);
 
       const selected = await desktopBridge.voiceModels.select({ ttsBundleId: '' });
       if (!selected?.ok) {
@@ -548,7 +573,7 @@ export default function FirstRunOnboardingDialog({
     }
 
     return false;
-  }, [dashscopeSettings, modelBundles, saveVoiceSettings, selectedTtsCatalogId, ttsSource]);
+  }, [dashscopeApiKeySaved, dashscopeSettings, modelBundles, saveVoiceSettings, selectedTtsCatalogId, ttsSource]);
 
   const handleInstallAsr = useCallback(async () => {
     if (!selectedAsrCatalogId) {
@@ -714,6 +739,9 @@ export default function FirstRunOnboardingDialog({
   }, [applyTtsConfig, asrTesting, ttsTesting, ttsText]);
 
   const handleSkipStep = useCallback(async () => {
+    setVoiceError('');
+    setVoiceFeedback('');
+
     if (activeStep === 1) {
       setAsrSource('skip');
     }
@@ -729,12 +757,26 @@ export default function FirstRunOnboardingDialog({
   }, [activeStep, onFinish]);
 
   const handleNext = useCallback(async () => {
+    if (activeStep === 1) {
+      const ok = await applyAsrConfig();
+      if (!ok) {
+        return;
+      }
+    }
+
+    if (activeStep === 2) {
+      const ok = await applyTtsConfig();
+      if (!ok) {
+        return;
+      }
+    }
+
     if (activeStep >= STEP_LABELS.length - 1) {
       await onFinish?.();
       return;
     }
     setActiveStep((current) => Math.min(STEP_LABELS.length - 1, current + 1));
-  }, [activeStep, onFinish]);
+  }, [activeStep, applyAsrConfig, applyTtsConfig, onFinish]);
 
   const handleBack = useCallback(() => {
     setActiveStep((current) => Math.max(0, current - 1));
@@ -1199,11 +1241,11 @@ export default function FirstRunOnboardingDialog({
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={() => { void handleSkipStep(); }}>
+        <Button onClick={() => { void handleSkipStep(); }} disabled={isBusy}>
           Skip this step
         </Button>
-        <Button onClick={handleBack} disabled={activeStep === 0}>上一步</Button>
-        <Button onClick={handleNext} variant="contained">
+        <Button onClick={handleBack} disabled={activeStep === 0 || isBusy}>上一步</Button>
+        <Button onClick={handleNext} variant="contained" disabled={isBusy}>
           {activeStep >= STEP_LABELS.length - 1 ? '完成引导' : '下一步'}
         </Button>
       </DialogActions>
