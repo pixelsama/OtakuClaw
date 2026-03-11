@@ -259,6 +259,15 @@ function bundleHasTts(bundle = {}) {
   );
 }
 
+function getCatalogSourceType(item = {}) {
+  const sourceType = typeof item?.sourceType === 'string' ? item.sourceType.trim().toLowerCase() : '';
+  return sourceType || 'local';
+}
+
+function isCloudNoKeyCatalogItem(item = {}) {
+  return getCatalogSourceType(item) === 'cloud-no-key';
+}
+
 function resolveAsrModelPath(bundle = {}) {
   return bundle?.asr?.modelPath || bundle?.runtime?.asrModelDir || '';
 }
@@ -634,6 +643,14 @@ export default function VoiceSettingsPanel({
     () => catalogItems.filter((item) => item?.hasTts),
     [catalogItems],
   );
+  const ttsLocalCatalogItems = useMemo(
+    () => ttsCatalogItems.filter((item) => !isCloudNoKeyCatalogItem(item)),
+    [ttsCatalogItems],
+  );
+  const ttsCloudNoKeyCatalogItems = useMemo(
+    () => ttsCatalogItems.filter((item) => isCloudNoKeyCatalogItem(item)),
+    [ttsCatalogItems],
+  );
   const selectedAsrCatalogItem = useMemo(
     () => asrCatalogItems.find((item) => item.id === selectedAsrCatalogId) || null,
     [asrCatalogItems, selectedAsrCatalogId],
@@ -693,14 +710,19 @@ export default function VoiceSettingsPanel({
   const ttsModelOptions = useMemo(
     () => [
       { value: '', label: '跟随环境变量（自动）', source: 'inherit' },
-      ...ttsCatalogItems.map((item) => ({
+      ...ttsLocalCatalogItems.map((item) => ({
         value: item.id,
         label: `${resolveLocalModelShortLabel(item, 'tts')}（本地）`,
         source: 'local',
       })),
+      ...ttsCloudNoKeyCatalogItems.map((item) => ({
+        value: item.id,
+        label: `${resolveLocalModelShortLabel(item, 'tts')}（云端，无需配置 Key）`,
+        source: 'cloud-no-key',
+      })),
       { value: CLOUD_TTS_DASHSCOPE_OPTION, label: '阿里百炼（云端）', source: 'cloud' },
     ],
-    [ttsCatalogItems],
+    [ttsCloudNoKeyCatalogItems, ttsLocalCatalogItems],
   );
   const selectedAsrModelOptionValue = selectedAsrCatalogId
     || (voiceProviderSettings.asrProvider === 'dashscope' ? CLOUD_ASR_DASHSCOPE_OPTION : '');
@@ -1948,7 +1970,9 @@ export default function VoiceSettingsPanel({
               {!!selectedTtsCatalogId && (
                 <Stack spacing={1}>
                   <Alert severity="info">
-                    {`TTS: ${resolveLocalModelShortLabel(selectedTtsCatalogItem, 'tts')}（本地）`}
+                    {`TTS: ${resolveLocalModelShortLabel(selectedTtsCatalogItem, 'tts')}（${
+                      isCloudNoKeyCatalogItem(selectedTtsCatalogItem) ? '云端，无需配置 Key' : '本地'
+                    }）`}
                   </Alert>
                   <Alert
                     severity={
@@ -1958,10 +1982,22 @@ export default function VoiceSettingsPanel({
                     }
                   >
                     {isSelectedTtsCatalogActive
-                      ? '所选 TTS 模型状态: 已下载并生效'
+                      ? (
+                        isCloudNoKeyCatalogItem(selectedTtsCatalogItem)
+                          ? '所选 TTS 状态: 运行时已准备并生效'
+                          : '所选 TTS 模型状态: 已下载并生效'
+                      )
                       : hasInstalledSelectedTtsCatalog
-                        ? '所选 TTS 模型状态: 已下载，但当前未生效'
-                        : '所选 TTS 模型状态: 未下载'}
+                        ? (
+                          isCloudNoKeyCatalogItem(selectedTtsCatalogItem)
+                            ? '所选 TTS 状态: 运行时已准备，但当前未生效'
+                            : '所选 TTS 模型状态: 已下载，但当前未生效'
+                        )
+                        : (
+                          isCloudNoKeyCatalogItem(selectedTtsCatalogItem)
+                            ? '所选 TTS 状态: 运行时未准备'
+                            : '所选 TTS 模型状态: 未下载'
+                        )}
                   </Alert>
                   <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                     <Button
@@ -1970,7 +2006,9 @@ export default function VoiceSettingsPanel({
                       onClick={handleInstallTtsModel}
                       disabled={isDownloadingModels || isRemovingModels}
                     >
-                      {hasInstalledSelectedTtsCatalog ? '重新下载 TTS 模型' : '下载 TTS 模型'}
+                      {isCloudNoKeyCatalogItem(selectedTtsCatalogItem)
+                        ? (hasInstalledSelectedTtsCatalog ? '重新准备 TTS 运行时' : '准备 TTS 运行时')
+                        : (hasInstalledSelectedTtsCatalog ? '重新下载 TTS 模型' : '下载 TTS 模型')}
                     </Button>
                     {hasInstalledSelectedTtsCatalog && (
                       <Button

@@ -56,6 +56,15 @@ function findInstalledBundleByCatalogId({ bundles = [], catalogId = '', capabili
   return bundles.find((bundle) => bundle?.catalogId === catalogId && supportsCapability(bundle)) || null;
 }
 
+function getCatalogSourceType(item = {}) {
+  const sourceType = typeof item?.sourceType === 'string' ? item.sourceType.trim().toLowerCase() : '';
+  return sourceType || 'local';
+}
+
+function isCloudNoKeyCatalogItem(item = {}) {
+  return getCatalogSourceType(item) === 'cloud-no-key';
+}
+
 function getAsrTestStatusText(phase) {
   if (phase === 'warming') {
     return 'ASR 模型预热中...';
@@ -365,6 +374,14 @@ export default function FirstRunOnboardingDialog({
     () => (Array.isArray(catalogItems) ? catalogItems.filter((item) => item?.hasTts) : []),
     [catalogItems],
   );
+  const ttsLocalCatalogItems = useMemo(
+    () => ttsCatalogItems.filter((item) => !isCloudNoKeyCatalogItem(item)),
+    [ttsCatalogItems],
+  );
+  const ttsCloudNoKeyCatalogItems = useMemo(
+    () => ttsCatalogItems.filter((item) => isCloudNoKeyCatalogItem(item)),
+    [ttsCatalogItems],
+  );
 
   const installedAsrBundle = useMemo(
     () => findInstalledBundleByCatalogId({ bundles: modelBundles, catalogId: selectedAsrCatalogId, capability: 'asr' }),
@@ -439,11 +456,19 @@ export default function FirstRunOnboardingDialog({
       });
       setDashscopeApiKeySaved(Boolean(dashscope?.hasApiKey));
 
-      setAsrSource(voice?.asrProvider === 'dashscope' ? 'cloud' : (selectedAsrBundle ? 'local' : 'skip'));
-      setTtsSource(voice?.ttsProvider === 'dashscope' ? 'cloud' : (selectedTtsBundle ? 'local' : 'skip'));
-
       const firstAsrCatalog = items.find((item) => item?.hasAsr) || null;
       const firstTtsCatalog = items.find((item) => item?.hasTts) || null;
+      const selectedTtsCatalogItem = items.find((item) => item?.id === selectedTtsBundle?.catalogId) || null;
+      setAsrSource(voice?.asrProvider === 'dashscope' ? 'cloud' : (selectedAsrBundle ? 'local' : 'skip'));
+      setTtsSource(
+        voice?.ttsProvider === 'dashscope'
+          ? 'cloud'
+          : (
+            selectedTtsBundle
+              ? (isCloudNoKeyCatalogItem(selectedTtsCatalogItem) ? 'cloud-no-key' : 'local')
+              : 'skip'
+          ),
+      );
       setSelectedAsrCatalogId(selectedAsrBundle?.catalogId || firstAsrCatalog?.id || '');
       setSelectedTtsCatalogId(selectedTtsBundle?.catalogId || firstTtsCatalog?.id || '');
     } catch (error) {
@@ -619,14 +644,14 @@ export default function FirstRunOnboardingDialog({
       return true;
     }
 
-    if (ttsSource === 'local') {
+    if (ttsSource === 'local' || ttsSource === 'cloud-no-key') {
       const installedBundle = findInstalledBundleByCatalogId({
         bundles: modelBundles,
         catalogId: selectedTtsCatalogId,
         capability: 'tts',
       });
       if (!installedBundle?.id) {
-        setVoiceError('请先下载所选 TTS 本地模型。');
+        setVoiceError(ttsSource === 'cloud-no-key' ? '请先准备所选云端 TTS 运行时。' : '请先下载所选 TTS 本地模型。');
         return false;
       }
 
@@ -643,11 +668,14 @@ export default function FirstRunOnboardingDialog({
         ttsBundleId: installedBundle.id,
       });
       if (!selected?.ok) {
-        setVoiceError(selected?.error?.message || '切换 TTS 本地模型失败。');
+        setVoiceError(
+          selected?.error?.message
+            || (ttsSource === 'cloud-no-key' ? '切换 TTS 至云端免 Key 语音失败。' : '切换 TTS 本地模型失败。'),
+        );
         return false;
       }
       setModelBundles(Array.isArray(selected?.bundles) ? selected.bundles : []);
-      setVoiceFeedback('TTS 本地模型已生效。');
+      setVoiceFeedback(ttsSource === 'cloud-no-key' ? 'TTS 云端免 Key 语音已生效。' : 'TTS 本地模型已生效。');
       return true;
     }
 
@@ -686,9 +714,12 @@ export default function FirstRunOnboardingDialog({
 
   const handleInstallTts = useCallback(async () => {
     if (!selectedTtsCatalogId) {
-      setVoiceError('请先选择一个 TTS 本地模型。');
+      setVoiceError('请先选择一个 TTS 选项。');
       return;
     }
+
+    const selectedCatalogItem = ttsCatalogItems.find((item) => item?.id === selectedTtsCatalogId) || null;
+    const isCloudNoKey = isCloudNoKeyCatalogItem(selectedCatalogItem);
 
     setVoiceError('');
     setVoiceFeedback('');
@@ -699,20 +730,20 @@ export default function FirstRunOnboardingDialog({
         installTts: true,
       });
       if (!result?.ok) {
-        setVoiceError(result?.error?.message || '下载 TTS 模型失败。');
+        setVoiceError(result?.error?.message || (isCloudNoKey ? '准备云端 TTS 运行时失败。' : '下载 TTS 模型失败。'));
         return;
       }
-      setVoiceFeedback('TTS 本地模型下载完成。');
+      setVoiceFeedback(isCloudNoKey ? '云端 TTS 运行时准备完成。' : 'TTS 本地模型下载完成。');
       await loadVoiceContext();
-      setTtsSource('local');
+      setTtsSource(isCloudNoKey ? 'cloud-no-key' : 'local');
     } catch (error) {
-      setVoiceError(error?.message || '下载 TTS 模型失败。');
+      setVoiceError(error?.message || (isCloudNoKey ? '准备云端 TTS 运行时失败。' : '下载 TTS 模型失败。'));
     } finally {
       if (mountedRef.current) {
         setIsInstallingTts(false);
       }
     }
-  }, [loadVoiceContext, selectedTtsCatalogId]);
+  }, [loadVoiceContext, selectedTtsCatalogId, ttsCatalogItems]);
 
   const handleRunAsrTest = useCallback(async () => {
     if (asrTesting || ttsTesting) {
@@ -1284,7 +1315,7 @@ export default function FirstRunOnboardingDialog({
     return (
       <Stack spacing={1.5}>
         <Typography variant="body2" color="text.secondary">
-          选择 TTS 来源。云端可配置 DashScope，本地可下载后直接测试首包和总延迟。
+          选择 TTS 来源。云端可配置 DashScope；Edge TTS 属于云端语音，但无需单独配置 Key；本地模型可下载后直接测试首包和总延迟。
         </Typography>
 
         <TextField
@@ -1296,6 +1327,7 @@ export default function FirstRunOnboardingDialog({
         >
           <MenuItem value="skip">稍后配置（Skip）</MenuItem>
           <MenuItem value="cloud">云端（DashScope）</MenuItem>
+          <MenuItem value="cloud-no-key">云端（无需配置 Key）</MenuItem>
           <MenuItem value="local">本地模型</MenuItem>
         </TextField>
 
@@ -1380,6 +1412,47 @@ export default function FirstRunOnboardingDialog({
           </Stack>
         )}
 
+        {ttsSource === 'cloud-no-key' && (
+          <Stack spacing={1}>
+            <TextField
+              select
+              label="云端 TTS（无需配置 Key）"
+              value={selectedTtsCatalogId}
+              onChange={(event) => setSelectedTtsCatalogId(event.target.value)}
+              fullWidth
+            >
+              {ttsCloudNoKeyCatalogItems.map((item) => (
+                <MenuItem key={item.id} value={item.id}>{item.name || item.id}</MenuItem>
+              ))}
+            </TextField>
+
+            <Alert severity={installedTtsBundle ? 'success' : 'warning'}>
+              {installedTtsBundle ? '当前云端 TTS 运行时已准备完成。' : '当前云端 TTS 运行时尚未准备。'}
+            </Alert>
+
+            <Stack direction="row" spacing={1}>
+              <Button
+                variant="contained"
+                onClick={() => {
+                  void handleInstallTts();
+                }}
+                disabled={isInstallingTts || !selectedTtsCatalogId}
+              >
+                {isInstallingTts ? '准备中...' : (installedTtsBundle ? '重新准备运行时' : '准备运行时')}
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={() => {
+                  void applyTtsConfig();
+                }}
+                disabled={!installedTtsBundle || voiceSaving}
+              >
+                设为当前 TTS
+              </Button>
+            </Stack>
+          </Stack>
+        )}
+
         {ttsSource === 'local' && (
           <Stack spacing={1}>
             <TextField
@@ -1389,7 +1462,7 @@ export default function FirstRunOnboardingDialog({
               onChange={(event) => setSelectedTtsCatalogId(event.target.value)}
               fullWidth
             >
-              {ttsCatalogItems.map((item) => (
+              {ttsLocalCatalogItems.map((item) => (
                 <MenuItem key={item.id} value={item.id}>{item.name || item.id}</MenuItem>
               ))}
             </TextField>

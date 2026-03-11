@@ -8,6 +8,9 @@ const BUILT_IN_VOICE_MODEL_CATALOG = [
     id: 'builtin-asr-zh-int8-zipformer-v1',
     name: '中文 ASR（Sherpa Zipformer）',
     description: 'sherpa-onnx streaming zipformer-ctc-zh-int8-2025-06-30（稳定优先）',
+    sourceType: 'local',
+    requiresDownload: true,
+    requiresCredential: false,
     hasAsr: true,
     hasTts: false,
     asr: {
@@ -25,6 +28,9 @@ const BUILT_IN_VOICE_MODEL_CATALOG = [
     name: 'Qwen3-ASR-0.6B-4bit（MLX）',
     description:
       '共享 Python 3.12 + 隔离 env + mlx-audio + mlx-community/Qwen3-ASR-0.6B-4bit（Apple Silicon 本地 ASR）',
+    sourceType: 'local',
+    requiresDownload: true,
+    requiresCredential: false,
     hasAsr: true,
     hasTts: false,
     runtime: {
@@ -50,6 +56,9 @@ const BUILT_IN_VOICE_MODEL_CATALOG = [
     name: 'Qwen3-TTS-0.6B-8bit（MLX）',
     description:
       '共享 Python 3.12 + 隔离 env + mlx-audio + mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit（Apple Silicon 本地 TTS）',
+    sourceType: 'local',
+    requiresDownload: true,
+    requiresCredential: false,
     hasAsr: false,
     hasTts: true,
     runtime: {
@@ -75,9 +84,12 @@ const BUILT_IN_VOICE_MODEL_CATALOG = [
   },
   {
     id: 'builtin-tts-edge-v1',
-    name: 'Edge TTS（在线自然女声）',
+    name: 'Edge TTS（云端，无需配置 Key）',
     description:
       '共享 Python 3.12 + 隔离 env + edge-tts（zh-CN-XiaoxiaoNeural，自然女声云端 TTS）',
+    sourceType: 'cloud-no-key',
+    requiresDownload: true,
+    requiresCredential: false,
     hasAsr: false,
     hasTts: true,
     runtime: {
