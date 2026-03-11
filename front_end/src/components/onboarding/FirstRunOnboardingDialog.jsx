@@ -1113,11 +1113,10 @@ export default function FirstRunOnboardingDialog({
         <TextField
           select
           label="ASR 来源"
-          value={asrSource}
+          value={asrSource === 'skip' ? 'cloud' : asrSource}
           onChange={(event) => setAsrSource(event.target.value)}
           fullWidth
         >
-          <MenuItem value="skip">稍后配置（Skip）</MenuItem>
           <MenuItem value="cloud">云端（DashScope）</MenuItem>
           <MenuItem value="local">本地模型</MenuItem>
         </TextField>
