@@ -42,6 +42,13 @@ function formatEta(value) {
   return `${seconds}s`;
 }
 
+function formatElapsedSeconds(value) {
+  if (!Number.isFinite(value) || value < 0) {
+    return 0;
+  }
+  return Math.max(0, Math.floor(value));
+}
+
 export function resolveTaskProgressValue(task = {}) {
   return typeof task?.overallProgress === 'number'
     ? Math.min(100, Math.max(0, task.overallProgress * 100))
@@ -59,6 +66,7 @@ export function resolveTaskStatusText(task = {}, t) {
 }
 
 export function resolveTaskStatsText(task = {}, t) {
+  const nowMs = Number.isFinite(task?.nowMs) ? task.nowMs : Date.now();
   const phase = task?.phase || 'idle';
   if (phase === 'completed') {
     return t('download.completedStats');
@@ -82,6 +90,11 @@ export function resolveTaskStatsText(task = {}, t) {
     return `${formatBytesPerSecond(speedBytesPerSec)}${etaPart}`;
   }
 
+  const startedAtMs = Number.isFinite(task?.startedAtMs) ? task.startedAtMs : 0;
+  if (startedAtMs > 0 && phase !== 'idle') {
+    const elapsedSeconds = formatElapsedSeconds((nowMs - startedAtMs) / 1000);
+    return t('download.elapsedStats', { seconds: elapsedSeconds });
+  }
+
   return t('download.waitingStats');
 }
-

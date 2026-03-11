@@ -191,3 +191,72 @@ test('nanobot runtime manager clears missing legacy voice bundle python path', a
 
   assert.equal(manager.state.pythonExecutable, '');
 });
+
+test('nanobot runtime manager normalizes nested ensureEnv completion and forwards download stats', async () => {
+  const progressEvents = [];
+  const managedEnv = {
+    envId: 'nanobot-default-py312-abcd1234',
+    envPythonExecutable: '/tmp/python-envs/nanobot/bin/python3',
+  };
+
+  const { manager, tmpDir } = await createTestManager({
+    env: {
+      NANOBOT_RUNTIME_ARCHIVE_URL: 'https://example.com/nanobot.tar.gz',
+    },
+    pythonRuntimeManager: {
+      init: async () => {},
+    },
+    pythonEnvManager: {
+      init: async () => {},
+      async ensureEnv({ onProgress }) {
+        onProgress?.({
+          phase: 'running',
+          currentFile: 'python-runtime.tar.gz',
+          overallProgress: 0.5,
+          fileDownloadedBytes: 120,
+          fileTotalBytes: 300,
+          downloadSpeedBytesPerSec: 40,
+          estimatedRemainingSeconds: 4,
+        });
+        onProgress?.({
+          phase: 'completed',
+          currentFile: '',
+          overallProgress: 1,
+        });
+        return managedEnv;
+      },
+      getEnvById(envId) {
+        return envId === managedEnv.envId ? managedEnv : null;
+      },
+    },
+    downloadFileImpl: async ({ destinationPath }) => {
+      await fs.mkdir(path.dirname(destinationPath), { recursive: true });
+      await fs.writeFile(destinationPath, 'archive');
+    },
+    extractArchiveImpl: async ({ destinationDir }) => {
+      const extractedRoot = path.join(destinationDir, 'nanobot-main');
+      await fs.mkdir(path.join(extractedRoot, 'nanobot'), { recursive: true });
+      await fs.writeFile(path.join(extractedRoot, 'pyproject.toml'), '[project]\nname="nanobot-ai"\n');
+    },
+    runCommandImpl: async () => {},
+  });
+
+  const result = await manager.installRuntime({
+    onProgress: (payload) => {
+      progressEvents.push(payload);
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.ok(progressEvents.length > 0);
+  assert.equal(progressEvents.at(-1).phase, 'completed');
+  const nestedCompletedEvent = progressEvents.find((event, index) => event.phase === 'completed' && index < progressEvents.length - 1);
+  assert.equal(nestedCompletedEvent, undefined);
+  const runtimeEvent = progressEvents.find((event) => event.currentFile === 'python-runtime.tar.gz');
+  assert.ok(runtimeEvent);
+  assert.equal(runtimeEvent.fileDownloadedBytes, 120);
+  assert.equal(runtimeEvent.fileTotalBytes, 300);
+  assert.equal(runtimeEvent.downloadSpeedBytesPerSec, 40);
+  assert.equal(runtimeEvent.estimatedRemainingSeconds, 4);
+  assert.equal(manager.getStatus().repoPath, path.join(tmpDir, 'nanobot-runtime', 'repo'));
+});

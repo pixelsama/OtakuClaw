@@ -446,6 +446,109 @@ test('installCatalogBundle stores python env id for built-in edge tts', async ()
   assert.equal(library.getRuntimeEnv({}).VOICE_TTS_PYTHON_EXECUTABLE, ensuredEnv.envPythonExecutable);
 });
 
+test('installCatalogBundle does not treat nested ensureEnv completed as terminal completion', async () => {
+  const ensuredEnv = {
+    envId: 'tts-edge-py312-abcd1234',
+    envPythonExecutable: '/tmp/python-envs/tts-edge/bin/python3',
+  };
+  const { library } = await createLibraryForTest({
+    pythonRuntimeManager: {
+      init: async () => {},
+    },
+    pythonEnvManager: {
+      init: async () => {},
+      async ensureEnv({ onProgress }) {
+        onProgress?.({
+          phase: 'running',
+          currentFile: 'python-runtime.tar.gz',
+          overallProgress: 0.5,
+          fileDownloadedBytes: 100,
+          fileTotalBytes: 200,
+          downloadSpeedBytesPerSec: 50,
+          estimatedRemainingSeconds: 2,
+        });
+        onProgress?.({
+          phase: 'completed',
+          currentFile: '',
+          overallProgress: 1,
+        });
+        return ensuredEnv;
+      },
+      getEnvById(envId) {
+        return envId === ensuredEnv.envId ? ensuredEnv : null;
+      },
+    },
+  });
+
+  const progressEvents = [];
+  const result = await library.installCatalogBundle(
+    {
+      catalogId: 'builtin-tts-edge-v1',
+      installAsr: false,
+      installTts: true,
+    },
+    {
+      onProgress: (event) => {
+        progressEvents.push(event);
+      },
+    },
+  );
+
+  assert.ok(result.bundle?.id);
+  assert.ok(progressEvents.length > 0);
+  assert.equal(progressEvents.at(-1).phase, 'completed');
+  const nestedCompletedEvent = progressEvents.find((event, index) => event.phase === 'completed' && index < progressEvents.length - 1);
+  assert.equal(nestedCompletedEvent, undefined);
+  const runtimeEvent = progressEvents.find((event) => event.currentFile === 'python-runtime.tar.gz');
+  assert.ok(runtimeEvent);
+  assert.equal(runtimeEvent.fileDownloadedBytes, 100);
+  assert.equal(runtimeEvent.fileTotalBytes, 200);
+  assert.equal(runtimeEvent.downloadSpeedBytesPerSec, 50);
+  assert.equal(runtimeEvent.estimatedRemainingSeconds, 2);
+});
+
+test('installCatalogBundle emits structured error in failed progress event', async () => {
+  const failure = new Error('ensure env failed');
+  failure.code = 'python_env_failed';
+  const { library } = await createLibraryForTest({
+    pythonRuntimeManager: {
+      init: async () => {},
+    },
+    pythonEnvManager: {
+      init: async () => {},
+      async ensureEnv() {
+        throw failure;
+      },
+      getEnvById() {
+        return null;
+      },
+    },
+  });
+
+  const progressEvents = [];
+  await assert.rejects(
+    () => library.installCatalogBundle(
+      {
+        catalogId: 'builtin-tts-edge-v1',
+        installAsr: false,
+        installTts: true,
+      },
+      {
+        onProgress: (event) => {
+          progressEvents.push(event);
+        },
+      },
+    ),
+    (error) => error?.code === 'python_env_failed',
+  );
+
+  assert.ok(progressEvents.length > 0);
+  const failedEvent = progressEvents.at(-1);
+  assert.equal(failedEvent.phase, 'failed');
+  assert.equal(failedEvent.error?.code, 'python_env_failed');
+  assert.equal(failedEvent.error?.message, 'ensure env failed');
+});
+
 test('getRuntimeEnv falls back to legacy python executable path', async () => {
   const { library, tmpDir } = await createLibraryForTest({
     pythonRuntimeManager: {

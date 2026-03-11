@@ -111,6 +111,17 @@ function parseSizeToBytes(value, unit = '') {
   return Math.round(numeric);
 }
 
+function normalizeNestedProgressPhase(phase, fallback = 'running') {
+  const normalized = sanitizeOptionalText(phase, fallback).toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+  if (normalized === 'completed') {
+    return 'running';
+  }
+  return normalized;
+}
+
 function resolveVoiceInstallTarget({
   installAsr = false,
   installTts = false,
@@ -905,17 +916,18 @@ class VoiceModelLibrary {
     const emitProgress = ({
       phase,
       currentFile = '',
-      fileDownloadedBytes = 0,
-      fileTotalBytes = 0,
-      downloadSpeedBytesPerSec = 0,
+      fileDownloadedBytes = null,
+      fileTotalBytes = null,
+      downloadSpeedBytesPerSec = null,
       estimatedRemainingSeconds = null,
       overallProgress = null,
+      error = null,
     }) => {
       if (typeof onProgress !== 'function') {
         return;
       }
 
-      onProgress({
+      const payload = {
         type: 'download-progress',
         taskId: progressTaskId,
         taskTitle: progressTaskTitle,
@@ -928,12 +940,27 @@ class VoiceModelLibrary {
         completedTasks,
         totalTasks,
         currentFile,
-        fileDownloadedBytes,
-        fileTotalBytes,
-        downloadSpeedBytesPerSec,
-        estimatedRemainingSeconds,
         overallProgress,
-      });
+      };
+      if (Number.isFinite(fileDownloadedBytes)) {
+        payload.fileDownloadedBytes = fileDownloadedBytes;
+      }
+      if (Number.isFinite(fileTotalBytes)) {
+        payload.fileTotalBytes = fileTotalBytes;
+      }
+      if (Number.isFinite(downloadSpeedBytesPerSec)) {
+        payload.downloadSpeedBytesPerSec = downloadSpeedBytesPerSec;
+      }
+      if (Number.isFinite(estimatedRemainingSeconds)) {
+        payload.estimatedRemainingSeconds = estimatedRemainingSeconds;
+      }
+      if (error && typeof error === 'object') {
+        payload.error = {
+          code: sanitizeOptionalText(error.code, 'voice_model_catalog_install_failed'),
+          message: sanitizeOptionalText(error.message, 'Voice model install failed.'),
+        };
+      }
+      onProgress(payload);
     };
 
     emitProgress({
@@ -1000,6 +1027,10 @@ class VoiceModelLibrary {
       emitProgress({
         phase: 'failed',
         currentFile: '',
+        error: {
+          code: error?.code || 'voice_model_catalog_install_failed',
+          message: error?.message || 'Voice model install failed.',
+        },
       });
       try {
         await fsp.rm(bundleDir, { recursive: true, force: true });
@@ -1178,17 +1209,18 @@ class VoiceModelLibrary {
     const emitProgress = ({
       phase,
       currentFile = '',
-      fileDownloadedBytes = 0,
-      fileTotalBytes = 0,
-      downloadSpeedBytesPerSec = 0,
+      fileDownloadedBytes = null,
+      fileTotalBytes = null,
+      downloadSpeedBytesPerSec = null,
       estimatedRemainingSeconds = null,
       overallProgress = null,
+      error = null,
     }) => {
       if (typeof onProgress !== 'function') {
         return;
       }
 
-      onProgress({
+      const payload = {
         type: 'download-progress',
         taskId: progressTaskId,
         taskTitle: progressTaskTitle,
@@ -1201,12 +1233,27 @@ class VoiceModelLibrary {
         completedTasks,
         totalTasks,
         currentFile,
-        fileDownloadedBytes,
-        fileTotalBytes,
-        downloadSpeedBytesPerSec,
-        estimatedRemainingSeconds,
         overallProgress,
-      });
+      };
+      if (Number.isFinite(fileDownloadedBytes)) {
+        payload.fileDownloadedBytes = fileDownloadedBytes;
+      }
+      if (Number.isFinite(fileTotalBytes)) {
+        payload.fileTotalBytes = fileTotalBytes;
+      }
+      if (Number.isFinite(downloadSpeedBytesPerSec)) {
+        payload.downloadSpeedBytesPerSec = downloadSpeedBytesPerSec;
+      }
+      if (Number.isFinite(estimatedRemainingSeconds)) {
+        payload.estimatedRemainingSeconds = estimatedRemainingSeconds;
+      }
+      if (error && typeof error === 'object') {
+        payload.error = {
+          code: sanitizeOptionalText(error.code, 'voice_model_catalog_install_failed'),
+          message: sanitizeOptionalText(error.message, 'Voice model install failed.'),
+        };
+      }
+      onProgress(payload);
     };
 
     emitProgress({
@@ -1224,11 +1271,25 @@ class VoiceModelLibrary {
           const progress = typeof payload.overallProgress === 'number'
             ? (payload.overallProgress / totalTasks)
             : (completedTasks / totalTasks);
-          emitProgress({
-            phase: payload.phase || 'running',
+          const nestedPhase = normalizeNestedProgressPhase(payload.phase, 'running');
+          const nestedProgressPayload = {
+            phase: nestedPhase,
             currentFile: payload.currentFile || '正在准备共享 Python 运行时',
             overallProgress: progress,
-          });
+          };
+          if (Number.isFinite(payload.fileDownloadedBytes)) {
+            nestedProgressPayload.fileDownloadedBytes = payload.fileDownloadedBytes;
+          }
+          if (Number.isFinite(payload.fileTotalBytes)) {
+            nestedProgressPayload.fileTotalBytes = payload.fileTotalBytes;
+          }
+          if (Number.isFinite(payload.downloadSpeedBytesPerSec)) {
+            nestedProgressPayload.downloadSpeedBytesPerSec = payload.downloadSpeedBytesPerSec;
+          }
+          if (Number.isFinite(payload.estimatedRemainingSeconds)) {
+            nestedProgressPayload.estimatedRemainingSeconds = payload.estimatedRemainingSeconds;
+          }
+          emitProgress(nestedProgressPayload);
         },
       });
       completedTasks += 1;
@@ -1487,6 +1548,10 @@ class VoiceModelLibrary {
       emitProgress({
         phase: 'failed',
         currentFile: '',
+        error: {
+          code: error?.code || 'voice_model_catalog_install_failed',
+          message: error?.message || 'Voice model install failed.',
+        },
       });
       try {
         await fsp.rm(bundleDir, { recursive: true, force: true });
@@ -1844,6 +1909,7 @@ class VoiceModelLibrary {
       bytesPerSecond = 0,
       estimatedRemainingSeconds = null,
       completedTasks,
+      error = null,
     }) => {
       if (typeof onProgress !== 'function') {
         return;
@@ -1878,7 +1944,7 @@ class VoiceModelLibrary {
             ? totals.knownDownloadedBytes / totals.knownTotalBytes
             : null;
 
-      onProgress({
+      const payload = {
         type: 'download-progress',
         phase,
         bundleId: id,
@@ -1894,7 +1960,14 @@ class VoiceModelLibrary {
             ? estimatedRemainingSeconds
             : null,
         overallProgress,
-      });
+      };
+      if (error && typeof error === 'object') {
+        payload.error = {
+          code: sanitizeOptionalText(error.code, 'voice_model_download_failed'),
+          message: sanitizeOptionalText(error.message, 'Voice model download failed.'),
+        };
+      }
+      onProgress(payload);
     };
 
     emitProgress({
@@ -1940,6 +2013,10 @@ class VoiceModelLibrary {
         currentTask: null,
         downloadedBytes: 0,
         totalBytes: 0,
+        error: {
+          code: error?.code || 'voice_model_download_failed',
+          message: error?.message || 'Voice model download failed.',
+        },
       });
       try {
         await fsp.rm(bundleDir, { recursive: true, force: true });

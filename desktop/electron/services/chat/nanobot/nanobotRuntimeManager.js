@@ -29,6 +29,17 @@ function sanitizeText(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function normalizeNestedProgressPhase(value, fallback = 'running') {
+  const normalized = sanitizeText(value).toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+  if (normalized === 'completed') {
+    return 'running';
+  }
+  return normalized;
+}
+
 function createRuntimeError(code, message) {
   const error = new Error(message);
   error.code = code;
@@ -346,8 +357,8 @@ class NanobotRuntimeManager {
         pythonVersion,
         pipPackages: [],
         onProgress: (payload = {}) => {
-          emitProgress({
-            phase: payload.phase || 'running',
+          const nestedProgressPayload = {
+            phase: normalizeNestedProgressPhase(payload.phase, 'running'),
             completedTasks: 0,
             totalTasks,
             currentFile: payload.currentFile || '正在准备共享 Python 运行时',
@@ -355,7 +366,20 @@ class NanobotRuntimeManager {
               typeof payload.overallProgress === 'number'
                 ? Math.min(1 / totalTasks, payload.overallProgress / totalTasks)
                 : 0,
-          });
+          };
+          if (Number.isFinite(payload.fileDownloadedBytes)) {
+            nestedProgressPayload.fileDownloadedBytes = payload.fileDownloadedBytes;
+          }
+          if (Number.isFinite(payload.fileTotalBytes)) {
+            nestedProgressPayload.fileTotalBytes = payload.fileTotalBytes;
+          }
+          if (Number.isFinite(payload.downloadSpeedBytesPerSec)) {
+            nestedProgressPayload.downloadSpeedBytesPerSec = payload.downloadSpeedBytesPerSec;
+          }
+          if (Number.isFinite(payload.estimatedRemainingSeconds)) {
+            nestedProgressPayload.estimatedRemainingSeconds = payload.estimatedRemainingSeconds;
+          }
+          emitProgress(nestedProgressPayload);
         },
       });
       pythonExecutable = envRecord.envPythonExecutable;

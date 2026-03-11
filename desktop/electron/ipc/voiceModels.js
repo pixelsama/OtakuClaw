@@ -65,6 +65,7 @@ function registerVoiceModelsIpc({
         ...result,
       };
     } catch (error) {
+      console.error('voice-models:install-catalog failed:', error);
       return {
         ok: false,
         error: toVoiceModelError(error),
@@ -104,6 +105,7 @@ function registerVoiceModelsIpc({
         ...result,
       };
     } catch (error) {
+      console.error('voice-models:download failed:', error);
       return {
         ok: false,
         error: toVoiceModelError(error),

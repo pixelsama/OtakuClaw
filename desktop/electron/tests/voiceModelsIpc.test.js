@@ -154,3 +154,43 @@ test('voice-models remove triggers background runtime refresh callback', async (
   await waitFor(() => calls.includes('refresh'));
   assert.deepEqual(calls, ['remove:bundle-1', 'refresh']);
 });
+
+test('voice-models install-catalog logs full error object on failure', async () => {
+  const ipcMain = createIpcMainMock();
+  const expectedError = new Error('install failed');
+  expectedError.code = 'voice_model_install_failed';
+  const originalConsoleError = console.error;
+  const consoleErrors = [];
+  console.error = (...args) => {
+    consoleErrors.push(args);
+  };
+
+  try {
+    registerVoiceModelsIpc({
+      ipcMain,
+      voiceModelLibrary: {
+        listCatalog() {
+          return [];
+        },
+        async installCatalogBundle() {
+          throw expectedError;
+        },
+      },
+    });
+
+    const result = await ipcMain.invoke('voice-models:install-catalog', {
+      catalogId: 'builtin-tts-edge-v1',
+      installAsr: false,
+      installTts: true,
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, 'voice_model_install_failed');
+    assert.equal(result.error?.message, 'install failed');
+    assert.equal(consoleErrors.length, 1);
+    assert.equal(consoleErrors[0][0], 'voice-models:install-catalog failed:');
+    assert.equal(consoleErrors[0][1], expectedError);
+  } finally {
+    console.error = originalConsoleError;
+  }
+});

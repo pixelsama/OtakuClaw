@@ -416,6 +416,10 @@ export default function FirstRunOnboardingDialog({
   );
   const asrDownloadPhase = typeof asrDownloadTask?.phase === 'string' ? asrDownloadTask.phase : 'idle';
   const ttsDownloadPhase = typeof ttsDownloadTask?.phase === 'string' ? ttsDownloadTask.phase : 'idle';
+  const hasRunningInlineDownload = nanobotRuntimeDownloading
+    || isDownloadRunningPhase(asrDownloadPhase)
+    || isDownloadRunningPhase(ttsDownloadPhase);
+  const [downloadNowMs, setDownloadNowMs] = useState(() => Date.now());
   const shouldShowAsrDownloadCard = asrSource === 'local'
     && (isDownloadRunningPhase(asrDownloadPhase)
       || asrDownloadPhase === 'completed'
@@ -431,6 +435,21 @@ export default function FirstRunOnboardingDialog({
       || nanobotDownloadPhase === 'completed'
       || nanobotDownloadPhase === 'failed'
       || (Array.isArray(nanobotRuntimeDownloadTask?.logs) && nanobotRuntimeDownloadTask.logs.length > 0));
+
+  useEffect(() => {
+    if (!open || !hasRunningInlineDownload) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setDownloadNowMs(Date.now());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [hasRunningInlineDownload, open]);
+
   const isBusy = settingsSaving
     || settingsTesting
     || nanobotRuntimeInstalling
@@ -1035,7 +1054,7 @@ export default function FirstRunOnboardingDialog({
     const normalizedTask = task || {};
     const progressValue = resolveTaskProgressValue(normalizedTask);
     const statusText = resolveTaskStatusText(normalizedTask, t);
-    const statsText = resolveTaskStatsText(normalizedTask, t);
+    const statsText = resolveTaskStatsText({ ...normalizedTask, nowMs: downloadNowMs }, t);
 
     return (
       <Stack

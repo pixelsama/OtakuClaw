@@ -132,9 +132,14 @@ export function useUnifiedDownloader() {
     }
 
     const phase = normalizePhase(payload?.phase);
-    const currentFile = decodeDisplayText(payload?.currentFile);
-    const completedTasks = Number.isFinite(payload?.completedTasks) ? payload.completedTasks : 0;
-    const totalTasks = Number.isFinite(payload?.totalTasks) ? payload.totalTasks : 0;
+    const hasCurrentFile = Object.prototype.hasOwnProperty.call(payload, 'currentFile');
+    const hasCompletedTasks = Object.prototype.hasOwnProperty.call(payload, 'completedTasks');
+    const hasTotalTasks = Object.prototype.hasOwnProperty.call(payload, 'totalTasks');
+    const hasOverallProgress = Object.prototype.hasOwnProperty.call(payload, 'overallProgress');
+    const hasDownloadedBytes = Object.prototype.hasOwnProperty.call(payload, 'fileDownloadedBytes');
+    const hasTotalBytes = Object.prototype.hasOwnProperty.call(payload, 'fileTotalBytes');
+    const hasSpeed = Object.prototype.hasOwnProperty.call(payload, 'downloadSpeedBytesPerSec');
+    const hasEta = Object.prototype.hasOwnProperty.call(payload, 'estimatedRemainingSeconds');
     const catalogId = typeof payload?.catalogId === 'string' ? payload.catalogId.trim() : '';
     const installTarget = typeof payload?.installTarget === 'string' ? payload.installTarget.trim().toLowerCase() : '';
     const nowMs = Date.now();
@@ -146,18 +151,40 @@ export function useUnifiedDownloader() {
       catalogId: catalogId || current.catalogId || '',
       installTarget: installTarget || current.installTarget || '',
       phase,
-      completedTasks,
-      totalTasks,
-      currentFile,
-      overallProgress: Number.isFinite(payload?.overallProgress) ? payload.overallProgress : null,
-      fileDownloadedBytes: Number.isFinite(payload?.fileDownloadedBytes) ? payload.fileDownloadedBytes : 0,
-      fileTotalBytes: Number.isFinite(payload?.fileTotalBytes) ? payload.fileTotalBytes : 0,
+      completedTasks:
+        hasCompletedTasks && Number.isFinite(payload?.completedTasks)
+          ? payload.completedTasks
+          : (phase === 'started' ? 0 : current.completedTasks),
+      totalTasks:
+        hasTotalTasks && Number.isFinite(payload?.totalTasks)
+          ? payload.totalTasks
+          : (phase === 'started' ? 0 : current.totalTasks),
+      currentFile:
+        hasCurrentFile
+          ? decodeDisplayText(payload?.currentFile)
+          : (phase === 'started' ? '' : current.currentFile),
+      overallProgress:
+        hasOverallProgress && Number.isFinite(payload?.overallProgress)
+          ? payload.overallProgress
+          : (phase === 'started' ? 0 : current.overallProgress),
+      fileDownloadedBytes:
+        hasDownloadedBytes && Number.isFinite(payload?.fileDownloadedBytes)
+          ? payload.fileDownloadedBytes
+          : (phase === 'started' ? 0 : current.fileDownloadedBytes),
+      fileTotalBytes:
+        hasTotalBytes && Number.isFinite(payload?.fileTotalBytes)
+          ? payload.fileTotalBytes
+          : (phase === 'started' ? 0 : current.fileTotalBytes),
       downloadSpeedBytesPerSec: Number.isFinite(payload?.downloadSpeedBytesPerSec)
         ? payload.downloadSpeedBytesPerSec
-        : 0,
-      estimatedRemainingSeconds: Number.isFinite(payload?.estimatedRemainingSeconds)
+        : (phase === 'started' || (hasSpeed && !Number.isFinite(payload?.downloadSpeedBytesPerSec))
+          ? 0
+          : current.downloadSpeedBytesPerSec),
+      estimatedRemainingSeconds: hasEta && Number.isFinite(payload?.estimatedRemainingSeconds)
         ? payload.estimatedRemainingSeconds
-        : null,
+        : (phase === 'started' || (hasEta && !Number.isFinite(payload?.estimatedRemainingSeconds))
+          ? null
+          : current.estimatedRemainingSeconds),
       startedAtMs:
         phase === 'started'
           ? nowMs
@@ -177,8 +204,11 @@ export function useUnifiedDownloader() {
     } else if (phase === 'failed') {
       const errorMessage = payload?.error?.message || '任务失败。';
       appendLog(taskId, errorMessage, `${phase}|failed`);
-    } else if (currentFile) {
-      appendLog(taskId, currentFile, `${phase}|${currentFile}`);
+    } else {
+      const currentFileForLog = hasCurrentFile ? decodeDisplayText(payload?.currentFile) : '';
+      if (currentFileForLog) {
+        appendLog(taskId, currentFileForLog, `${phase}|${currentFileForLog}`);
+      }
     }
 
     const isMuted = mutedTaskIdsRef.current.has(taskId);

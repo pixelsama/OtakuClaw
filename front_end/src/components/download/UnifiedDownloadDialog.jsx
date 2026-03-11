@@ -10,6 +10,7 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
+import { useEffect, useState } from 'react';
 import { useI18n } from '../../i18n/I18nContext.jsx';
 import {
   resolveTaskProgressValue,
@@ -28,9 +29,25 @@ export default function UnifiedDownloadDialog({
   const phase = task?.phase || 'idle';
   const isRunning = phase !== 'completed' && phase !== 'failed' && phase !== 'idle';
   const title = task?.title || t('download.defaultTitle');
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!open || !isRunning) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [isRunning, open]);
+
   const progressValue = resolveTaskProgressValue(task);
   const statusText = resolveTaskStatusText(task, t);
-  const statsText = resolveTaskStatsText(task, t);
+  const statsText = resolveTaskStatsText({ ...(task || {}), nowMs }, t);
 
   return (
     <Dialog

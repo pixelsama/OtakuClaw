@@ -245,12 +245,25 @@ class PythonEnvManager {
       pythonVersion: resolvedPythonVersion,
       packages: runtimePackages,
       onProgress: (payload) => {
-        emitProgress({
+        const runtimeProgressPayload = {
           phase: payload.phase,
           currentFile: payload.currentFile || '准备 Python 运行时',
           overallProgress:
             typeof payload.overallProgress === 'number' ? Math.min(0.45, payload.overallProgress * 0.45) : 0,
-        });
+        };
+        if (Number.isFinite(payload?.fileDownloadedBytes)) {
+          runtimeProgressPayload.fileDownloadedBytes = payload.fileDownloadedBytes;
+        }
+        if (Number.isFinite(payload?.fileTotalBytes)) {
+          runtimeProgressPayload.fileTotalBytes = payload.fileTotalBytes;
+        }
+        if (Number.isFinite(payload?.downloadSpeedBytesPerSec)) {
+          runtimeProgressPayload.downloadSpeedBytesPerSec = payload.downloadSpeedBytesPerSec;
+        }
+        if (Number.isFinite(payload?.estimatedRemainingSeconds)) {
+          runtimeProgressPayload.estimatedRemainingSeconds = payload.estimatedRemainingSeconds;
+        }
+        emitProgress(runtimeProgressPayload);
       },
     });
 
@@ -273,12 +286,19 @@ class PythonEnvManager {
     await this.runCommandImpl(envPythonExecutable, ['-m', 'pip', 'install', '--upgrade', 'pip', 'setuptools', 'wheel']);
 
     if (resolvedPipPackages.length) {
-      emitProgress({
-        phase: 'running',
-        currentFile: '正在安装 Python 依赖',
-        overallProgress: 0.85,
-      });
-      await this.runCommandImpl(envPythonExecutable, ['-m', 'pip', 'install', '--upgrade', ...resolvedPipPackages]);
+      const pipStartProgress = 0.85;
+      const pipProgressRange = 0.13;
+      const totalDependencies = resolvedPipPackages.length;
+      for (let index = 0; index < resolvedPipPackages.length; index += 1) {
+        const dependency = resolvedPipPackages[index];
+        const ratio = totalDependencies > 0 ? (index / totalDependencies) : 0;
+        emitProgress({
+          phase: 'running',
+          currentFile: `正在安装 Python 依赖 ${index + 1}/${totalDependencies}`,
+          overallProgress: pipStartProgress + (pipProgressRange * ratio),
+        });
+        await this.runCommandImpl(envPythonExecutable, ['-m', 'pip', 'install', '--upgrade', dependency]);
+      }
     }
 
     const record = {
