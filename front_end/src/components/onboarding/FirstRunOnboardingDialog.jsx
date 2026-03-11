@@ -306,6 +306,7 @@ export default function FirstRunOnboardingDialog({
   onNanobotSettingChange,
   onPickNanobotWorkspace,
   onTestChatBackendSettings,
+  voiceDownloadTasks = {},
   nanobotRuntimeStatus = {},
   nanobotRuntimeDownloadTask = null,
   nanobotRuntimeInstalling = false,
@@ -316,6 +317,8 @@ export default function FirstRunOnboardingDialog({
   const [activeStep, setActiveStep] = useState(0);
   const [backendSubStep, setBackendSubStep] = useState(0);
   const [backendDownloadDetailsOpen, setBackendDownloadDetailsOpen] = useState(false);
+  const [asrDownloadDetailsOpen, setAsrDownloadDetailsOpen] = useState(false);
+  const [ttsDownloadDetailsOpen, setTtsDownloadDetailsOpen] = useState(false);
 
   const [voiceLoading, setVoiceLoading] = useState(false);
   const [voiceSaving, setVoiceSaving] = useState(false);
@@ -351,6 +354,20 @@ export default function FirstRunOnboardingDialog({
     ? nanobotRuntimeDownloadTask.phase
     : 'idle';
   const nanobotRuntimeDownloading = isDownloadRunningPhase(nanobotDownloadPhase);
+  const asrDownloadTask = selectedAsrCatalogId ? voiceDownloadTasks[`voice-models:${selectedAsrCatalogId}:asr`] || null : null;
+  const ttsDownloadTask = selectedTtsCatalogId ? voiceDownloadTasks[`voice-models:${selectedTtsCatalogId}:tts`] || null : null;
+  const asrDownloadPhase = typeof asrDownloadTask?.phase === 'string' ? asrDownloadTask.phase : 'idle';
+  const ttsDownloadPhase = typeof ttsDownloadTask?.phase === 'string' ? ttsDownloadTask.phase : 'idle';
+  const shouldShowAsrDownloadCard = asrSource === 'local'
+    && (isDownloadRunningPhase(asrDownloadPhase)
+      || asrDownloadPhase === 'completed'
+      || asrDownloadPhase === 'failed'
+      || (Array.isArray(asrDownloadTask?.logs) && asrDownloadTask.logs.length > 0));
+  const shouldShowTtsDownloadCard = (ttsSource === 'cloud-no-key' || ttsSource === 'local')
+    && (isDownloadRunningPhase(ttsDownloadPhase)
+      || ttsDownloadPhase === 'completed'
+      || ttsDownloadPhase === 'failed'
+      || (Array.isArray(ttsDownloadTask?.logs) && ttsDownloadTask.logs.length > 0));
   const shouldShowNanobotDownloadCard = selectedBackend === 'nanobot'
     && (nanobotRuntimeDownloading
       || nanobotDownloadPhase === 'completed'
@@ -929,14 +946,23 @@ export default function FirstRunOnboardingDialog({
       return null;
     }
 
-    const task = nanobotRuntimeDownloadTask || {};
-    const phase = typeof task.phase === 'string' ? task.phase : 'idle';
+    return renderInlineDownloadCard({
+      title: 'Nanobot 运行时下载与安装',
+      task: nanobotRuntimeDownloadTask,
+      detailsOpen: backendDownloadDetailsOpen,
+      onToggleDetails: () => setBackendDownloadDetailsOpen((current) => !current),
+    });
+  };
+
+  const renderInlineDownloadCard = ({ title = '', task = null, detailsOpen = false, onToggleDetails = null } = {}) => {
+    const normalizedTask = task || {};
+    const phase = typeof normalizedTask.phase === 'string' ? normalizedTask.phase : 'idle';
     const progressValue =
-      typeof task.overallProgress === 'number'
-        ? Math.min(100, Math.max(0, task.overallProgress * 100))
+      typeof normalizedTask.overallProgress === 'number'
+        ? Math.min(100, Math.max(0, normalizedTask.overallProgress * 100))
         : 0;
     const statusText =
-      task.currentFile
+      normalizedTask.currentFile
       || (phase === 'completed'
         ? '任务完成。'
         : phase === 'failed'
@@ -947,8 +973,8 @@ export default function FirstRunOnboardingDialog({
         ? '下载与安装已完成。'
         : phase === 'failed'
           ? '下载或安装未完成。'
-          : Number.isFinite(task.fileTotalBytes) && task.fileTotalBytes > 0
-            ? `${formatBytes(task.fileDownloadedBytes || 0)} / ${formatBytes(task.fileTotalBytes || 0)} · ${formatBytesPerSecond(task.downloadSpeedBytesPerSec || 0)} · 预计剩余 ${formatEta(task.estimatedRemainingSeconds)}`
+          : Number.isFinite(normalizedTask.fileTotalBytes) && normalizedTask.fileTotalBytes > 0
+            ? `${formatBytes(normalizedTask.fileDownloadedBytes || 0)} / ${formatBytes(normalizedTask.fileTotalBytes || 0)} · ${formatBytesPerSecond(normalizedTask.downloadSpeedBytesPerSec || 0)} · 预计剩余 ${formatEta(normalizedTask.estimatedRemainingSeconds)}`
             : '下载数据同步中...';
 
     return (
@@ -962,9 +988,9 @@ export default function FirstRunOnboardingDialog({
           bgcolor: 'background.paper',
         }}
       >
-        <Typography variant="subtitle2">Nanobot 运行时下载与安装</Typography>
+        <Typography variant="subtitle2">{title || '下载与安装'}</Typography>
         <LinearProgress
-          variant={typeof task.overallProgress === 'number' ? 'determinate' : 'indeterminate'}
+          variant={typeof normalizedTask.overallProgress === 'number' ? 'determinate' : 'indeterminate'}
           value={progressValue}
         />
         <Typography variant="body2" color="text.secondary">
@@ -977,11 +1003,11 @@ export default function FirstRunOnboardingDialog({
           variant="text"
           size="small"
           sx={{ alignSelf: 'flex-end' }}
-          onClick={() => setBackendDownloadDetailsOpen((current) => !current)}
+          onClick={onToggleDetails}
         >
-          {backendDownloadDetailsOpen ? '隐藏详情' : '详情'}
+          {detailsOpen ? '隐藏详情' : '详情'}
         </Button>
-        <Collapse in={backendDownloadDetailsOpen}>
+        <Collapse in={detailsOpen}>
           <Box
             component="pre"
             sx={{
@@ -997,7 +1023,7 @@ export default function FirstRunOnboardingDialog({
               wordBreak: 'break-word',
             }}
           >
-            {Array.isArray(task.logs) && task.logs.length ? task.logs.join('\n') : '暂无日志'}
+            {Array.isArray(normalizedTask.logs) && normalizedTask.logs.length ? normalizedTask.logs.join('\n') : '暂无日志'}
           </Box>
         </Collapse>
       </Stack>
@@ -1262,6 +1288,12 @@ export default function FirstRunOnboardingDialog({
                 设为当前 ASR
               </Button>
             </Stack>
+            {shouldShowAsrDownloadCard && renderInlineDownloadCard({
+              title: 'ASR 模型下载与安装',
+              task: asrDownloadTask,
+              detailsOpen: asrDownloadDetailsOpen,
+              onToggleDetails: () => setAsrDownloadDetailsOpen((current) => !current),
+            })}
           </Stack>
         )}
 
@@ -1432,6 +1464,12 @@ export default function FirstRunOnboardingDialog({
                 设为当前 TTS
               </Button>
             </Stack>
+            {shouldShowTtsDownloadCard && renderInlineDownloadCard({
+              title: 'TTS 下载与安装',
+              task: ttsDownloadTask,
+              detailsOpen: ttsDownloadDetailsOpen,
+              onToggleDetails: () => setTtsDownloadDetailsOpen((current) => !current),
+            })}
           </Stack>
         )}
 
@@ -1473,6 +1511,12 @@ export default function FirstRunOnboardingDialog({
                 设为当前 TTS
               </Button>
             </Stack>
+            {shouldShowTtsDownloadCard && renderInlineDownloadCard({
+              title: 'TTS 下载与安装',
+              task: ttsDownloadTask,
+              detailsOpen: ttsDownloadDetailsOpen,
+              onToggleDetails: () => setTtsDownloadDetailsOpen((current) => !current),
+            })}
           </Stack>
         )}
 

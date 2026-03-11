@@ -838,6 +838,7 @@ function AppContent({ desktopMode }) {
         onNanobotSettingChange={onNanobotSettingChange}
         onPickNanobotWorkspace={onPickNanobotWorkspace}
         onTestChatBackendSettings={onTestChatBackendSettings}
+        voiceDownloadTasks={taskMap}
         nanobotRuntimeStatus={nanobotRuntimeStatus}
         nanobotRuntimeInstalling={nanobotRuntimeInstalling}
         nanobotRuntimeDownloadTask={taskMap['nanobot-runtime'] || null}
