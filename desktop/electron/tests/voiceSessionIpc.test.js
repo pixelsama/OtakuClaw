@@ -238,6 +238,46 @@ test('voice runtime warmup reloads cached asr and tts services', async () => {
   control();
 });
 
+test('voice warmup ipc reports already-warmed asr runtime on repeated requests', async () => {
+  const ipcMain = createIpcMainMock();
+  let asrWarmupCalls = 0;
+
+  registerVoiceSessionIpc({
+    ipcMain,
+    emitEvent: () => {},
+    createAsrServiceImpl: () => ({
+      async warmup() {
+        asrWarmupCalls += 1;
+      },
+      async transcribe() {
+        return { text: '' };
+      },
+    }),
+    createTtsServiceImpl: () => ({
+      async synthesize() {
+        return { sampleRate: 24000, sampleCount: 0 };
+      },
+    }),
+  });
+
+  const first = await ipcMain.invoke('voice:warmup', {
+    warmAsr: true,
+    warmTts: false,
+  });
+  const second = await ipcMain.invoke('voice:warmup', {
+    warmAsr: true,
+    warmTts: false,
+  });
+
+  assert.equal(first.ok, true);
+  assert.equal(first.alreadyWarmAsr, false);
+  assert.equal(first.warmedAsr, true);
+  assert.equal(second.ok, true);
+  assert.equal(second.alreadyWarmAsr, true);
+  assert.equal(second.warmedAsr, false);
+  assert.equal(asrWarmupCalls, 1);
+});
+
 test('voice playback ack emits flow-control pause/resume', async () => {
   const ipcMain = createIpcMainMock();
   const flowEvents = [];

@@ -56,6 +56,32 @@ function findInstalledBundleByCatalogId({ bundles = [], catalogId = '', capabili
   return bundles.find((bundle) => bundle?.catalogId === catalogId && supportsCapability(bundle)) || null;
 }
 
+function getAsrTestStatusText(phase) {
+  if (phase === 'warming') {
+    return 'ASR 模型预热中...';
+  }
+  if (phase === 'recording') {
+    return 'ASR 测试中（录音 3 秒）...';
+  }
+  if (phase === 'transcribing') {
+    return 'ASR 正在识别录音...';
+  }
+  return 'ASR 延迟测试';
+}
+
+function getAsrTestProgressMessage(phase) {
+  if (phase === 'warming') {
+    return '正在预热 ASR 模型。预热完成后会自动开始录音。';
+  }
+  if (phase === 'recording') {
+    return '正在录音 3 秒，请朗读测试提示词。';
+  }
+  if (phase === 'transcribing') {
+    return '录音结束，正在执行 ASR 识别。';
+  }
+  return '';
+}
+
 function clampToInt16(sample) {
   const clamped = Math.max(-1, Math.min(1, sample));
   return clamped < 0 ? Math.round(clamped * 0x8000) : Math.round(clamped * 0x7fff);
@@ -304,6 +330,7 @@ export default function FirstRunOnboardingDialog({
   const [asrPrompt, setAsrPrompt] = useState('请朗读这一句用于测试 ASR。');
   const [ttsText, setTtsText] = useState('你好，这是一条 TTS 延迟测试语句。');
   const [asrTesting, setAsrTesting] = useState(false);
+  const [asrTestPhase, setAsrTestPhase] = useState('idle');
   const [ttsTesting, setTtsTesting] = useState(false);
   const [asrResult, setAsrResult] = useState(null);
   const [ttsResult, setTtsResult] = useState(null);
@@ -701,6 +728,20 @@ export default function FirstRunOnboardingDialog({
     setAsrResult(null);
     setAsrTesting(true);
     try {
+      setAsrTestPhase('warming');
+      const warmupResult = await desktopBridge.voice.warmup({
+        warmAsr: true,
+        warmTts: false,
+      });
+      if (!mountedRef.current) {
+        return;
+      }
+      if (!warmupResult?.ok) {
+        setVoiceError(warmupResult?.error?.message || warmupResult?.reason || 'ASR 预热失败。');
+        return;
+      }
+
+      setAsrTestPhase('recording');
       const pcmChunk = await captureAsrTestPcm({
         durationMs: ASR_TEST_RECORD_MS,
         sampleRate: ASR_TEST_SAMPLE_RATE,
@@ -710,6 +751,7 @@ export default function FirstRunOnboardingDialog({
         return;
       }
 
+      setAsrTestPhase('transcribing');
       const result = await desktopBridge.voice.runAsrDiagnostics({
         pcmChunk,
         sampleRate: ASR_TEST_SAMPLE_RATE,
@@ -735,6 +777,7 @@ export default function FirstRunOnboardingDialog({
       }
     } finally {
       if (mountedRef.current) {
+        setAsrTestPhase('idle');
         setAsrTesting(false);
       }
     }
@@ -1215,6 +1258,9 @@ export default function FirstRunOnboardingDialog({
           onChange={(event) => setAsrPrompt(event.target.value)}
           fullWidth
         />
+        {asrTesting && !!getAsrTestProgressMessage(asrTestPhase) && (
+          <Alert severity="info">{getAsrTestProgressMessage(asrTestPhase)}</Alert>
+        )}
         <Button
           variant="outlined"
           onClick={() => {
@@ -1222,7 +1268,7 @@ export default function FirstRunOnboardingDialog({
           }}
           disabled={asrTesting || ttsTesting || voiceLoading}
         >
-          {asrTesting ? 'ASR 测试中（录音 3 秒）...' : 'ASR 延迟测试'}
+          {getAsrTestStatusText(asrTesting ? asrTestPhase : 'idle')}
         </Button>
 
         {!!asrResult && (

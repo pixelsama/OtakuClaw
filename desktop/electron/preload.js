@@ -161,6 +161,9 @@ const voice = {
   sendPlaybackAck(request) {
     return ipcRenderer.invoke('voice:playback:ack', request);
   },
+  warmup(request) {
+    return ipcRenderer.invoke('voice:warmup', request);
+  },
   runAsrDiagnostics(request) {
     return ipcRenderer.invoke('voice:diagnostics:asr', request);
   },

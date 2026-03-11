@@ -1058,6 +1058,21 @@ export const desktopBridge = {
       }
       return api.voice.sendPlaybackAck({ sessionId, ackSeq, bufferedMs });
     },
+    async warmup({
+      warmAsr = true,
+      warmTts = false,
+      reload = false,
+    } = {}) {
+      const api = getDesktopApi();
+      if (!api?.voice?.warmup) {
+        return { ok: false, reason: 'desktop_voice_unavailable' };
+      }
+      return api.voice.warmup({
+        warmAsr,
+        warmTts,
+        reload,
+      });
+    },
     async listSegmentTrace({ sessionId = '', limit = 20 } = {}) {
       const api = getDesktopApi();
       if (!api?.voice?.listSegmentTrace) {

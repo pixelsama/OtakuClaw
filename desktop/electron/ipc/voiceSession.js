@@ -328,6 +328,10 @@ function registerVoiceSessionIpc({
   let cachedAsrService = null;
   let cachedTtsService = null;
   let cachedEnvFingerprint = '';
+  let cachedAsrWarm = false;
+  let cachedTtsWarm = false;
+  let cachedAsrWarmupPromise = null;
+  let cachedTtsWarmupPromise = null;
   const segmentDebugEnabled = isTruthyEnv(process.env.VOICE_SEGMENT_DEBUG, false);
 
   const sendEvent = (event) => {
@@ -546,10 +550,75 @@ function registerVoiceSessionIpc({
     cachedAsrService = null;
     cachedTtsService = null;
     cachedEnvFingerprint = '';
+    cachedAsrWarm = false;
+    cachedTtsWarm = false;
+    cachedAsrWarmupPromise = null;
+    cachedTtsWarmupPromise = null;
 
     if (pending.length > 0) {
       await Promise.allSettled(pending);
     }
+  };
+
+  const ensureServiceWarm = async (serviceKey, runtime) => {
+    const isAsr = serviceKey === 'asr';
+    const service = isAsr ? runtime?.asrService : runtime?.ttsService;
+    const alreadyWarm = isAsr ? cachedAsrWarm : cachedTtsWarm;
+    if (alreadyWarm) {
+      return {
+        alreadyWarm: true,
+        warmed: false,
+      };
+    }
+
+    if (!service || typeof service.warmup !== 'function') {
+      if (isAsr) {
+        cachedAsrWarm = true;
+      } else {
+        cachedTtsWarm = true;
+      }
+      return {
+        alreadyWarm: true,
+        warmed: false,
+      };
+    }
+
+    const inFlightPromise = isAsr ? cachedAsrWarmupPromise : cachedTtsWarmupPromise;
+    if (inFlightPromise) {
+      await inFlightPromise;
+      return {
+        alreadyWarm: false,
+        warmed: true,
+      };
+    }
+
+    const warmupPromise = Promise.resolve(service.warmup())
+      .then(() => {
+        if (isAsr) {
+          cachedAsrWarm = true;
+        } else {
+          cachedTtsWarm = true;
+        }
+      })
+      .finally(() => {
+        if (isAsr) {
+          cachedAsrWarmupPromise = null;
+        } else {
+          cachedTtsWarmupPromise = null;
+        }
+      });
+
+    if (isAsr) {
+      cachedAsrWarmupPromise = warmupPromise;
+    } else {
+      cachedTtsWarmupPromise = warmupPromise;
+    }
+
+    await warmupPromise;
+    return {
+      alreadyWarm: false,
+      warmed: true,
+    };
   };
 
   const warmupRuntime = async ({
@@ -563,20 +632,41 @@ function registerVoiceSessionIpc({
 
     const runtime = resolveRuntime();
     const warmupTasks = [];
+    const warmResults = {
+      asr: {
+        alreadyWarm: cachedAsrWarm,
+        warmed: false,
+      },
+      tts: {
+        alreadyWarm: cachedTtsWarm,
+        warmed: false,
+      },
+    };
 
-    if (warmAsr && runtime?.asrService && typeof runtime.asrService.warmup === 'function') {
-      warmupTasks.push(runtime.asrService.warmup());
+    if (warmAsr) {
+      warmupTasks.push(
+        ensureServiceWarm('asr', runtime).then((result) => {
+          warmResults.asr = result;
+        }),
+      );
     }
 
-    if (warmTts && runtime?.ttsService && typeof runtime.ttsService.warmup === 'function') {
-      warmupTasks.push(runtime.ttsService.warmup());
+    if (warmTts) {
+      warmupTasks.push(
+        ensureServiceWarm('tts', runtime).then((result) => {
+          warmResults.tts = result;
+        }),
+      );
     }
 
     if (warmupTasks.length > 0) {
       await Promise.all(warmupTasks);
     }
 
-    return runtime;
+    return {
+      ...runtime,
+      warmResults,
+    };
   };
 
   const buildSessionState = (sessionId, mode, { ownedByUi = true } = {}) => ({
@@ -1147,8 +1237,8 @@ function registerVoiceSessionIpc({
 
     // Pre-warm ASR worker/model in background to reduce first-turn latency.
     const runtime = resolveRuntime();
-    if (runtime?.asrService && typeof runtime.asrService.warmup === 'function') {
-      Promise.resolve(runtime.asrService.warmup()).catch((error) => {
+    if (runtime?.asrService) {
+      Promise.resolve(ensureServiceWarm('asr', runtime)).catch((error) => {
         console.warn('ASR warmup failed:', error);
       });
     }
@@ -1477,6 +1567,30 @@ function registerVoiceSessionIpc({
     return response;
   });
 
+  ipcMain.handle('voice:warmup', async (_event, request = {}) => {
+    try {
+      const result = await warmupRuntime({
+        reload: Boolean(request.reload),
+        warmAsr: request.warmAsr !== false,
+        warmTts: Boolean(request.warmTts),
+      });
+      return {
+        ok: true,
+        warmAsr: request.warmAsr !== false,
+        warmTts: Boolean(request.warmTts),
+        alreadyWarmAsr: Boolean(result?.warmResults?.asr?.alreadyWarm),
+        alreadyWarmTts: Boolean(result?.warmResults?.tts?.alreadyWarm),
+        warmedAsr: Boolean(result?.warmResults?.asr?.warmed),
+        warmedTts: Boolean(result?.warmResults?.tts?.warmed),
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: toVoiceError(error, 'voice_runtime_warmup_failed', 'warming'),
+      };
+    }
+  });
+
   ipcMain.handle('voice:diagnostics:asr', async (_event, request = {}) => {
     const pcmChunk = toBufferChunk(request.pcmChunk);
     if (!pcmChunk.length) {
@@ -1690,6 +1804,7 @@ function registerVoiceSessionIpc({
     ipcMain.removeHandler('voice:session:stop');
     ipcMain.removeHandler('voice:tts:stop');
     ipcMain.removeHandler('voice:playback:ack');
+    ipcMain.removeHandler('voice:warmup');
     ipcMain.removeHandler('voice:diagnostics:asr');
     ipcMain.removeHandler('voice:diagnostics:tts');
     ipcMain.removeHandler('voice:segment:trace:list');

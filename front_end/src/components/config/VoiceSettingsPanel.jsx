@@ -149,6 +149,32 @@ function formatMs(value) {
   return `${Math.round(value)} ms`;
 }
 
+function getAsrTestStatusText(phase) {
+  if (phase === 'warming') {
+    return 'ASR 模型正在预热，请稍候...';
+  }
+  if (phase === 'recording') {
+    return 'ASR 测试中（录音 3 秒）...';
+  }
+  if (phase === 'transcribing') {
+    return 'ASR 正在识别录音...';
+  }
+  return 'ASR 延迟测试（录音 3 秒）';
+}
+
+function getAsrTestProgressMessage(phase) {
+  if (phase === 'warming') {
+    return '正在预热 ASR 模型。预热完成后会自动开始录音，这样测到的延迟更接近稳定状态。';
+  }
+  if (phase === 'recording') {
+    return '正在录音 3 秒，请朗读你设置的提示词。';
+  }
+  if (phase === 'transcribing') {
+    return '录音结束，正在执行 ASR 识别。';
+  }
+  return '';
+}
+
 function formatBytes(value) {
   if (!Number.isFinite(value) || value <= 0) {
     return '0 B';
@@ -583,6 +609,7 @@ export default function VoiceSettingsPanel({
   const [modelFeedback, setModelFeedback] = useState('');
   const [modelError, setModelError] = useState('');
   const [isAsrTesting, setIsAsrTesting] = useState(false);
+  const [asrTestPhase, setAsrTestPhase] = useState('idle');
   const [isTtsTesting, setIsTtsTesting] = useState(false);
   const [asrPromptText, setAsrPromptText] = useState('我正在测试 ASR 延迟。');
   const [ttsTestText, setTtsTestText] = useState('你好，这是一条 TTS 延迟测试语句。');
@@ -1252,6 +1279,20 @@ export default function VoiceSettingsPanel({
     setAsrTestResult(null);
     setIsAsrTesting(true);
     try {
+      setAsrTestPhase('warming');
+      const warmupResult = await desktopBridge.voice.warmup({
+        warmAsr: true,
+        warmTts: false,
+      });
+      if (!mountedRef.current) {
+        return;
+      }
+      if (!warmupResult?.ok) {
+        setVoiceTestError(warmupResult?.error?.message || warmupResult?.reason || 'ASR 预热失败。');
+        return;
+      }
+
+      setAsrTestPhase('recording');
       const pcmChunk = await captureAsrTestPcm({
         durationMs: ASR_TEST_RECORD_MS,
         sampleRate: ASR_TEST_SAMPLE_RATE,
@@ -1261,6 +1302,7 @@ export default function VoiceSettingsPanel({
         return;
       }
 
+      setAsrTestPhase('transcribing');
       const result = await desktopBridge.voice.runAsrDiagnostics({
         pcmChunk,
         sampleRate: ASR_TEST_SAMPLE_RATE,
@@ -1286,6 +1328,7 @@ export default function VoiceSettingsPanel({
       }
     } finally {
       if (mountedRef.current) {
+        setAsrTestPhase('idle');
         setIsAsrTesting(false);
       }
     }
@@ -1982,6 +2025,9 @@ export default function VoiceSettingsPanel({
           <Alert severity="info">
             ASR 测试会请求麦克风并录音 3 秒，请点击后朗读你设置的提示词。
           </Alert>
+          {isAsrTesting && !!getAsrTestProgressMessage(asrTestPhase) && (
+            <Alert severity="info">{getAsrTestProgressMessage(asrTestPhase)}</Alert>
+          )}
           <TextField
             label="ASR 朗读提示词"
             value={asrPromptText}
@@ -1994,7 +2040,7 @@ export default function VoiceSettingsPanel({
             onClick={handleRunAsrTest}
             disabled={isAsrTesting || isTtsTesting}
           >
-            {isAsrTesting ? 'ASR 测试中（录音 3 秒）...' : 'ASR 延迟测试（录音 3 秒）'}
+            {getAsrTestStatusText(isAsrTesting ? asrTestPhase : 'idle')}
           </Button>
           {!!asrTestResult && (
             <Alert severity="success">
