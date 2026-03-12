@@ -33,7 +33,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build desktop (macOS)
-        run: pnpm run desktop:build -- --publish never
+        run: |
+          pnpm run frontend:build
+          pnpm exec electron-builder --publish never
 
       - name: Generate checksums
         run: |
