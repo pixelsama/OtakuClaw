@@ -37,14 +37,26 @@ jobs:
           pnpm run frontend:build
           pnpm exec electron-builder --publish never
 
+      - name: Prepare release assets
+        run: |
+          rm -rf release-assets
+          mkdir -p release-assets
+          for file in release/*.dmg release/*.zip release/*.yml release/*.blockmap; do
+            if [ -f "$file" ]; then
+              base_name="$(basename "$file")"
+              safe_name="${base_name// /.}"
+              cp "$file" "release-assets/$safe_name"
+            fi
+          done
+
       - name: Generate checksums
         run: |
-          cd release
+          cd release-assets
           assets_list="$(mktemp)"
           find . -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.yml' -o -name '*.blockmap' \) -print0 > "$assets_list"
 
           if [ ! -s "$assets_list" ]; then
-            echo "No release assets found in release/."
+            echo "No release assets found in release-assets/."
             rm -f "$assets_list"
             exit 1
           fi
@@ -57,8 +69,8 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            release/*.dmg
-            release/*.zip
-            release/*.yml
-            release/*.blockmap
-            release/checksums-macos.txt
+            release-assets/*.dmg
+            release-assets/*.zip
+            release-assets/*.yml
+            release-assets/*.blockmap
+            release-assets/checksums-macos.txt
