@@ -33,7 +33,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build desktop (macOS)
-        run: pnpm run desktop:build
+        run: pnpm run desktop:build -- --publish never
 
       - name: Generate checksums
         run: |
