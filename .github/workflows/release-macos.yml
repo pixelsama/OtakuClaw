@@ -40,21 +40,14 @@ jobs:
       - name: Generate checksums
         run: |
           cd release
-          assets=()
-          for pattern in *.dmg *.zip *.yml *.blockmap; do
-            for file in $pattern; do
-              if [ -f "$file" ]; then
-                assets+=("$file")
-              fi
-            done
-          done
+          mapfile -d '' assets < <(find . -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.yml' -o -name '*.blockmap' \) -print0 | sort -z)
 
           if [ "${#assets[@]}" -eq 0 ]; then
             echo "No release assets found in release/."
             exit 1
           fi
 
-          shasum -a 256 "${assets[@]}" > checksums-macos.txt
+          printf '%s\0' "${assets[@]}" | xargs -0 shasum -a 256 > checksums-macos.txt
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
