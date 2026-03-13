@@ -434,7 +434,7 @@ export default function FirstRunOnboardingDialog({
     ? t(BACKEND_SUB_STEP_LABEL_KEYS[backendSubStep + 1])
     : '';
 
-  const selectedBackend = chatBackendSettings?.chatBackend === 'nanobot' ? 'nanobot' : 'openclaw';
+  const selectedBackend = 'nanobot';
   const openClawSettings = chatBackendSettings?.openclaw || {};
   const nanobotSettings = chatBackendSettings?.nanobot || {};
   const nanobotDownloadPhase = typeof nanobotRuntimeDownloadTask?.phase === 'string'
@@ -1191,7 +1191,6 @@ export default function FirstRunOnboardingDialog({
         onChange={(event) => onChatBackendChange?.(event.target.value)}
         fullWidth
       >
-        <MenuItem value="openclaw">{t('app.backend.openclaw')}</MenuItem>
         <MenuItem value="nanobot">{t('app.backend.nanobot')}</MenuItem>
       </TextField>
 

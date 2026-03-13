@@ -134,7 +134,7 @@ export default function ConfigDrawer({
   const { language, setLanguage, t } = useI18n();
   const { themeMode, setThemeMode } = useThemeMode();
   const [activeConfigTab, setActiveConfigTab] = useState(0);
-  const selectedBackend = chatBackendSettings?.chatBackend === 'nanobot' ? 'nanobot' : 'openclaw';
+  const selectedBackend = 'nanobot';
   const openClawSettings = chatBackendSettings?.openclaw || {};
   const nanobotSettings = chatBackendSettings?.nanobot || {};
   const hasSecureStorage = chatBackendSettings?.hasSecureStorage !== false;
@@ -255,7 +255,6 @@ export default function ConfigDrawer({
                     onChange={(event) => onChatBackendChange?.(event.target.value)}
                     fullWidth
                   >
-                    <MenuItem value="openclaw">{t('app.backend.openclaw')}</MenuItem>
                     <MenuItem value="nanobot">{t('app.backend.nanobot')}</MenuItem>
                   </TextField>
 

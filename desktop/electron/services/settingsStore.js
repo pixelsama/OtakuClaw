@@ -35,7 +35,7 @@ const DEFAULT_UI_SETTINGS = {
 };
 
 const DEFAULT_SETTINGS = {
-  chatBackend: 'openclaw',
+  chatBackend: 'nanobot',
   openclaw: { ...DEFAULT_OPENCLAW_SETTINGS },
   nanobot: { ...DEFAULT_NANOBOT_SETTINGS },
   voice: {
@@ -77,7 +77,8 @@ function normalizeChatBackend(value) {
   if (normalized === 'nanobot') {
     return 'nanobot';
   }
-  return 'openclaw';
+  // OpenClaw is temporarily disabled in current public builds.
+  return 'nanobot';
 }
 
 function toPositiveInteger(value, fallback) {
@@ -202,7 +203,7 @@ function normalizeFileSettings(settings = {}) {
   }
 
   return {
-    chatBackend: 'openclaw',
+    chatBackend: 'nanobot',
     openclaw: normalizeOpenClawSettings(source),
     nanobot: { ...DEFAULT_NANOBOT_SETTINGS },
     voice: normalizeVoiceSettings({}),

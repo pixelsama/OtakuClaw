@@ -112,7 +112,7 @@ test('migrates legacy openclaw token and settings shape', async () => {
   });
 
   const mainSettings = store.getForMain();
-  assert.equal(mainSettings.chatBackend, 'openclaw');
+  assert.equal(mainSettings.chatBackend, 'nanobot');
   assert.equal(mainSettings.openclaw.baseUrl, 'http://127.0.0.1:18789');
   assert.equal(mainSettings.openclaw.agentId, 'main');
   assert.equal(mainSettings.openclaw.token, 'legacy-openclaw-token');
@@ -121,7 +121,7 @@ test('migrates legacy openclaw token and settings shape', async () => {
 
   const fileRaw = await fs.readFile(path.join(tmpDir, 'openclaw-settings.json'), 'utf-8');
   const persisted = JSON.parse(fileRaw);
-  assert.equal(persisted.chatBackend, 'openclaw');
+  assert.equal(persisted.chatBackend, 'nanobot');
   assert.equal(Object.prototype.hasOwnProperty.call(persisted, 'token'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(persisted.openclaw, 'token'), false);
 });

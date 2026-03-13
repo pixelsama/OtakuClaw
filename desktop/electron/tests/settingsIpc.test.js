@@ -29,13 +29,13 @@ test('settings:test delegates to backend manager', async () => {
       baseUrl: override.baseUrl || 'http://127.0.0.1:18789',
       agentId: override.agentId || 'main',
       token: override.token || 'token-x',
-      chatBackend: override.chatBackend || 'openclaw',
+      chatBackend: override.chatBackend || 'nanobot',
     }),
     save: async (payload) => payload,
   };
 
   const backendManager = {
-    resolveBackendName: ({ requestBackend, settings }) => requestBackend || settings.chatBackend || 'openclaw',
+    resolveBackendName: ({ requestBackend, settings }) => requestBackend || settings.chatBackend || 'nanobot',
     testConnection: async ({ backend }) => ({ ok: true, backend }),
     mapError: (error) => ({ code: 'mapped_error', message: error.message }),
   };
@@ -47,11 +47,11 @@ test('settings:test delegates to backend manager', async () => {
   });
 
   const result = await ipcMain.invoke('settings:test', {
-    chatBackend: 'openclaw',
+    chatBackend: 'nanobot',
   });
 
   assert.equal(result.ok, true);
-  assert.equal(result.backend, 'openclaw');
+  assert.equal(result.backend, 'nanobot');
 });
 
 test('settings:test returns mapped error when backend test fails', async () => {
@@ -59,16 +59,16 @@ test('settings:test returns mapped error when backend test fails', async () => {
 
   const settingsStore = {
     getPublic: () => ({ hasToken: true }),
-    merge: () => ({ chatBackend: 'openclaw' }),
+    merge: () => ({ chatBackend: 'nanobot' }),
     save: async (payload) => payload,
   };
 
   const backendManager = {
-    resolveBackendName: () => 'openclaw',
+    resolveBackendName: () => 'nanobot',
     testConnection: async () => {
       throw new Error('boom');
     },
-    mapError: () => ({ code: 'openclaw_upstream_error', message: 'boom' }),
+    mapError: () => ({ code: 'nanobot_unreachable', message: 'boom' }),
   };
 
   registerSettingsIpc({
@@ -79,7 +79,7 @@ test('settings:test returns mapped error when backend test fails', async () => {
 
   const result = await ipcMain.invoke('settings:test', {});
   assert.equal(result.ok, false);
-  assert.equal(result.error.code, 'openclaw_upstream_error');
+  assert.equal(result.error.code, 'nanobot_unreachable');
 });
 
 test('settings:test returns timeout error when backend test hangs', async () => {
@@ -121,6 +121,11 @@ test('settings:nanobot:pick-workspace returns selected directory path', async ()
           workspace: '/tmp/nanobot-workspace',
         },
       }),
+    },
+    backendManager: {
+      resolveBackendName: () => 'nanobot',
+      testConnection: async () => ({ ok: true }),
+      mapError: (error) => ({ code: 'mapped_error', message: error?.message || 'error' }),
     },
     getWindow: () => ({ id: 1 }),
     dialogModule: {

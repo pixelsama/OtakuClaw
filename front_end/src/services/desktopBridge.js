@@ -57,7 +57,7 @@ function resolvePlatformSyncFromApi(api) {
 }
 
 function normalizeSettingsResponse(settings = {}) {
-  const chatBackend = settings?.chatBackend === 'nanobot' ? 'nanobot' : 'openclaw';
+  const chatBackend = 'nanobot';
   const openclaw = settings?.openclaw || {};
   const nanobot = settings?.nanobot || {};
   const voice = settings?.voice || {};
@@ -149,7 +149,7 @@ function normalizeSettingsResponse(settings = {}) {
 function normalizeSettingsPatch(settings = {}) {
   return {
     ...(Object.prototype.hasOwnProperty.call(settings, 'chatBackend')
-      ? { chatBackend: settings.chatBackend === 'nanobot' ? 'nanobot' : 'openclaw' }
+      ? { chatBackend: 'nanobot' }
       : {}),
     ...(Object.prototype.hasOwnProperty.call(settings, 'baseUrl')
       || Object.prototype.hasOwnProperty.call(settings, 'agentId')
@@ -587,7 +587,7 @@ async function testWebConnection(inputSettings = {}) {
     },
   };
 
-  const chatBackend = settings.chatBackend === 'nanobot' ? 'nanobot' : 'openclaw';
+  const chatBackend = 'nanobot';
 
   if (settings.openclaw?.clearToken === true) {
     settings.openclaw.token = '';

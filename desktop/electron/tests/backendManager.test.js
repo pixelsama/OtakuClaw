@@ -24,7 +24,7 @@ test('backend manager resolves backend with request precedence', () => {
     backends: [createBackend('openclaw'), createBackend('nanobot')],
   });
 
-  assert.equal(manager.resolveBackendName({ settings: {} }), 'openclaw');
+  assert.equal(manager.resolveBackendName({ settings: {} }), 'nanobot');
   assert.equal(manager.resolveBackendName({ settings: { chatBackend: 'nanobot' } }), 'nanobot');
   assert.equal(
     manager.resolveBackendName({
@@ -41,10 +41,10 @@ test('backend manager delegates startStream and testConnection to selected backe
 
   const manager = new ChatBackendManager({
     backends: [
-      createBackend('openclaw', {
+      createBackend('nanobot', {
         startStream: async (payload) => {
           streamPayload = payload;
-          payload.onEvent({ type: 'done', payload: { source: 'openclaw' } });
+          payload.onEvent({ type: 'done', payload: { source: 'nanobot' } });
         },
         testConnection: async () => {
           tested = true;
@@ -56,12 +56,12 @@ test('backend manager delegates startStream and testConnection to selected backe
 
   const events = [];
   const connection = await manager.testConnection({
-    backend: 'openclaw',
+    backend: 'nanobot',
     settings: { baseUrl: 'http://127.0.0.1:18789' },
   });
 
   await manager.startStream({
-    backend: 'openclaw',
+    backend: 'nanobot',
     settings: { baseUrl: 'http://127.0.0.1:18789' },
     sessionId: 's1',
     content: 'hello',

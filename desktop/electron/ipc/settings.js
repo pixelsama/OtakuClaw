@@ -25,12 +25,22 @@ function registerSettingsIpc({
   });
 
   ipcMain.handle('settings:test', async (_event, overrideSettings = {}) => {
-    let backend = 'openclaw';
+    let backend = 'nanobot';
     const timeoutMs = normalizeTimeoutMs(overrideSettings?.timeoutMs);
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      controller.abort();
-    }, timeoutMs);
+    let timeoutId = null;
+    const timeoutPromise = new Promise((resolve) => {
+      timeoutId = setTimeout(() => {
+        controller.abort();
+        resolve({
+          ok: false,
+          error: {
+            code: 'chat_backend_test_timeout',
+            message: `连接测试超时（>${Math.floor(timeoutMs / 1000)}s），请重试。`,
+          },
+        });
+      }, timeoutMs);
+    });
 
     try {
       const settings = settingsStore.merge(overrideSettings);
@@ -39,11 +49,15 @@ function registerSettingsIpc({
         requestBackend: overrideSettings?.backend || overrideSettings?.chatBackend,
       });
 
-      return await backendManager.testConnection({
-        backend,
-        settings,
-        signal: controller.signal,
-      });
+      const result = await Promise.race([
+        backendManager.testConnection({
+          backend,
+          settings,
+          signal: controller.signal,
+        }),
+        timeoutPromise,
+      ]);
+      return result;
     } catch (error) {
       if (error?.name === 'AbortError') {
         return {
@@ -59,7 +73,9 @@ function registerSettingsIpc({
         error: backendManager.mapError(error, { backend }),
       };
     } finally {
-      clearTimeout(timeoutId);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     }
   });
 

@@ -24,7 +24,6 @@ const { registerVoiceSessionIpc } = require('./ipc/voiceSession');
 const { createConversationRuntime } = require('./services/chat/conversationRuntime');
 const { createChatBackendManager } = require('./services/chat/backendManager');
 const { NanobotBackendAdapter } = require('./services/chat/backends/nanobotBackend');
-const { OpenClawBackendAdapter } = require('./services/chat/backends/openclawBackend');
 const { NanobotRuntimeManager } = require('./services/chat/nanobot/nanobotRuntimeManager');
 const { NanobotSkillsLibrary } = require('./services/chat/nanobot/nanobotSkillsLibrary');
 const { Live2DModelLibrary, MODEL_PROTOCOL } = require('./services/live2dModelLibrary');
@@ -492,7 +491,6 @@ async function bootstrap() {
   await nanobotSkillsLibrary.init();
   chatBackendManager = createChatBackendManager({
     backends: [
-      new OpenClawBackendAdapter(),
       new NanobotBackendAdapter({
         resolveRuntime: () => ({
           ...nanobotRuntimeManager.resolveLaunchConfig(),

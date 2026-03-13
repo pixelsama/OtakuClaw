@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { desktopBridge } from '../../services/desktopBridge.js';
 
 const defaultChatBackendSettings = {
-  chatBackend: 'openclaw',
+  chatBackend: 'nanobot',
   openclaw: {
     baseUrl: '',
     token: '',
@@ -65,7 +65,7 @@ function normalizeNanobotSkillsState(payload = {}) {
 function buildComparableSettingsSnapshot(settings = {}) {
   const normalized = normalizeSettingsForState(settings);
   return {
-    chatBackend: normalized.chatBackend === 'nanobot' ? 'nanobot' : 'openclaw',
+    chatBackend: 'nanobot',
     openclaw: {
       baseUrl: normalized.openclaw?.baseUrl || '',
       agentId: normalized.openclaw?.agentId || '',
@@ -93,7 +93,7 @@ function hasPendingSecretChanges(settings = {}) {
 function normalizeSettingsForState(settings = {}) {
   const openclaw = settings?.openclaw || {};
   const nanobot = settings?.nanobot || {};
-  const chatBackend = settings?.chatBackend === 'nanobot' ? 'nanobot' : 'openclaw';
+  const chatBackend = 'nanobot';
 
   return {
     ...defaultChatBackendSettings,
@@ -119,7 +119,7 @@ export function buildChatBackendSettingsPayload(settings) {
   const source = settings || {};
   const openclawSource = source?.openclaw || source;
   const nanobotSource = source?.nanobot || {};
-  const chatBackend = source?.chatBackend === 'nanobot' ? 'nanobot' : 'openclaw';
+  const chatBackend = 'nanobot';
 
   const payload = {
     chatBackend,
@@ -299,10 +299,10 @@ export function useChatBackendSettings({ t, normalizeError }) {
     };
   }, [chatBackendSettings, formatError, savedSettingsSnapshot, settingsLoaded]);
 
-  const onChatBackendChange = useCallback((backend) => {
+  const onChatBackendChange = useCallback(() => {
     setChatBackendSettings((prev) => ({
       ...prev,
-      chatBackend: backend === 'nanobot' ? 'nanobot' : 'openclaw',
+      chatBackend: 'nanobot',
     }));
     setSettingsFeedback('');
     setSettingsError('');

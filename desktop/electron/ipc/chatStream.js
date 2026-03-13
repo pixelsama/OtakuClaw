@@ -57,7 +57,7 @@ function registerChatStreamIpc({
   };
 
   const runStream = async (streamId, request, state) => {
-    let source = 'openclaw';
+    let source = 'nanobot';
     const inputSource = normalizeInputSource(request?.options?.source);
     const buildTurnPayload = (payload = {}) => ({
       sessionId: request.sessionId,

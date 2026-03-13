@@ -1,8 +1,16 @@
-const { OpenClawBackendAdapter } = require('./backends/openclawBackend');
 const { NanobotBackendAdapter } = require('./backends/nanobotBackend');
 
 function normalizeBackendName(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function coerceBackendName(value) {
+  const normalized = normalizeBackendName(value);
+  // OpenClaw is temporarily disabled in current public builds.
+  if (normalized === 'openclaw') {
+    return 'nanobot';
+  }
+  return normalized;
 }
 
 function createUnsupportedBackendError(backend) {
@@ -17,7 +25,7 @@ class ChatBackendManager {
 
     const backendList = Array.isArray(backends) && backends.length > 0
       ? backends
-      : [new OpenClawBackendAdapter(), new NanobotBackendAdapter()];
+      : [new NanobotBackendAdapter()];
     for (const backend of backendList) {
       this.register(backend);
     }
@@ -33,17 +41,17 @@ class ChatBackendManager {
   }
 
   resolveBackendName({ settings = {}, requestBackend } = {}) {
-    const fromRequest = normalizeBackendName(requestBackend);
+    const fromRequest = coerceBackendName(requestBackend);
     if (fromRequest) {
       return this.requireBackend(fromRequest);
     }
 
-    const fromSettings = normalizeBackendName(settings.chatBackend);
+    const fromSettings = coerceBackendName(settings.chatBackend);
     if (fromSettings) {
       return this.requireBackend(fromSettings);
     }
 
-    return this.requireBackend('openclaw');
+    return this.requireBackend('nanobot');
   }
 
   requireBackend(name) {
@@ -88,8 +96,8 @@ class ChatBackendManager {
       };
     }
 
-    const name = normalizeBackendName(backend);
-    const adapter = (name && this.backends.get(name)) || this.backends.get('openclaw');
+    const name = coerceBackendName(backend);
+    const adapter = (name && this.backends.get(name)) || this.backends.get('nanobot');
 
     if (adapter && typeof adapter.mapError === 'function') {
       return adapter.mapError(error);
