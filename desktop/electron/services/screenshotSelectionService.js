@@ -1,5 +1,10 @@
 const path = require('node:path');
-const { BrowserWindow, desktopCapturer, screen } = require('electron');
+const {
+  BrowserWindow,
+  desktopCapturer,
+  screen,
+  systemPreferences,
+} = require('electron');
 
 const CAPTURE_SELECTION_TIMEOUT_MS = 3 * 60 * 1000;
 
@@ -44,6 +49,8 @@ class ScreenshotSelectionService {
     browserWindowFactory = (options) => new BrowserWindow(options),
     desktopCapturerModule = desktopCapturer,
     screenModule = screen,
+    systemPreferencesModule = systemPreferences,
+    platform = process.platform,
   } = {}) {
     this.app = app;
     this.screenshotCaptureService = screenshotCaptureService;
@@ -52,6 +59,8 @@ class ScreenshotSelectionService {
     this.browserWindowFactory = browserWindowFactory;
     this.desktopCapturer = desktopCapturerModule;
     this.screen = screenModule;
+    this.systemPreferences = systemPreferencesModule;
+    this.platform = platform;
 
     this.activeSession = null;
   }
@@ -158,9 +167,13 @@ class ScreenshotSelectionService {
       fetchWindowIcons: false,
     });
 
+    if (!Array.isArray(sources) || !sources.length) {
+      throw new Error(this.resolveCaptureUnavailableReason());
+    }
+
     const matchedSource = sources.find((source) => source.display_id === String(display?.id || '')) || sources[0];
     if (!matchedSource?.thumbnail || matchedSource.thumbnail.isEmpty()) {
-      throw new Error('capture_not_supported');
+      throw new Error(this.resolveCaptureUnavailableReason());
     }
 
     return {
@@ -168,6 +181,25 @@ class ScreenshotSelectionService {
       dataUrl: matchedSource.thumbnail.toDataURL(),
       size: matchedSource.thumbnail.getSize(),
     };
+  }
+
+  resolveCaptureUnavailableReason() {
+    if (
+      this.platform === 'darwin'
+      && this.systemPreferences
+      && typeof this.systemPreferences.getMediaAccessStatus === 'function'
+    ) {
+      try {
+        const status = String(this.systemPreferences.getMediaAccessStatus('screen') || '').toLowerCase();
+        if (status === 'denied' || status === 'restricted' || status === 'not-determined') {
+          return 'capture_permission_denied';
+        }
+      } catch {
+        // Ignore runtime/platform capability checks and fall back to generic reason.
+      }
+    }
+
+    return 'capture_not_supported';
   }
 
   async createOverlayWindow(display) {

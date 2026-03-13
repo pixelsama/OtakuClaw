@@ -30,6 +30,9 @@ function isEditableTarget(target) {
 
 function normalizeErrorMessage(error, t) {
   const errorCode = typeof error?.message === 'string' ? error.message.trim() : '';
+  if (errorCode === 'capture_permission_denied') {
+    return t('composer.capturePermissionDenied');
+  }
   if (errorCode === 'capture_not_supported') {
     return t('composer.captureUnsupported');
   }
