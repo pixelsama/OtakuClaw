@@ -1,6 +1,6 @@
 {
-  "name": "free-agent-vtuber-openclaw-desktop",
-  "version": "0.2.0",
+  "name": "otakuclaw-desktop",
+  "version": "0.0.1-beta.1",
   "private": true,
   "packageManager": "pnpm@10.28.0",
   "main": "desktop/electron/main.js",
@@ -34,8 +34,8 @@
     ]
   },
   "build": {
-    "appId": "com.freeagent.vtuber.openclaw",
-    "productName": "Free Agent VTuber OpenClaw",
+    "appId": "com.otakuclaw.desktop",
+    "productName": "OtakuClaw",
     "directories": {
       "output": "release"
     },
@@ -54,6 +54,7 @@
       ]
     },
     "mac": {
+      "icon": "desktop/electron/assets/icon.icns",
       "hardenedRuntime": true,
       "entitlements": "desktop/electron/entitlements.mac.plist",
       "entitlementsInherit": "desktop/electron/entitlements.mac.inherit.plist",

@@ -9,7 +9,7 @@ const {
   OPENCLAW_ACCOUNT_NAME,
 } = require('../services/secretStore');
 
-const SERVICE_NAME = 'free-agent-vtuber-openclaw';
+const SERVICE_NAME = 'otakuclaw-desktop';
 
 function createMockKeytar(initialEntries = {}) {
   const storage = new Map();

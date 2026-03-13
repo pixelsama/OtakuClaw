@@ -143,20 +143,20 @@
 
 ## GUI Real-Device Download Regression (Installed App)
 - Scope:
-  - Validate first-run onboarding flow in installed app (`/Applications/Free Agent VTuber OpenClaw.app`).
+  - Validate first-run onboarding flow in installed app (`/Applications/OtakuClaw.app`).
   - Cover full path: `Nanobot runtime` download + `Qwen ASR` model download + `Qwen TTS` model download.
   - Focus on download area UX: status text, progress %, speed, ETA, stage transitions, completion/failure messaging.
 - Reset before run (macOS):
   - Quit app process first.
-  - Remove app data: `~/Library/Application Support/free-agent-vtuber-openclaw-desktop`.
-  - Remove prefs: `~/Library/Preferences/com.freeagent.vtuber.openclaw.plist`.
-  - Remove keychain secrets (if present): service `free-agent-vtuber-openclaw`, accounts:
+  - Remove app data: `~/Library/Application Support/otakuclaw-desktop`.
+  - Remove prefs: `~/Library/Preferences/com.otakuclaw.desktop.plist`.
+  - Remove keychain secrets (if present): service `otakuclaw-desktop`, accounts:
     - `openclaw-token`
     - `nanobot-api-key`
     - `dashscope-api-key`
 - Launch mode:
   - Prefer installed app with remote debugging enabled:
-    - `open -a "/Applications/Free Agent VTuber OpenClaw.app" --args --remote-debugging-port=9222`
+    - `open -a "/Applications/OtakuClaw.app" --args --remote-debugging-port=9222`
   - Do not rely only on macOS AX tree for React controls; AX often exposes only container groups.
   - Use CDP (port `9222`) to drive real GUI DOM interactions.
 - Stable CDP interaction rules for MUI controls:

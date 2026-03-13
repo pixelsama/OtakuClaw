@@ -1,4 +1,4 @@
-const SERVICE_NAME = 'free-agent-vtuber-openclaw';
+const SERVICE_NAME = 'otakuclaw-desktop';
 const OPENCLAW_ACCOUNT_NAME = 'openclaw-token';
 const NANOBOT_ACCOUNT_NAME = 'nanobot-api-key';
 const DASHSCOPE_ACCOUNT_NAME = 'dashscope-api-key';

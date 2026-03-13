@@ -30,7 +30,7 @@ class TrayManager {
     }
 
     this.tray = new Tray(createTrayImage());
-    this.tray.setToolTip('Free Agent VTuber OpenClaw');
+    this.tray.setToolTip('OtakuClaw');
     this.updateMenu();
   }
 
