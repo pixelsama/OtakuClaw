@@ -26,6 +26,9 @@ import { desktopBridge } from '../../services/desktopBridge.js';
 import { useI18n } from '../../i18n/I18nContext.jsx';
 import './Live2DControls.css';
 
+// Temporary product decision: hide motion/expression controls from end users for now.
+const SHOW_ADVANCED_LIVE2D_CONTROLS = false;
+
 const serializeMotion = (motion) => ({
   id: motion.id,
   name: motion.name,
@@ -1434,43 +1437,47 @@ export default function Live2DControls({
           onResetModel={resetModel}
         />
 
-        <MotionPanel
-          modelLoaded={modelLoaded}
-          motions={motions}
-          availableMotionFiles={availableMotionFiles}
-          isParsingModelFiles={isParsingModelFiles}
-          manualMotionFiles={manualMotionFiles}
-          onManualMotionFilesChange={setManualMotionFiles}
-          onParseManualMotionFiles={parseManualMotionFiles}
-          newMotionName={newMotionName}
-          onNewMotionNameChange={setNewMotionName}
-          onAddMotion={addNewMotion}
-          onRemoveMotion={removeMotion}
-          onLinkMotionFile={linkMotionFile}
-          onUploadMotionFile={updateMotionFile}
-          onClearMotionFile={clearMotionFile}
-          onPlayMotion={playMotion}
-          onOpenClickAreaAssociation={openClickAreaAssociation}
-        />
+        {SHOW_ADVANCED_LIVE2D_CONTROLS && (
+          <MotionPanel
+            modelLoaded={modelLoaded}
+            motions={motions}
+            availableMotionFiles={availableMotionFiles}
+            isParsingModelFiles={isParsingModelFiles}
+            manualMotionFiles={manualMotionFiles}
+            onManualMotionFilesChange={setManualMotionFiles}
+            onParseManualMotionFiles={parseManualMotionFiles}
+            newMotionName={newMotionName}
+            onNewMotionNameChange={setNewMotionName}
+            onAddMotion={addNewMotion}
+            onRemoveMotion={removeMotion}
+            onLinkMotionFile={linkMotionFile}
+            onUploadMotionFile={updateMotionFile}
+            onClearMotionFile={clearMotionFile}
+            onPlayMotion={playMotion}
+            onOpenClickAreaAssociation={openClickAreaAssociation}
+          />
+        )}
 
-        <ExpressionPanel
-          modelLoaded={modelLoaded}
-          expressions={expressions}
-          availableExpressionFiles={availableExpressionFiles}
-          isParsingModelFiles={isParsingModelFiles}
-          manualExpressionFiles={manualExpressionFiles}
-          onManualExpressionFilesChange={setManualExpressionFiles}
-          onParseManualExpressionFiles={parseManualExpressionFiles}
-          newExpressionName={newExpressionName}
-          onNewExpressionNameChange={setNewExpressionName}
-          onAddExpression={addNewExpression}
-          onRemoveExpression={removeExpression}
-          onLinkExpressionFile={linkExpressionFile}
-          onUploadExpressionFile={updateExpressionFile}
-          onClearExpressionFile={clearExpressionFile}
-          onSetExpression={setExpression}
-          onOpenClickAreaAssociation={openClickAreaAssociation}
-        />
+        {SHOW_ADVANCED_LIVE2D_CONTROLS && (
+          <ExpressionPanel
+            modelLoaded={modelLoaded}
+            expressions={expressions}
+            availableExpressionFiles={availableExpressionFiles}
+            isParsingModelFiles={isParsingModelFiles}
+            manualExpressionFiles={manualExpressionFiles}
+            onManualExpressionFilesChange={setManualExpressionFiles}
+            onParseManualExpressionFiles={parseManualExpressionFiles}
+            newExpressionName={newExpressionName}
+            onNewExpressionNameChange={setNewExpressionName}
+            onAddExpression={addNewExpression}
+            onRemoveExpression={removeExpression}
+            onLinkExpressionFile={linkExpressionFile}
+            onUploadExpressionFile={updateExpressionFile}
+            onClearExpressionFile={clearExpressionFile}
+            onSetExpression={setExpression}
+            onOpenClickAreaAssociation={openClickAreaAssociation}
+          />
+        )}
 
         <BackgroundPanel
           hasBackground={hasBackground}
