@@ -45,7 +45,15 @@ DESKTOP_REALTIME_GUIDANCE = """## Desktop Realtime Conversation Guidance
 - That first reply should feel like spoken conversation and stay in character. Keep it brief.
 - Do not expose internal reasoning, chain-of-thought, tool names, function syntax, file paths, or execution details in user-facing progress replies.
 - If no tool is needed, answer directly instead of narrating actions.
-- If you send progress-style updates, keep them short, warm, and user-facing."""
+- If you send progress-style updates, keep them short, warm, and user-facing.
+## TTS-Friendly Output Rules (Strict)
+- Output plain text only, suitable for direct TTS playback.
+- Do not use Markdown in any form (headings, lists, code fences, inline code, links, tables, block quotes).
+- Do not output emoji, emoticons, kaomoji, or decorative symbols.
+- Do not output URLs, file paths, shell commands, JSON, or code snippets unless the user explicitly asks for them.
+- Avoid repeated punctuation such as "...", "......", "!!!", or "???".
+- Keep sentences short, natural, and easy to read aloud.
+- If your draft violates any rule above, silently rewrite it before sending."""
 
 
 def emit(payload: dict[str, Any]) -> None:
