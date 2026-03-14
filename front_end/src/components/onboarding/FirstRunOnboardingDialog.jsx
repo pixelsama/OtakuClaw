@@ -397,11 +397,17 @@ function findVoiceDownloadTaskByCapability({
 }
 
 const BACKEND_SUB_STEP_COUNT = 3;
+const VOICE_SUB_STEP_COUNT = 3;
 const AUTO_EXPAND_DETAILS_DELAY_MS = 6000;
 const BACKEND_SUB_STEP_LABEL_KEYS = [
   'onboarding.backend.subStep.source',
   'onboarding.backend.subStep.config',
   'onboarding.backend.subStep.enableTest',
+];
+const VOICE_SUB_STEP_LABEL_KEYS = [
+  'onboarding.voice.subStep.selectModel',
+  'onboarding.voice.subStep.config',
+  'onboarding.voice.subStep.test',
 ];
 const TOTAL_STEPS = 4;
 
@@ -429,6 +435,8 @@ export default function FirstRunOnboardingDialog({
   const mountedRef = useRef(true);
   const [activeStep, setActiveStep] = useState(0);
   const [backendSubStep, setBackendSubStep] = useState(0);
+  const [asrSubStep, setAsrSubStep] = useState(0);
+  const [ttsSubStep, setTtsSubStep] = useState(0);
   const [backendDownloadDetailsOpen, setBackendDownloadDetailsOpen] = useState(false);
   const [asrDownloadDetailsOpen, setAsrDownloadDetailsOpen] = useState(false);
   const [ttsDownloadDetailsOpen, setTtsDownloadDetailsOpen] = useState(false);
@@ -478,6 +486,30 @@ export default function FirstRunOnboardingDialog({
   });
   const nextBackendSubStepLabel = backendSubStep < BACKEND_SUB_STEP_COUNT - 1
     ? t(BACKEND_SUB_STEP_LABEL_KEYS[backendSubStep + 1])
+    : '';
+  const currentAsrSubStepLabel = t(
+    VOICE_SUB_STEP_LABEL_KEYS[Math.min(VOICE_SUB_STEP_COUNT - 1, Math.max(0, asrSubStep))],
+  );
+  const currentTtsSubStepLabel = t(
+    VOICE_SUB_STEP_LABEL_KEYS[Math.min(VOICE_SUB_STEP_COUNT - 1, Math.max(0, ttsSubStep))],
+  );
+  const asrSubStepProgressText = t('onboarding.voice.subStepProgress', {
+    scope: t('onboarding.step.asr'),
+    current: Math.min(VOICE_SUB_STEP_COUNT, Math.max(1, asrSubStep + 1)),
+    total: VOICE_SUB_STEP_COUNT,
+    name: currentAsrSubStepLabel,
+  });
+  const ttsSubStepProgressText = t('onboarding.voice.subStepProgress', {
+    scope: t('onboarding.step.tts'),
+    current: Math.min(VOICE_SUB_STEP_COUNT, Math.max(1, ttsSubStep + 1)),
+    total: VOICE_SUB_STEP_COUNT,
+    name: currentTtsSubStepLabel,
+  });
+  const nextAsrSubStepLabel = asrSubStep < VOICE_SUB_STEP_COUNT - 1
+    ? t(VOICE_SUB_STEP_LABEL_KEYS[asrSubStep + 1])
+    : '';
+  const nextTtsSubStepLabel = ttsSubStep < VOICE_SUB_STEP_COUNT - 1
+    ? t(VOICE_SUB_STEP_LABEL_KEYS[ttsSubStep + 1])
     : '';
 
   const selectedBackend = 'nanobot';
@@ -590,6 +622,10 @@ export default function FirstRunOnboardingDialog({
     () => (Array.isArray(catalogItems) ? catalogItems.filter((item) => item?.hasAsr) : []),
     [catalogItems],
   );
+  const asrLocalCatalogItems = useMemo(
+    () => asrCatalogItems.filter((item) => getCatalogSourceType(item) === 'local'),
+    [asrCatalogItems],
+  );
   const ttsCatalogItems = useMemo(
     () => (Array.isArray(catalogItems) ? catalogItems.filter((item) => item?.hasTts) : []),
     [catalogItems],
@@ -601,6 +637,14 @@ export default function FirstRunOnboardingDialog({
   const ttsCloudNoKeyCatalogItems = useMemo(
     () => ttsCatalogItems.filter((item) => isCloudNoKeyCatalogItem(item)),
     [ttsCatalogItems],
+  );
+  const selectedAsrCatalogItem = useMemo(
+    () => asrCatalogItems.find((item) => item?.id === selectedAsrCatalogId) || null,
+    [asrCatalogItems, selectedAsrCatalogId],
+  );
+  const selectedTtsCatalogItem = useMemo(
+    () => ttsCatalogItems.find((item) => item?.id === selectedTtsCatalogId) || null,
+    [selectedTtsCatalogId, ttsCatalogItems],
   );
 
   const installedAsrBundle = useMemo(
@@ -717,7 +761,7 @@ export default function FirstRunOnboardingDialog({
       });
       setDashscopeApiKeySaved(Boolean(dashscope?.hasApiKey));
 
-      const firstAsrCatalog = items.find((item) => item?.hasAsr) || null;
+      const firstAsrCatalog = items.find((item) => item?.hasAsr && getCatalogSourceType(item) === 'local') || null;
       const firstTtsCatalog = items.find((item) => item?.hasTts) || null;
       const selectedTtsCatalogItem = items.find((item) => item?.id === selectedTtsBundle?.catalogId) || null;
       setAsrSource(voice?.asrProvider === 'dashscope' ? 'cloud' : (selectedAsrBundle ? 'local' : 'skip'));
@@ -754,13 +798,44 @@ export default function FirstRunOnboardingDialog({
     if (!open) {
       setActiveStep(0);
       setBackendSubStep(0);
+      setAsrSubStep(0);
+      setTtsSubStep(0);
       setBackendDownloadDetailsOpen(false);
       setAsrDownloadDetailsOpen(false);
       setTtsDownloadDetailsOpen(false);
       return;
     }
+    setAsrSubStep(0);
+    setTtsSubStep(0);
     void loadVoiceContext();
   }, [loadVoiceContext, open]);
+
+  useEffect(() => {
+    if (asrSource !== 'local') {
+      return;
+    }
+    if (asrLocalCatalogItems.some((item) => item?.id === selectedAsrCatalogId)) {
+      return;
+    }
+    setSelectedAsrCatalogId(asrLocalCatalogItems[0]?.id || '');
+  }, [asrLocalCatalogItems, asrSource, selectedAsrCatalogId]);
+
+  useEffect(() => {
+    if (ttsSource === 'local') {
+      if (ttsLocalCatalogItems.some((item) => item?.id === selectedTtsCatalogId)) {
+        return;
+      }
+      setSelectedTtsCatalogId(ttsLocalCatalogItems[0]?.id || '');
+      return;
+    }
+
+    if (ttsSource === 'cloud-no-key') {
+      if (ttsCloudNoKeyCatalogItems.some((item) => item?.id === selectedTtsCatalogId)) {
+        return;
+      }
+      setSelectedTtsCatalogId(ttsCloudNoKeyCatalogItems[0]?.id || '');
+    }
+  }, [selectedTtsCatalogId, ttsCloudNoKeyCatalogItems, ttsLocalCatalogItems, ttsSource]);
 
   const saveVoiceSettings = useCallback(
     async (payload) => {
@@ -1146,9 +1221,11 @@ export default function FirstRunOnboardingDialog({
 
     if (activeStep === 2) {
       setAsrSource('skip');
+      setAsrSubStep(0);
     }
     if (activeStep === 3) {
       setTtsSource('skip');
+      setTtsSubStep(0);
     }
 
     if (activeStep >= TOTAL_STEPS - 1) {
@@ -1173,15 +1250,51 @@ export default function FirstRunOnboardingDialog({
     }
 
     if (activeStep === 2) {
-      const ok = await applyAsrConfig();
-      if (!ok) {
+      if (asrSubStep === 0) {
+        if (asrSource === 'local' && !selectedAsrCatalogId) {
+          setVoiceError(t('onboarding.asr.selectModel'));
+          return;
+        }
+        setAsrSubStep(1);
+        return;
+      }
+
+      if (asrSubStep === 1) {
+        const ok = await applyAsrConfig();
+        if (!ok) {
+          return;
+        }
+        setAsrSubStep(2);
+        return;
+      }
+
+      if (asrSubStep >= VOICE_SUB_STEP_COUNT - 1) {
+        setActiveStep(3);
         return;
       }
     }
 
     if (activeStep === 3) {
-      const ok = await applyTtsConfig();
-      if (!ok) {
+      if (ttsSubStep === 0) {
+        if ((ttsSource === 'local' || ttsSource === 'cloud-no-key') && !selectedTtsCatalogId) {
+          setVoiceError(t('onboarding.tts.selectOption'));
+          return;
+        }
+        setTtsSubStep(1);
+        return;
+      }
+
+      if (ttsSubStep === 1) {
+        const ok = await applyTtsConfig();
+        if (!ok) {
+          return;
+        }
+        setTtsSubStep(2);
+        return;
+      }
+
+      if (ttsSubStep >= VOICE_SUB_STEP_COUNT - 1) {
+        await onFinish?.();
         return;
       }
     }
@@ -1194,15 +1307,39 @@ export default function FirstRunOnboardingDialog({
       setBackendSubStep(0);
     }
     setActiveStep((current) => Math.min(TOTAL_STEPS - 1, current + 1));
-  }, [activeStep, applyAsrConfig, applyTtsConfig, backendSubStep, onFinish]);
+  }, [
+    activeStep,
+    applyAsrConfig,
+    applyTtsConfig,
+    asrSource,
+    asrSubStep,
+    backendSubStep,
+    onFinish,
+    selectedAsrCatalogId,
+    selectedTtsCatalogId,
+    t,
+    ttsSource,
+    ttsSubStep,
+  ]);
 
   const handleBack = useCallback(() => {
     if (activeStep === 1 && backendSubStep > 0) {
       setBackendSubStep((current) => Math.max(0, current - 1));
       return;
     }
+
+    if (activeStep === 2 && asrSubStep > 0) {
+      setAsrSubStep((current) => Math.max(0, current - 1));
+      return;
+    }
+
+    if (activeStep === 3 && ttsSubStep > 0) {
+      setTtsSubStep((current) => Math.max(0, current - 1));
+      return;
+    }
+
     setActiveStep((current) => Math.max(0, current - 1));
-  }, [activeStep, backendSubStep]);
+  }, [activeStep, asrSubStep, backendSubStep, ttsSubStep]);
 
   const renderNanobotDownloadCard = () => {
     if (!shouldShowNanobotDownloadCard) {
@@ -1465,170 +1602,457 @@ export default function FirstRunOnboardingDialog({
     </Stack>
   );
 
+  const renderAsrSelectSubStep = () => (
+    <Stack spacing={1.5}>
+      <TextField
+        select
+        label={t('onboarding.asr.source')}
+        value={asrSource}
+        onChange={(event) => {
+          setAsrSource(event.target.value);
+          setAsrResult(null);
+        }}
+        fullWidth
+      >
+        <MenuItem value="skip">{t('onboarding.source.skipLater')}</MenuItem>
+        <MenuItem value="cloud">{t('onboarding.source.cloudDashscope')}</MenuItem>
+        <MenuItem value="local">{t('onboarding.source.local')}</MenuItem>
+      </TextField>
+
+      {asrSource === 'cloud' && (
+        <TextField
+          select
+          label={t('onboarding.asr.model')}
+          value={dashscopeSettings.asrModel}
+          onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, asrModel: event.target.value }))}
+          fullWidth
+        >
+          {dashscopeAsrModelOptions.map((option) => (
+            <MenuItem key={option.value || 'asr-model-default'} value={option.value}>
+              {option.label}
+            </MenuItem>
+          ))}
+        </TextField>
+      )}
+
+      {asrSource === 'local' && (
+        <TextField
+          select
+          label={t('onboarding.asr.localModel')}
+          value={selectedAsrCatalogId}
+          onChange={(event) => setSelectedAsrCatalogId(event.target.value)}
+          fullWidth
+        >
+          {asrLocalCatalogItems.map((item) => (
+            <MenuItem key={item.id} value={item.id}>{item.name || item.id}</MenuItem>
+          ))}
+        </TextField>
+      )}
+
+      {asrSource === 'skip' && <Alert severity="info">{t('onboarding.voice.skipHint')}</Alert>}
+    </Stack>
+  );
+
+  const renderAsrConfigSubStep = () => {
+    if (asrSource === 'skip') {
+      return <Alert severity="info">{t('onboarding.asr.skipped')}</Alert>;
+    }
+
+    if (asrSource === 'cloud') {
+      return (
+        <Stack spacing={1}>
+          <TextField
+            label={t('onboarding.dashscope.apiKey')}
+            value={dashscopeApiKeyValue}
+            onChange={(event) => {
+              const nextApiKey = normalizeMaskedSecretInput(event.target.value, dashscopeApiKeySaved);
+              setDashscopeSettings((prev) => ({ ...prev, apiKey: nextApiKey }));
+            }}
+            type="password"
+            autoComplete="off"
+            placeholder={dashscopeApiKeySaved ? t('app.tokenSavedPlaceholder') : ''}
+            helperText={dashscopeApiKeySaved ? t('app.tokenSavedPlaceholder') : ''}
+            fullWidth
+          />
+          <TextField
+            label={t('onboarding.dashscope.baseUrl')}
+            value={dashscopeSettings.baseUrl}
+            onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, baseUrl: event.target.value }))}
+            placeholder="wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
+            fullWidth
+          />
+          <TextField
+            label={t('onboarding.dashscope.workspaceOptional')}
+            value={dashscopeSettings.workspace}
+            onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, workspace: event.target.value }))}
+            fullWidth
+          />
+          <TextField
+            select
+            label={t('onboarding.asr.language')}
+            value={dashscopeSettings.asrLanguage}
+            onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, asrLanguage: event.target.value }))}
+            fullWidth
+          >
+            {dashscopeAsrLanguageOptions.map((option) => (
+              <MenuItem key={option.value || 'asr-language-default'} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </TextField>
+          <Button
+            variant="outlined"
+            onClick={() => {
+              void applyAsrConfig();
+            }}
+            disabled={voiceSaving}
+          >
+            {t('onboarding.asr.applyCloud')}
+          </Button>
+        </Stack>
+      );
+    }
+
+    return (
+      <Stack spacing={1}>
+        <Alert severity="info">
+          {selectedAsrCatalogItem?.name || selectedAsrCatalogId || t('onboarding.asr.localModel')}
+        </Alert>
+        <Alert severity={installedAsrBundle ? 'success' : (asrDownloadRunning ? 'info' : 'warning')}>
+          {installedAsrBundle
+            ? t('onboarding.model.installed')
+            : (asrDownloadRunning ? t('onboarding.model.downloadingNotInstalled') : t('onboarding.model.notInstalled'))}
+        </Alert>
+        <Stack direction="row" spacing={1}>
+          <Button
+            variant="contained"
+            onClick={() => {
+              void handleInstallAsr();
+            }}
+            disabled={isInstallingAsr || !selectedAsrCatalogId}
+          >
+            {isInstallingAsr ? t('onboarding.download.inProgress') : (installedAsrBundle ? t('onboarding.download.redownload') : t('onboarding.download.model'))}
+          </Button>
+          <Button
+            variant="outlined"
+            onClick={() => {
+              void applyAsrConfig();
+            }}
+            disabled={!installedAsrBundle || voiceSaving}
+          >
+            {t('onboarding.asr.setCurrent')}
+          </Button>
+        </Stack>
+        {shouldShowAsrDownloadCard && renderInlineDownloadCard({
+          title: t('onboarding.asr.downloadCardTitle'),
+          task: asrDownloadTask,
+          detailsOpen: asrDownloadDetailsOpen,
+          onToggleDetails: () => setAsrDownloadDetailsOpen((current) => !current),
+        })}
+      </Stack>
+    );
+  };
+
+  const renderAsrTestSubStep = () => (
+    <Stack spacing={1}>
+      {asrSource === 'skip' && <Alert severity="info">{t('onboarding.asr.skipped')}</Alert>}
+      <TextField
+        label={t('onboarding.asr.prompt')}
+        value={asrPrompt}
+        onChange={(event) => setAsrPrompt(event.target.value)}
+        fullWidth
+      />
+      {asrTesting && !!getAsrTestProgressMessage(t, asrTestPhase) && (
+        <Alert severity="info">{getAsrTestProgressMessage(t, asrTestPhase)}</Alert>
+      )}
+      <Button
+        variant="outlined"
+        onClick={() => {
+          void handleRunAsrTest();
+        }}
+        disabled={asrSource === 'skip' || asrTesting || ttsTesting || voiceLoading}
+      >
+        {getAsrTestStatusText(t, asrTesting ? asrTestPhase : 'idle')}
+      </Button>
+
+      {!!asrResult && (
+        <Alert severity="success">
+          {t('onboarding.asr.test.result', {
+            latency: formatMs(asrResult.latencyMs),
+            text: asrResult.text || t('voice.empty'),
+          })}
+        </Alert>
+      )}
+    </Stack>
+  );
+
   const renderAsrStep = () => {
     return (
       <Stack spacing={1.5}>
         <Typography variant="body2" color="text.secondary">
           {t('onboarding.asr.description')}
         </Typography>
-
-        <TextField
-          select
-          label={t('onboarding.asr.source')}
-          value={asrSource}
-          onChange={(event) => setAsrSource(event.target.value)}
-          fullWidth
-        >
-          <MenuItem value="skip">{t('onboarding.source.skipLater')}</MenuItem>
-          <MenuItem value="cloud">{t('onboarding.source.cloudDashscope')}</MenuItem>
-          <MenuItem value="local">{t('onboarding.source.local')}</MenuItem>
-        </TextField>
-
-        {asrSource === 'cloud' && (
-          <Stack spacing={1}>
-            <TextField
-              label={t('onboarding.dashscope.apiKey')}
-              value={dashscopeApiKeyValue}
-              onChange={(event) => {
-                const nextApiKey = normalizeMaskedSecretInput(event.target.value, dashscopeApiKeySaved);
-                setDashscopeSettings((prev) => ({ ...prev, apiKey: nextApiKey }));
-              }}
-              type="password"
-              autoComplete="off"
-              placeholder={dashscopeApiKeySaved ? t('app.tokenSavedPlaceholder') : ''}
-              helperText={dashscopeApiKeySaved ? t('app.tokenSavedPlaceholder') : ''}
-              fullWidth
-            />
-            <TextField
-              label={t('onboarding.dashscope.baseUrl')}
-              value={dashscopeSettings.baseUrl}
-              onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, baseUrl: event.target.value }))}
-              placeholder="wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
-              fullWidth
-            />
-            <TextField
-              label={t('onboarding.dashscope.workspaceOptional')}
-              value={dashscopeSettings.workspace}
-              onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, workspace: event.target.value }))}
-              fullWidth
-            />
-            <TextField
-              select
-              label={t('onboarding.asr.model')}
-              value={dashscopeSettings.asrModel}
-              onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, asrModel: event.target.value }))}
-              fullWidth
-            >
-              {dashscopeAsrModelOptions.map((option) => (
-                <MenuItem key={option.value || 'asr-model-default'} value={option.value}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              select
-              label={t('onboarding.asr.language')}
-              value={dashscopeSettings.asrLanguage}
-              onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, asrLanguage: event.target.value }))}
-              fullWidth
-            >
-              {dashscopeAsrLanguageOptions.map((option) => (
-                <MenuItem key={option.value || 'asr-language-default'} value={option.value}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </TextField>
-            <Button
-              variant="outlined"
-              onClick={() => {
-                void applyAsrConfig();
-              }}
-              disabled={voiceSaving}
-            >
-              {t('onboarding.asr.applyCloud')}
-            </Button>
-          </Stack>
-        )}
-
-        {asrSource === 'local' && (
-          <Stack spacing={1}>
-            <TextField
-              select
-              label={t('onboarding.asr.localModel')}
-              value={selectedAsrCatalogId}
-              onChange={(event) => setSelectedAsrCatalogId(event.target.value)}
-              fullWidth
-            >
-              {asrCatalogItems.map((item) => (
-                <MenuItem key={item.id} value={item.id}>{item.name || item.id}</MenuItem>
-              ))}
-            </TextField>
-
-            <Alert severity={installedAsrBundle ? 'success' : (asrDownloadRunning ? 'info' : 'warning')}>
-              {installedAsrBundle
-                ? t('onboarding.model.installed')
-                : (asrDownloadRunning ? t('onboarding.model.downloadingNotInstalled') : t('onboarding.model.notInstalled'))}
-            </Alert>
-
-            <Stack direction="row" spacing={1}>
-              <Button
-                variant="contained"
-                onClick={() => {
-                  void handleInstallAsr();
-                }}
-                disabled={isInstallingAsr || !selectedAsrCatalogId}
-              >
-                {isInstallingAsr ? t('onboarding.download.inProgress') : (installedAsrBundle ? t('onboarding.download.redownload') : t('onboarding.download.model'))}
-              </Button>
-              <Button
-                variant="outlined"
-                onClick={() => {
-                  void applyAsrConfig();
-                }}
-                disabled={!installedAsrBundle || voiceSaving}
-              >
-                {t('onboarding.asr.setCurrent')}
-              </Button>
-            </Stack>
-            {shouldShowAsrDownloadCard && renderInlineDownloadCard({
-              title: t('onboarding.asr.downloadCardTitle'),
-              task: asrDownloadTask,
-              detailsOpen: asrDownloadDetailsOpen,
-              onToggleDetails: () => setAsrDownloadDetailsOpen((current) => !current),
-            })}
-          </Stack>
-        )}
-
-        <TextField
-          label={t('onboarding.asr.prompt')}
-          value={asrPrompt}
-          onChange={(event) => setAsrPrompt(event.target.value)}
-          fullWidth
-        />
-        {asrTesting && !!getAsrTestProgressMessage(t, asrTestPhase) && (
-          <Alert severity="info">{getAsrTestProgressMessage(t, asrTestPhase)}</Alert>
-        )}
-        <Button
-          variant="outlined"
-          onClick={() => {
-            void handleRunAsrTest();
-          }}
-          disabled={asrTesting || ttsTesting || voiceLoading}
-        >
-          {getAsrTestStatusText(t, asrTesting ? asrTestPhase : 'idle')}
-        </Button>
-
-        {!!asrResult && (
-          <Alert severity="success">
-            {t('onboarding.asr.test.result', {
-              latency: formatMs(asrResult.latencyMs),
-              text: asrResult.text || t('voice.empty'),
-            })}
-          </Alert>
-        )}
+        {asrSubStep === 0 && renderAsrSelectSubStep()}
+        {asrSubStep === 1 && renderAsrConfigSubStep()}
+        {asrSubStep === 2 && renderAsrTestSubStep()}
       </Stack>
     );
   };
+
+  const renderTtsSelectSubStep = () => (
+    <Stack spacing={1.5}>
+      <TextField
+        select
+        label={t('onboarding.tts.source')}
+        value={ttsSource}
+        onChange={(event) => {
+          setTtsSource(event.target.value);
+          setTtsResult(null);
+        }}
+        fullWidth
+      >
+        <MenuItem value="skip">{t('onboarding.source.skipLater')}</MenuItem>
+        <MenuItem value="cloud">{t('onboarding.source.cloudDashscope')}</MenuItem>
+        <MenuItem value="cloud-no-key">{t('onboarding.source.cloudNoKey')}</MenuItem>
+        <MenuItem value="local">{t('onboarding.source.local')}</MenuItem>
+      </TextField>
+
+      {ttsSource === 'cloud' && (
+        <TextField
+          select
+          label={t('onboarding.tts.model')}
+          value={dashscopeSettings.ttsModel}
+          onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, ttsModel: event.target.value }))}
+          fullWidth
+        >
+          {dashscopeTtsModelOptions.map((option) => (
+            <MenuItem key={option.value || 'tts-model-default'} value={option.value}>
+              {option.label}
+            </MenuItem>
+          ))}
+        </TextField>
+      )}
+
+      {ttsSource === 'cloud-no-key' && (
+        <TextField
+          select
+          label={t('onboarding.tts.cloudNoKey')}
+          value={selectedTtsCatalogId}
+          onChange={(event) => setSelectedTtsCatalogId(event.target.value)}
+          fullWidth
+        >
+          {ttsCloudNoKeyCatalogItems.map((item) => (
+            <MenuItem key={item.id} value={item.id}>{item.name || item.id}</MenuItem>
+          ))}
+        </TextField>
+      )}
+
+      {ttsSource === 'local' && (
+        <TextField
+          select
+          label={t('onboarding.tts.localModel')}
+          value={selectedTtsCatalogId}
+          onChange={(event) => setSelectedTtsCatalogId(event.target.value)}
+          fullWidth
+        >
+          {ttsLocalCatalogItems.map((item) => (
+            <MenuItem key={item.id} value={item.id}>{item.name || item.id}</MenuItem>
+          ))}
+        </TextField>
+      )}
+
+      {ttsSource === 'skip' && <Alert severity="info">{t('onboarding.voice.skipHint')}</Alert>}
+    </Stack>
+  );
+
+  const renderTtsConfigSubStep = () => {
+    if (ttsSource === 'skip') {
+      return <Alert severity="info">{t('onboarding.tts.skipped')}</Alert>;
+    }
+
+    if (ttsSource === 'cloud') {
+      return (
+        <Stack spacing={1}>
+          <TextField
+            label={t('onboarding.dashscope.apiKey')}
+            value={dashscopeApiKeyValue}
+            onChange={(event) => {
+              const nextApiKey = normalizeMaskedSecretInput(event.target.value, dashscopeApiKeySaved);
+              setDashscopeSettings((prev) => ({ ...prev, apiKey: nextApiKey }));
+            }}
+            type="password"
+            autoComplete="off"
+            placeholder={dashscopeApiKeySaved ? t('app.tokenSavedPlaceholder') : ''}
+            helperText={dashscopeApiKeySaved ? t('app.tokenSavedPlaceholder') : ''}
+            fullWidth
+          />
+          <TextField
+            label={t('onboarding.dashscope.baseUrl')}
+            value={dashscopeSettings.baseUrl}
+            onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, baseUrl: event.target.value }))}
+            placeholder="wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
+            fullWidth
+          />
+          <TextField
+            label={t('onboarding.dashscope.workspaceOptional')}
+            value={dashscopeSettings.workspace}
+            onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, workspace: event.target.value }))}
+            fullWidth
+          />
+          <TextField
+            select
+            label={t('onboarding.tts.voice')}
+            value={dashscopeSettings.ttsVoice}
+            onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, ttsVoice: event.target.value }))}
+            fullWidth
+          >
+            {dashscopeTtsVoiceOptions.map((option) => (
+              <MenuItem key={option.value || 'tts-voice-default'} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </TextField>
+          <Stack direction="row" spacing={1}>
+            <TextField
+              select
+              label={t('onboarding.tts.language')}
+              value={dashscopeSettings.ttsLanguage}
+              onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, ttsLanguage: event.target.value }))}
+              fullWidth
+            >
+              {dashscopeTtsLanguageOptions.map((option) => (
+                <MenuItem key={option.value || 'tts-language-default'} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label={t('onboarding.tts.sampleRate')}
+              value={String(dashscopeSettings.ttsSampleRate || '')}
+              onChange={(event) => {
+                const parsed = Number.parseInt(String(event.target.value), 10);
+                setDashscopeSettings((prev) => ({
+                  ...prev,
+                  ttsSampleRate: Number.isFinite(parsed) ? parsed : DEFAULT_DASHSCOPE_SETTINGS.ttsSampleRate,
+                }));
+              }}
+              fullWidth
+            >
+              {dashscopeTtsSampleRateOptions.map((option) => (
+                <MenuItem key={option.value || 'tts-sample-rate-default'} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              label={t('onboarding.tts.speechRate')}
+              type="number"
+              value={dashscopeSettings.ttsSpeechRate}
+              onChange={(event) => {
+                const parsed = Number.parseFloat(event.target.value);
+                setDashscopeSettings((prev) => ({
+                  ...prev,
+                  ttsSpeechRate: Number.isFinite(parsed) ? parsed : DEFAULT_DASHSCOPE_SETTINGS.ttsSpeechRate,
+                }));
+              }}
+              fullWidth
+            />
+          </Stack>
+          <Button
+            variant="outlined"
+            onClick={() => {
+              void applyTtsConfig();
+            }}
+            disabled={voiceSaving}
+          >
+            {t('onboarding.tts.applyCloud')}
+          </Button>
+        </Stack>
+      );
+    }
+
+    const cloudNoKey = ttsSource === 'cloud-no-key';
+    return (
+      <Stack spacing={1}>
+        <Alert severity="info">
+          {selectedTtsCatalogItem?.name || selectedTtsCatalogId || t('onboarding.tts.localModel')}
+        </Alert>
+        <Alert severity={installedTtsBundle ? 'success' : (ttsDownloadRunning ? 'info' : 'warning')}>
+          {cloudNoKey
+            ? (installedTtsBundle ? t('onboarding.tts.cloudNoKeyReady') : t('onboarding.tts.cloudNoKeyNotReady'))
+            : (installedTtsBundle
+              ? t('onboarding.model.installed')
+              : (ttsDownloadRunning ? t('onboarding.model.downloadingNotInstalled') : t('onboarding.model.notInstalled')))}
+        </Alert>
+        <Stack direction="row" spacing={1}>
+          <Button
+            variant="contained"
+            onClick={() => {
+              void handleInstallTts();
+            }}
+            disabled={isInstallingTts || !selectedTtsCatalogId}
+          >
+            {isInstallingTts
+              ? (cloudNoKey ? t('onboarding.download.preparingRuntime') : t('onboarding.download.inProgress'))
+              : (
+                installedTtsBundle
+                  ? (cloudNoKey ? t('onboarding.download.reprepareRuntime') : t('onboarding.download.redownload'))
+                  : (cloudNoKey ? t('onboarding.download.prepareRuntime') : t('onboarding.download.model'))
+              )}
+          </Button>
+          <Button
+            variant="outlined"
+            onClick={() => {
+              void applyTtsConfig();
+            }}
+            disabled={!installedTtsBundle || voiceSaving}
+          >
+            {t('onboarding.tts.setCurrent')}
+          </Button>
+        </Stack>
+        {shouldShowTtsDownloadCard && renderInlineDownloadCard({
+          title: t('onboarding.tts.downloadCardTitle'),
+          task: ttsDownloadTask,
+          detailsOpen: ttsDownloadDetailsOpen,
+          onToggleDetails: () => setTtsDownloadDetailsOpen((current) => !current),
+        })}
+      </Stack>
+    );
+  };
+
+  const renderTtsTestSubStep = () => (
+    <Stack spacing={1}>
+      {ttsSource === 'skip' && <Alert severity="info">{t('onboarding.tts.skipped')}</Alert>}
+      <TextField
+        label={t('onboarding.tts.testText')}
+        value={ttsText}
+        onChange={(event) => setTtsText(event.target.value)}
+        multiline
+        minRows={2}
+        fullWidth
+      />
+      <Button
+        variant="outlined"
+        onClick={() => {
+          void handleRunTtsTest();
+        }}
+        disabled={ttsSource === 'skip' || asrTesting || ttsTesting || voiceLoading}
+      >
+        {ttsTesting ? t('onboarding.tts.test.running') : t('onboarding.tts.test.action')}
+      </Button>
+
+      {!!ttsResult && (
+        <Alert severity="success">
+          {t('onboarding.tts.test.result', {
+            firstChunk: formatMs(ttsResult.firstChunkLatencyMs),
+            latency: formatMs(ttsResult.latencyMs),
+            chunkCount: ttsResult.chunkCount || 0,
+          })}
+        </Alert>
+      )}
+    </Stack>
+  );
 
   const renderTtsStep = () => {
     return (
@@ -1636,256 +2060,9 @@ export default function FirstRunOnboardingDialog({
         <Typography variant="body2" color="text.secondary">
           {t('onboarding.tts.description')}
         </Typography>
-
-        <TextField
-          select
-          label={t('onboarding.tts.source')}
-          value={ttsSource}
-          onChange={(event) => setTtsSource(event.target.value)}
-          fullWidth
-        >
-          <MenuItem value="skip">{t('onboarding.source.skipLater')}</MenuItem>
-          <MenuItem value="cloud">{t('onboarding.source.cloudDashscope')}</MenuItem>
-          <MenuItem value="cloud-no-key">{t('onboarding.source.cloudNoKey')}</MenuItem>
-          <MenuItem value="local">{t('onboarding.source.local')}</MenuItem>
-        </TextField>
-
-        {ttsSource === 'cloud' && (
-          <Stack spacing={1}>
-            <TextField
-              label={t('onboarding.dashscope.apiKey')}
-              value={dashscopeApiKeyValue}
-              onChange={(event) => {
-                const nextApiKey = normalizeMaskedSecretInput(event.target.value, dashscopeApiKeySaved);
-                setDashscopeSettings((prev) => ({ ...prev, apiKey: nextApiKey }));
-              }}
-              type="password"
-              autoComplete="off"
-              placeholder={dashscopeApiKeySaved ? t('app.tokenSavedPlaceholder') : ''}
-              helperText={dashscopeApiKeySaved ? t('app.tokenSavedPlaceholder') : ''}
-              fullWidth
-            />
-            <TextField
-              label={t('onboarding.dashscope.baseUrl')}
-              value={dashscopeSettings.baseUrl}
-              onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, baseUrl: event.target.value }))}
-              placeholder="wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
-              fullWidth
-            />
-            <TextField
-              label={t('onboarding.dashscope.workspaceOptional')}
-              value={dashscopeSettings.workspace}
-              onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, workspace: event.target.value }))}
-              fullWidth
-            />
-            <TextField
-              select
-              label={t('onboarding.tts.model')}
-              value={dashscopeSettings.ttsModel}
-              onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, ttsModel: event.target.value }))}
-              fullWidth
-            >
-              {dashscopeTtsModelOptions.map((option) => (
-                <MenuItem key={option.value || 'tts-model-default'} value={option.value}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              select
-              label={t('onboarding.tts.voice')}
-              value={dashscopeSettings.ttsVoice}
-              onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, ttsVoice: event.target.value }))}
-              fullWidth
-            >
-              {dashscopeTtsVoiceOptions.map((option) => (
-                <MenuItem key={option.value || 'tts-voice-default'} value={option.value}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </TextField>
-            <Stack direction="row" spacing={1}>
-              <TextField
-                select
-                label={t('onboarding.tts.language')}
-                value={dashscopeSettings.ttsLanguage}
-                onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, ttsLanguage: event.target.value }))}
-                fullWidth
-              >
-                {dashscopeTtsLanguageOptions.map((option) => (
-                  <MenuItem key={option.value || 'tts-language-default'} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <TextField
-                select
-                label={t('onboarding.tts.sampleRate')}
-                value={String(dashscopeSettings.ttsSampleRate || '')}
-                onChange={(event) => {
-                  const parsed = Number.parseInt(String(event.target.value), 10);
-                  setDashscopeSettings((prev) => ({
-                    ...prev,
-                    ttsSampleRate: Number.isFinite(parsed) ? parsed : DEFAULT_DASHSCOPE_SETTINGS.ttsSampleRate,
-                  }));
-                }}
-                fullWidth
-              >
-                {dashscopeTtsSampleRateOptions.map((option) => (
-                  <MenuItem key={option.value || 'tts-sample-rate-default'} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <TextField
-                label={t('onboarding.tts.speechRate')}
-                type="number"
-                value={dashscopeSettings.ttsSpeechRate}
-                onChange={(event) => {
-                  const parsed = Number.parseFloat(event.target.value);
-                  setDashscopeSettings((prev) => ({
-                    ...prev,
-                    ttsSpeechRate: Number.isFinite(parsed) ? parsed : DEFAULT_DASHSCOPE_SETTINGS.ttsSpeechRate,
-                  }));
-                }}
-                fullWidth
-              />
-            </Stack>
-            <Button
-              variant="outlined"
-              onClick={() => {
-                void applyTtsConfig();
-              }}
-              disabled={voiceSaving}
-            >
-              {t('onboarding.tts.applyCloud')}
-            </Button>
-          </Stack>
-        )}
-
-        {ttsSource === 'cloud-no-key' && (
-          <Stack spacing={1}>
-            <TextField
-              select
-              label={t('onboarding.tts.cloudNoKey')}
-              value={selectedTtsCatalogId}
-              onChange={(event) => setSelectedTtsCatalogId(event.target.value)}
-              fullWidth
-            >
-              {ttsCloudNoKeyCatalogItems.map((item) => (
-                <MenuItem key={item.id} value={item.id}>{item.name || item.id}</MenuItem>
-              ))}
-            </TextField>
-
-            <Alert severity={installedTtsBundle ? 'success' : 'warning'}>
-              {installedTtsBundle ? t('onboarding.tts.cloudNoKeyReady') : t('onboarding.tts.cloudNoKeyNotReady')}
-            </Alert>
-
-            <Stack direction="row" spacing={1}>
-              <Button
-                variant="contained"
-                onClick={() => {
-                  void handleInstallTts();
-                }}
-                disabled={isInstallingTts || !selectedTtsCatalogId}
-              >
-                {isInstallingTts ? t('onboarding.download.preparingRuntime') : (installedTtsBundle ? t('onboarding.download.reprepareRuntime') : t('onboarding.download.prepareRuntime'))}
-              </Button>
-              <Button
-                variant="outlined"
-                onClick={() => {
-                  void applyTtsConfig();
-                }}
-                disabled={!installedTtsBundle || voiceSaving}
-              >
-                {t('onboarding.tts.setCurrent')}
-              </Button>
-            </Stack>
-            {shouldShowTtsDownloadCard && renderInlineDownloadCard({
-              title: t('onboarding.tts.downloadCardTitle'),
-              task: ttsDownloadTask,
-              detailsOpen: ttsDownloadDetailsOpen,
-              onToggleDetails: () => setTtsDownloadDetailsOpen((current) => !current),
-            })}
-          </Stack>
-        )}
-
-        {ttsSource === 'local' && (
-          <Stack spacing={1}>
-            <TextField
-              select
-              label={t('onboarding.tts.localModel')}
-              value={selectedTtsCatalogId}
-              onChange={(event) => setSelectedTtsCatalogId(event.target.value)}
-              fullWidth
-            >
-              {ttsLocalCatalogItems.map((item) => (
-                <MenuItem key={item.id} value={item.id}>{item.name || item.id}</MenuItem>
-              ))}
-            </TextField>
-
-            <Alert severity={installedTtsBundle ? 'success' : (ttsDownloadRunning ? 'info' : 'warning')}>
-              {installedTtsBundle
-                ? t('onboarding.model.installed')
-                : (ttsDownloadRunning ? t('onboarding.model.downloadingNotInstalled') : t('onboarding.model.notInstalled'))}
-            </Alert>
-
-            <Stack direction="row" spacing={1}>
-              <Button
-                variant="contained"
-                onClick={() => {
-                  void handleInstallTts();
-                }}
-                disabled={isInstallingTts || !selectedTtsCatalogId}
-              >
-                {isInstallingTts ? t('onboarding.download.inProgress') : (installedTtsBundle ? t('onboarding.download.redownload') : t('onboarding.download.model'))}
-              </Button>
-              <Button
-                variant="outlined"
-                onClick={() => {
-                  void applyTtsConfig();
-                }}
-                disabled={!installedTtsBundle || voiceSaving}
-              >
-                {t('onboarding.tts.setCurrent')}
-              </Button>
-            </Stack>
-            {shouldShowTtsDownloadCard && renderInlineDownloadCard({
-              title: t('onboarding.tts.downloadCardTitle'),
-              task: ttsDownloadTask,
-              detailsOpen: ttsDownloadDetailsOpen,
-              onToggleDetails: () => setTtsDownloadDetailsOpen((current) => !current),
-            })}
-          </Stack>
-        )}
-
-        <TextField
-          label={t('onboarding.tts.testText')}
-          value={ttsText}
-          onChange={(event) => setTtsText(event.target.value)}
-          multiline
-          minRows={2}
-          fullWidth
-        />
-        <Button
-          variant="outlined"
-          onClick={() => {
-            void handleRunTtsTest();
-          }}
-          disabled={asrTesting || ttsTesting || voiceLoading}
-        >
-          {ttsTesting ? t('onboarding.tts.test.running') : t('onboarding.tts.test.action')}
-        </Button>
-
-        {!!ttsResult && (
-          <Alert severity="success">
-            {t('onboarding.tts.test.result', {
-              firstChunk: formatMs(ttsResult.firstChunkLatencyMs),
-              latency: formatMs(ttsResult.latencyMs),
-              chunkCount: ttsResult.chunkCount || 0,
-            })}
-          </Alert>
-        )}
+        {ttsSubStep === 0 && renderTtsSelectSubStep()}
+        {ttsSubStep === 1 && renderTtsConfigSubStep()}
+        {ttsSubStep === 2 && renderTtsTestSubStep()}
       </Stack>
     );
   };
@@ -1900,6 +2077,10 @@ export default function FirstRunOnboardingDialog({
     : (
       activeStep === 1 && backendSubStep < BACKEND_SUB_STEP_COUNT - 1
         ? t('onboarding.backend.nextSubStep', { name: nextBackendSubStepLabel })
+        : activeStep === 2 && asrSubStep < VOICE_SUB_STEP_COUNT - 1
+          ? t('onboarding.voice.nextSubStep', { name: nextAsrSubStepLabel })
+          : activeStep === 3 && ttsSubStep < VOICE_SUB_STEP_COUNT - 1
+            ? t('onboarding.voice.nextSubStep', { name: nextTtsSubStepLabel })
         : t('common.next')
     );
 
@@ -1930,6 +2111,16 @@ export default function FirstRunOnboardingDialog({
           {activeStep === 1 && (
             <Typography variant="caption" color="text.secondary">
               {backendSubStepProgressText}
+            </Typography>
+          )}
+          {activeStep === 2 && (
+            <Typography variant="caption" color="text.secondary">
+              {asrSubStepProgressText}
+            </Typography>
+          )}
+          {activeStep === 3 && (
+            <Typography variant="caption" color="text.secondary">
+              {ttsSubStepProgressText}
             </Typography>
           )}
 

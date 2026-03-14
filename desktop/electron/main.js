@@ -15,6 +15,7 @@ const {
 const { registerChatStreamIpc } = require('./ipc/chatStream');
 const { registerConversationIpc } = require('./ipc/conversation');
 const { registerLive2DModelsIpc } = require('./ipc/live2dModels');
+const { registerAppUpdaterIpc } = require('./ipc/appUpdater');
 const { registerNanobotSkillsIpc } = require('./ipc/nanobotSkills');
 const { registerNanobotRuntimeIpc } = require('./ipc/nanobotRuntime');
 const { registerSettingsIpc } = require('./ipc/settings');
@@ -30,6 +31,7 @@ const { Live2DModelLibrary, MODEL_PROTOCOL } = require('./services/live2dModelLi
 const { PythonEnvManager } = require('./services/python/pythonEnvManager');
 const { PythonRuntimeManager } = require('./services/python/pythonRuntimeManager');
 const { SettingsStore } = require('./services/settingsStore');
+const { AppUpdaterService } = require('./services/appUpdaterService');
 const { ScreenshotCaptureService } = require('./services/screenshotCaptureService');
 const { ScreenshotSelectionService } = require('./services/screenshotSelectionService');
 const { VoiceModelLibrary } = require('./services/voice/voiceModelLibrary');
@@ -55,6 +57,7 @@ let disposeChatStreamHandlers = null;
 let disposeConversationHandlers = null;
 let disposeModeHandlers = null;
 let disposeLive2DModelsHandlers = null;
+let disposeAppUpdaterHandlers = null;
 let disposeNanobotRuntimeHandlers = null;
 let disposeNanobotSkillsHandlers = null;
 let disposeVoiceModelsHandlers = null;
@@ -75,6 +78,7 @@ let nanobotRuntimeManager = null;
 let nanobotSkillsLibrary = null;
 let isQuitting = false;
 let chatBackendManager = null;
+let appUpdaterService = null;
 const PINNED_NANOBOT_ARCHIVE_URL = 'https://codeload.github.com/HKUDS/nanobot/tar.gz/refs/tags/v0.1.4.post4';
 const legacyConversationMirrorEnabled = (() => {
   const value = process.env.OPENCLAW_ENABLE_LEGACY_STREAM_EVENTS;
@@ -519,6 +523,19 @@ async function bootstrap() {
     getWindow: () => mainWindow,
     backendManager: chatBackendManager,
   });
+  appUpdaterService = new AppUpdaterService({
+    app,
+    emitState: (payload = {}) => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+      }
+      mainWindow.webContents.send('app-updater:state', payload);
+    },
+  });
+  disposeAppUpdaterHandlers = registerAppUpdaterIpc({
+    ipcMain,
+    appUpdaterService,
+  });
 
   windowModeManager = new WindowModeManager();
 
@@ -820,6 +837,9 @@ app.on('before-quit', () => {
   if (disposeLive2DModelsHandlers) {
     disposeLive2DModelsHandlers();
   }
+  if (disposeAppUpdaterHandlers) {
+    disposeAppUpdaterHandlers();
+  }
   if (disposeNanobotRuntimeHandlers) {
     disposeNanobotRuntimeHandlers();
   }
@@ -838,6 +858,10 @@ app.on('before-quit', () => {
   if (chatBackendManager) {
     void chatBackendManager.dispose();
     chatBackendManager = null;
+  }
+  if (appUpdaterService) {
+    appUpdaterService.dispose();
+    appUpdaterService = null;
   }
   pythonRuntimeManager = null;
   pythonEnvManager = null;

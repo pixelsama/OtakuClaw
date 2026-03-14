@@ -767,6 +767,60 @@ export const desktopBridge = {
       };
     },
   },
+  appUpdater: {
+    async getState() {
+      const api = getDesktopApi();
+      if (!api?.appUpdater?.getState) {
+        return {
+          ok: true,
+          state: {
+            status: 'idle',
+            available: false,
+            downloaded: false,
+            supported: false,
+          },
+        };
+      }
+      return api.appUpdater.getState();
+    },
+    async check() {
+      const api = getDesktopApi();
+      if (!api?.appUpdater?.check) {
+        return {
+          ok: false,
+          reason: 'desktop_app_updater_unavailable',
+        };
+      }
+      return api.appUpdater.check();
+    },
+    async download() {
+      const api = getDesktopApi();
+      if (!api?.appUpdater?.download) {
+        return {
+          ok: false,
+          reason: 'desktop_app_updater_unavailable',
+        };
+      }
+      return api.appUpdater.download();
+    },
+    async install() {
+      const api = getDesktopApi();
+      if (!api?.appUpdater?.install) {
+        return {
+          ok: false,
+          reason: 'desktop_app_updater_unavailable',
+        };
+      }
+      return api.appUpdater.install();
+    },
+    onState(handler) {
+      const api = getDesktopApi();
+      if (!api?.appUpdater?.onState || typeof handler !== 'function') {
+        return () => {};
+      }
+      return api.appUpdater.onState(handler);
+    },
+  },
   nanobotRuntime: {
     async status() {
       const api = getDesktopApi();

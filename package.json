@@ -72,6 +72,7 @@
     }
   },
   "dependencies": {
+    "electron-updater": "^6.8.3",
     "ws": "^8.19.0"
   }
 }

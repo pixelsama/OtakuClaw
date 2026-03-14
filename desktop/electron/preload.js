@@ -64,6 +64,24 @@ const settings = {
   },
 };
 
+const appUpdater = {
+  getState() {
+    return ipcRenderer.invoke('app-updater:get-state');
+  },
+  check() {
+    return ipcRenderer.invoke('app-updater:check');
+  },
+  download() {
+    return ipcRenderer.invoke('app-updater:download');
+  },
+  install() {
+    return ipcRenderer.invoke('app-updater:install');
+  },
+  onState(handler) {
+    return onChannel('app-updater:state', handler);
+  },
+};
+
 const nanobotRuntime = {
   status() {
     return ipcRenderer.invoke('nanobot-runtime:status');
@@ -259,6 +277,7 @@ contextBridge.exposeInMainWorld('desktop', {
   chatStream,
   conversation,
   settings,
+  appUpdater,
   nanobotRuntime,
   nanobotDebug,
   nanobotSkills,
