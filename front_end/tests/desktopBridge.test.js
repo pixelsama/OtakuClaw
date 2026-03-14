@@ -168,3 +168,40 @@ describe('desktopBridge conversation-only routing', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('desktopBridge app updater bridge', () => {
+  it('returns fallback state when app updater API is unavailable', async () => {
+    globalThis.window = {
+      desktop: {
+        isElectron: true,
+      },
+    };
+
+    const result = await desktopBridge.appUpdater.getState();
+    expect(result).toEqual({
+      ok: true,
+      state: {
+        status: 'idle',
+        available: false,
+        downloaded: false,
+        supported: false,
+      },
+    });
+  });
+
+  it('delegates check action to preload appUpdater API', async () => {
+    const check = vi.fn(async () => ({ ok: true }));
+    globalThis.window = {
+      desktop: {
+        isElectron: true,
+        appUpdater: {
+          check,
+        },
+      },
+    };
+
+    const result = await desktopBridge.appUpdater.check();
+    expect(result).toEqual({ ok: true });
+    expect(check).toHaveBeenCalledTimes(1);
+  });
+});

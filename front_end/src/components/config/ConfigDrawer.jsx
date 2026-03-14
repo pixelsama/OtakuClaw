@@ -10,6 +10,7 @@ import {
   Divider,
   Drawer,
   IconButton,
+  LinearProgress,
   MenuItem,
   Stack,
   Tab,
@@ -20,6 +21,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import Live2DControls from '../controls/Live2DControls.jsx';
 import VoiceSettingsPanel from './VoiceSettingsPanel.jsx';
+import { desktopBridge } from '../../services/desktopBridge.js';
 import {
   LANGUAGE_EN_US,
   LANGUAGE_ZH_CN,
@@ -38,6 +40,65 @@ import {
 
 const CONFIG_DRAWER_WIDTH = 420;
 const MASKED_SECRET_VALUE = '********';
+const DEFAULT_APP_UPDATER_STATE = {
+  status: 'idle',
+  updateInfo: null,
+  progress: null,
+  checkedAt: '',
+  error: null,
+  available: false,
+  downloaded: false,
+  supported: false,
+};
+
+function resolveUpdaterStatusLabel(t, status = 'idle') {
+  const normalized = typeof status === 'string' ? status.trim().toLowerCase() : 'idle';
+  if (normalized === 'checking') {
+    return t('preferences.updater.status.checking');
+  }
+  if (normalized === 'available') {
+    return t('preferences.updater.status.available');
+  }
+  if (normalized === 'downloading') {
+    return t('preferences.updater.status.downloading');
+  }
+  if (normalized === 'downloaded') {
+    return t('preferences.updater.status.downloaded');
+  }
+  if (normalized === 'error') {
+    return t('preferences.updater.status.error');
+  }
+  return t('preferences.updater.status.idle');
+}
+
+function resolveUpdaterFailureMessage(t, result = {}) {
+  const reason = typeof result?.reason === 'string' ? result.reason : '';
+  if (reason === 'app_not_packaged') {
+    return t('preferences.updater.reason.appNotPackaged');
+  }
+  if (reason === 'updater_unavailable' || reason === 'desktop_app_updater_unavailable') {
+    return t('preferences.updater.reason.unavailable');
+  }
+
+  if (typeof result?.error?.message === 'string' && result.error.message.trim()) {
+    return result.error.message.trim();
+  }
+  return t('preferences.updater.actionFailed');
+}
+
+function formatUpdaterSpeed(bytesPerSecond = 0) {
+  const bytes = Number.isFinite(bytesPerSecond) && bytesPerSecond > 0 ? bytesPerSecond : 0;
+  if (bytes <= 0) {
+    return '0 B/s';
+  }
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB/s`;
+  }
+  if (bytes >= 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB/s`;
+  }
+  return `${Math.round(bytes)} B/s`;
+}
 
 function formatNanobotDebugLog(entry = {}) {
   const timestamp = typeof entry.timestamp === 'string' ? entry.timestamp : '';
@@ -138,6 +199,10 @@ export default function ConfigDrawer({
   const { language, setLanguage, t } = useI18n();
   const { themeMode, setThemeMode } = useThemeMode();
   const [activeConfigTab, setActiveConfigTab] = useState(0);
+  const [appUpdaterState, setAppUpdaterState] = useState(DEFAULT_APP_UPDATER_STATE);
+  const [appUpdaterBusy, setAppUpdaterBusy] = useState(false);
+  const [appUpdaterError, setAppUpdaterError] = useState('');
+  const [appUpdaterFeedback, setAppUpdaterFeedback] = useState('');
   const selectedBackend = 'nanobot';
   const openClawSettings = chatBackendSettings?.openclaw || {};
   const nanobotSettings = chatBackendSettings?.nanobot || {};
@@ -166,12 +231,137 @@ export default function ConfigDrawer({
     () => extendNanobotProviderOptionsWithLegacy(NANOBOT_PROVIDER_OPTIONS, nanobotSettings.provider || ''),
     [nanobotSettings.provider],
   );
+  const updaterStatus = typeof appUpdaterState?.status === 'string' ? appUpdaterState.status : 'idle';
+  const updaterStatusLabel = resolveUpdaterStatusLabel(t, updaterStatus);
+  const updaterAvailableVersion = typeof appUpdaterState?.updateInfo?.version === 'string'
+    ? appUpdaterState.updateInfo.version.trim()
+    : '';
+  const updaterDownloadProgress = Number.isFinite(appUpdaterState?.progress?.percent)
+    ? Math.max(0, Math.min(100, appUpdaterState.progress.percent))
+    : 0;
+  const updaterDownloadRate = formatUpdaterSpeed(appUpdaterState?.progress?.bytesPerSecond || 0);
+  const updaterSupported = desktopMode && Boolean(appUpdaterState?.supported);
+  const updaterIsDownloading = updaterStatus === 'downloading';
+  const updaterHasAvailable = Boolean(appUpdaterState?.available);
+  const updaterDownloaded = Boolean(appUpdaterState?.downloaded);
+  const updaterVisibleError = appUpdaterError || (typeof appUpdaterState?.error?.message === 'string'
+    ? appUpdaterState.error.message
+    : '');
+
+  const handleCheckForUpdates = async () => {
+    setAppUpdaterBusy(true);
+    setAppUpdaterError('');
+    setAppUpdaterFeedback('');
+    try {
+      const result = await desktopBridge.appUpdater.check();
+      if (!result?.ok) {
+        setAppUpdaterError(resolveUpdaterFailureMessage(t, result));
+        return;
+      }
+
+      const nextVersion = typeof result?.updateInfo?.version === 'string' ? result.updateInfo.version.trim() : '';
+      if (nextVersion) {
+        setAppUpdaterFeedback(t('preferences.updater.availableVersion', { version: nextVersion }));
+      } else {
+        setAppUpdaterFeedback(t('preferences.updater.checkedNoUpdate'));
+      }
+    } catch (error) {
+      setAppUpdaterError(error?.message || t('preferences.updater.actionFailed'));
+    } finally {
+      setAppUpdaterBusy(false);
+    }
+  };
+
+  const handleDownloadUpdate = async () => {
+    setAppUpdaterBusy(true);
+    setAppUpdaterError('');
+    setAppUpdaterFeedback('');
+    try {
+      const result = await desktopBridge.appUpdater.download();
+      if (!result?.ok) {
+        setAppUpdaterError(resolveUpdaterFailureMessage(t, result));
+        return;
+      }
+      setAppUpdaterFeedback(t('preferences.updater.downloadingStarted'));
+    } catch (error) {
+      setAppUpdaterError(error?.message || t('preferences.updater.actionFailed'));
+    } finally {
+      setAppUpdaterBusy(false);
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    setAppUpdaterBusy(true);
+    setAppUpdaterError('');
+    setAppUpdaterFeedback('');
+    try {
+      const result = await desktopBridge.appUpdater.install();
+      if (!result?.ok) {
+        setAppUpdaterError(resolveUpdaterFailureMessage(t, result));
+        return;
+      }
+      setAppUpdaterFeedback(t('preferences.updater.installing'));
+    } catch (error) {
+      setAppUpdaterError(error?.message || t('preferences.updater.actionFailed'));
+    } finally {
+      setAppUpdaterBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (!open) {
       setActiveConfigTab(0);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !desktopMode) {
+      return () => {};
+    }
+
+    let disposed = false;
+    const loadUpdaterState = async () => {
+      try {
+        const result = await desktopBridge.appUpdater.getState();
+        if (disposed || !result?.ok || !result?.state) {
+          return;
+        }
+        setAppUpdaterState((current) => ({
+          ...current,
+          ...result.state,
+        }));
+      } catch (error) {
+        if (!disposed) {
+          setAppUpdaterError(error?.message || t('preferences.updater.loadFailed'));
+        }
+      }
+    };
+
+    void loadUpdaterState();
+    const unsubscribe = desktopBridge.appUpdater.onState((payload = {}) => {
+      if (disposed || !payload || typeof payload !== 'object') {
+        return;
+      }
+      setAppUpdaterState((current) => ({
+        ...current,
+        ...payload,
+      }));
+      if (payload?.status === 'error') {
+        const message = typeof payload?.error?.message === 'string' ? payload.error.message : '';
+        setAppUpdaterError(message || t('preferences.updater.actionFailed'));
+      } else {
+        setAppUpdaterError('');
+      }
+      if (payload?.status === 'downloaded') {
+        setAppUpdaterFeedback(t('preferences.updater.downloadedReady'));
+      }
+    });
+
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  }, [desktopMode, open, t]);
 
   return (
     <Drawer
@@ -729,6 +919,76 @@ export default function ConfigDrawer({
                       {t('preferences.theme.system')}
                     </Button>
                   </Stack>
+                </SectionAccordion>
+
+                <SectionAccordion title={t('preferences.updater.title')}>
+                  {!desktopMode && (
+                    <Alert severity="info">{t('preferences.updater.webUnsupported')}</Alert>
+                  )}
+
+                  {desktopMode && !updaterSupported && (
+                    <Alert severity="info">{t('preferences.updater.reason.appNotPackaged')}</Alert>
+                  )}
+
+                  <Box sx={{ color: 'text.secondary', fontSize: 13 }}>
+                    {t('preferences.updater.status.label', { status: updaterStatusLabel })}
+                  </Box>
+
+                  {updaterAvailableVersion && (
+                    <Box sx={{ color: 'text.secondary', fontSize: 13 }}>
+                      {t('preferences.updater.availableVersion', { version: updaterAvailableVersion })}
+                    </Box>
+                  )}
+
+                  {updaterIsDownloading && (
+                    <Stack spacing={0.75}>
+                      <LinearProgress variant="determinate" value={updaterDownloadProgress} />
+                      <Box sx={{ color: 'text.secondary', fontSize: 12 }}>
+                        {t('preferences.updater.progress', {
+                          percent: updaterDownloadProgress.toFixed(1),
+                          speed: updaterDownloadRate,
+                        })}
+                      </Box>
+                    </Stack>
+                  )}
+
+                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => {
+                        void handleCheckForUpdates();
+                      }}
+                      disabled={!updaterSupported || appUpdaterBusy}
+                    >
+                      {appUpdaterBusy && updaterStatus === 'checking'
+                        ? t('preferences.updater.checking')
+                        : t('preferences.updater.check')}
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => {
+                        void handleDownloadUpdate();
+                      }}
+                      disabled={!updaterSupported || appUpdaterBusy || updaterIsDownloading || !updaterHasAvailable || updaterDownloaded}
+                    >
+                      {updaterIsDownloading ? t('preferences.updater.downloading') : t('preferences.updater.download')}
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      onClick={() => {
+                        void handleInstallUpdate();
+                      }}
+                      disabled={!updaterSupported || appUpdaterBusy || !updaterDownloaded}
+                    >
+                      {t('preferences.updater.install')}
+                    </Button>
+                  </Stack>
+
+                  {!!updaterVisibleError && <Alert severity="error">{updaterVisibleError}</Alert>}
+                  {!!appUpdaterFeedback && <Alert severity="success">{appUpdaterFeedback}</Alert>}
                 </SectionAccordion>
               </Stack>
             )}
