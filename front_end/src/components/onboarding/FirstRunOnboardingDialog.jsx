@@ -24,9 +24,26 @@ import {
   resolveTaskStatsText,
   resolveTaskStatusText,
 } from '../download/taskPresentation.js';
+import {
+  extendNanobotProviderOptionsWithLegacy,
+  NANOBOT_PROVIDER_OPTIONS,
+} from '../../constants/nanobotProviders.js';
+import {
+  DASHSCOPE_ASR_LANGUAGE_OPTIONS,
+  DASHSCOPE_ASR_MODEL_OPTIONS,
+  DASHSCOPE_TTS_MODEL_OPTIONS,
+  QWEN3_TTS_LANGUAGE_OPTIONS,
+  QWEN_REALTIME_TTS_SAMPLE_RATE_OPTIONS,
+  QWEN_REALTIME_TTS_VOICE_OPTIONS,
+  COSYVOICE_TTS_SAMPLE_RATE_OPTIONS,
+  COSYVOICE_TTS_VOICE_OPTIONS,
+  LEGACY_QWEN_TTS_SAMPLE_RATE_OPTIONS,
+  extendOptionsWithCustom,
+} from '../../constants/voiceCloudCatalog.js';
 
 const ASR_TEST_RECORD_MS = 3000;
 const ASR_TEST_SAMPLE_RATE = 16000;
+const MASKED_SECRET_VALUE = '********';
 
 const DEFAULT_DASHSCOPE_SETTINGS = {
   workspace: '',
@@ -69,6 +86,35 @@ function getCatalogSourceType(item = {}) {
 
 function isCloudNoKeyCatalogItem(item = {}) {
   return getCatalogSourceType(item) === 'cloud-no-key';
+}
+
+function normalizeMaskedSecretInput(rawValue, hasSavedSecret) {
+  if (!hasSavedSecret) {
+    return rawValue;
+  }
+
+  const value = typeof rawValue === 'string' ? rawValue : '';
+  if (!value) {
+    return '';
+  }
+
+  if (/^\*+$/.test(value)) {
+    return '';
+  }
+
+  if (value.startsWith(MASKED_SECRET_VALUE)) {
+    return value.slice(MASKED_SECRET_VALUE.length);
+  }
+
+  return value;
+}
+
+function isCosyVoiceModel(modelId = '') {
+  return typeof modelId === 'string' && modelId.trim().toLowerCase().startsWith('cosyvoice-');
+}
+
+function isLegacyQwenRealtimeTtsModel(modelId = '') {
+  return typeof modelId === 'string' && modelId.trim().toLowerCase().startsWith('qwen-tts-realtime');
 }
 
 function getAsrTestStatusText(t, phase) {
@@ -437,6 +483,13 @@ export default function FirstRunOnboardingDialog({
   const selectedBackend = 'nanobot';
   const openClawSettings = chatBackendSettings?.openclaw || {};
   const nanobotSettings = chatBackendSettings?.nanobot || {};
+  const nanobotProviderOptions = useMemo(
+    () => extendNanobotProviderOptionsWithLegacy(NANOBOT_PROVIDER_OPTIONS, nanobotSettings.provider || ''),
+    [nanobotSettings.provider],
+  );
+  const nanobotApiKeySaved = Boolean(nanobotSettings.hasApiKey && !(nanobotSettings.apiKey || '').trim());
+  const nanobotApiKeyValue = nanobotApiKeySaved ? MASKED_SECRET_VALUE : (nanobotSettings.apiKey || '');
+  const dashscopeApiKeyValue = dashscopeApiKeySaved ? MASKED_SECRET_VALUE : dashscopeSettings.apiKey;
   const nanobotDownloadPhase = typeof nanobotRuntimeDownloadTask?.phase === 'string'
     ? nanobotRuntimeDownloadTask.phase
     : 'idle';
@@ -558,6 +611,47 @@ export default function FirstRunOnboardingDialog({
     () => findInstalledBundleByCatalogId({ bundles: modelBundles, catalogId: selectedTtsCatalogId, capability: 'tts' }),
     [modelBundles, selectedTtsCatalogId],
   );
+  const dashscopeAsrModelOptions = useMemo(
+    () => extendOptionsWithCustom(DASHSCOPE_ASR_MODEL_OPTIONS, dashscopeSettings.asrModel),
+    [dashscopeSettings.asrModel],
+  );
+  const dashscopeAsrLanguageOptions = useMemo(
+    () => extendOptionsWithCustom(DASHSCOPE_ASR_LANGUAGE_OPTIONS, dashscopeSettings.asrLanguage),
+    [dashscopeSettings.asrLanguage],
+  );
+  const dashscopeTtsModelOptions = useMemo(
+    () => extendOptionsWithCustom(DASHSCOPE_TTS_MODEL_OPTIONS, dashscopeSettings.ttsModel),
+    [dashscopeSettings.ttsModel],
+  );
+  const isDashscopeCosyVoiceTtsModel = useMemo(
+    () => isCosyVoiceModel(dashscopeSettings.ttsModel),
+    [dashscopeSettings.ttsModel],
+  );
+  const isDashscopeLegacyQwenTtsModel = useMemo(
+    () => isLegacyQwenRealtimeTtsModel(dashscopeSettings.ttsModel),
+    [dashscopeSettings.ttsModel],
+  );
+  const dashscopeTtsVoiceOptions = useMemo(
+    () => extendOptionsWithCustom(
+      (isDashscopeCosyVoiceTtsModel ? COSYVOICE_TTS_VOICE_OPTIONS : QWEN_REALTIME_TTS_VOICE_OPTIONS)
+        .map((value) => ({ value, label: value })),
+      dashscopeSettings.ttsVoice,
+    ),
+    [dashscopeSettings.ttsVoice, isDashscopeCosyVoiceTtsModel],
+  );
+  const dashscopeTtsLanguageOptions = useMemo(
+    () => extendOptionsWithCustom(QWEN3_TTS_LANGUAGE_OPTIONS, dashscopeSettings.ttsLanguage),
+    [dashscopeSettings.ttsLanguage],
+  );
+  const dashscopeTtsSampleRateOptions = useMemo(() => {
+    const sampleRates = isDashscopeCosyVoiceTtsModel
+      ? COSYVOICE_TTS_SAMPLE_RATE_OPTIONS
+      : (isDashscopeLegacyQwenTtsModel ? LEGACY_QWEN_TTS_SAMPLE_RATE_OPTIONS : QWEN_REALTIME_TTS_SAMPLE_RATE_OPTIONS);
+    return extendOptionsWithCustom(
+      sampleRates.map((value) => ({ value: String(value), label: String(value) })),
+      String(dashscopeSettings.ttsSampleRate || ''),
+    );
+  }, [dashscopeSettings.ttsSampleRate, isDashscopeCosyVoiceTtsModel, isDashscopeLegacyQwenTtsModel]);
 
   const loadVoiceContext = useCallback(async () => {
     if (!desktopMode) {
@@ -1252,11 +1346,23 @@ export default function FirstRunOnboardingDialog({
             {t('onboarding.backend.pickWorkspace')}
           </Button>
           <TextField
+            select
             label={t('onboarding.backend.provider')}
             value={nanobotSettings.provider || ''}
             onChange={(event) => onNanobotSettingChange?.('provider', event.target.value)}
             fullWidth
-          />
+          >
+            {nanobotProviderOptions.map((option) => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.legacyValue
+                  ? t('nanobot.provider.legacy', { provider: option.legacyValue })
+                  : (() => {
+                    const localized = t(option.labelKey);
+                    return localized === option.labelKey ? option.fallbackLabel : localized;
+                  })()}
+              </MenuItem>
+            ))}
+          </TextField>
           <TextField
             label={t('onboarding.backend.model')}
             value={nanobotSettings.model || ''}
@@ -1272,10 +1378,15 @@ export default function FirstRunOnboardingDialog({
           />
           <TextField
             label={t('onboarding.backend.apiKey')}
-            value={nanobotSettings.apiKey || ''}
-            onChange={(event) => onNanobotSettingChange?.('apiKey', event.target.value)}
+            value={nanobotApiKeyValue}
+            onChange={(event) => {
+              const nextApiKey = normalizeMaskedSecretInput(event.target.value, nanobotApiKeySaved);
+              onNanobotSettingChange?.('apiKey', nextApiKey);
+            }}
             type="password"
             autoComplete="off"
+            placeholder={nanobotSettings.hasApiKey ? t('app.tokenSavedPlaceholder') : ''}
+            helperText={nanobotApiKeySaved ? t('app.tokenSavedPlaceholder') : ''}
             fullWidth
           />
         </Stack>
@@ -1364,10 +1475,11 @@ export default function FirstRunOnboardingDialog({
         <TextField
           select
           label={t('onboarding.asr.source')}
-          value={asrSource === 'skip' ? 'cloud' : asrSource}
+          value={asrSource}
           onChange={(event) => setAsrSource(event.target.value)}
           fullWidth
         >
+          <MenuItem value="skip">{t('onboarding.source.skipLater')}</MenuItem>
           <MenuItem value="cloud">{t('onboarding.source.cloudDashscope')}</MenuItem>
           <MenuItem value="local">{t('onboarding.source.local')}</MenuItem>
         </TextField>
@@ -1376,10 +1488,15 @@ export default function FirstRunOnboardingDialog({
           <Stack spacing={1}>
             <TextField
               label={t('onboarding.dashscope.apiKey')}
-              value={dashscopeSettings.apiKey}
-              onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, apiKey: event.target.value }))}
+              value={dashscopeApiKeyValue}
+              onChange={(event) => {
+                const nextApiKey = normalizeMaskedSecretInput(event.target.value, dashscopeApiKeySaved);
+                setDashscopeSettings((prev) => ({ ...prev, apiKey: nextApiKey }));
+              }}
               type="password"
               autoComplete="off"
+              placeholder={dashscopeApiKeySaved ? t('app.tokenSavedPlaceholder') : ''}
+              helperText={dashscopeApiKeySaved ? t('app.tokenSavedPlaceholder') : ''}
               fullWidth
             />
             <TextField
@@ -1396,17 +1513,31 @@ export default function FirstRunOnboardingDialog({
               fullWidth
             />
             <TextField
+              select
               label={t('onboarding.asr.model')}
               value={dashscopeSettings.asrModel}
               onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, asrModel: event.target.value }))}
               fullWidth
-            />
+            >
+              {dashscopeAsrModelOptions.map((option) => (
+                <MenuItem key={option.value || 'asr-model-default'} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
             <TextField
+              select
               label={t('onboarding.asr.language')}
               value={dashscopeSettings.asrLanguage}
               onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, asrLanguage: event.target.value }))}
               fullWidth
-            />
+            >
+              {dashscopeAsrLanguageOptions.map((option) => (
+                <MenuItem key={option.value || 'asr-language-default'} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
             <Button
               variant="outlined"
               onClick={() => {
@@ -1523,10 +1654,15 @@ export default function FirstRunOnboardingDialog({
           <Stack spacing={1}>
             <TextField
               label={t('onboarding.dashscope.apiKey')}
-              value={dashscopeSettings.apiKey}
-              onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, apiKey: event.target.value }))}
+              value={dashscopeApiKeyValue}
+              onChange={(event) => {
+                const nextApiKey = normalizeMaskedSecretInput(event.target.value, dashscopeApiKeySaved);
+                setDashscopeSettings((prev) => ({ ...prev, apiKey: nextApiKey }));
+              }}
               type="password"
               autoComplete="off"
+              placeholder={dashscopeApiKeySaved ? t('app.tokenSavedPlaceholder') : ''}
+              helperText={dashscopeApiKeySaved ? t('app.tokenSavedPlaceholder') : ''}
               fullWidth
             />
             <TextField
@@ -1543,37 +1679,64 @@ export default function FirstRunOnboardingDialog({
               fullWidth
             />
             <TextField
+              select
               label={t('onboarding.tts.model')}
               value={dashscopeSettings.ttsModel}
               onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, ttsModel: event.target.value }))}
               fullWidth
-            />
+            >
+              {dashscopeTtsModelOptions.map((option) => (
+                <MenuItem key={option.value || 'tts-model-default'} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
             <TextField
+              select
               label={t('onboarding.tts.voice')}
               value={dashscopeSettings.ttsVoice}
               onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, ttsVoice: event.target.value }))}
               fullWidth
-            />
+            >
+              {dashscopeTtsVoiceOptions.map((option) => (
+                <MenuItem key={option.value || 'tts-voice-default'} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
             <Stack direction="row" spacing={1}>
               <TextField
+                select
                 label={t('onboarding.tts.language')}
                 value={dashscopeSettings.ttsLanguage}
                 onChange={(event) => setDashscopeSettings((prev) => ({ ...prev, ttsLanguage: event.target.value }))}
                 fullWidth
-              />
+              >
+                {dashscopeTtsLanguageOptions.map((option) => (
+                  <MenuItem key={option.value || 'tts-language-default'} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
               <TextField
+                select
                 label={t('onboarding.tts.sampleRate')}
-                type="number"
-                value={dashscopeSettings.ttsSampleRate}
+                value={String(dashscopeSettings.ttsSampleRate || '')}
                 onChange={(event) => {
-                  const parsed = Number.parseInt(event.target.value, 10);
+                  const parsed = Number.parseInt(String(event.target.value), 10);
                   setDashscopeSettings((prev) => ({
                     ...prev,
                     ttsSampleRate: Number.isFinite(parsed) ? parsed : DEFAULT_DASHSCOPE_SETTINGS.ttsSampleRate,
                   }));
                 }}
                 fullWidth
-              />
+              >
+                {dashscopeTtsSampleRateOptions.map((option) => (
+                  <MenuItem key={option.value || 'tts-sample-rate-default'} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
               <TextField
                 label={t('onboarding.tts.speechRate')}
                 type="number"
@@ -1781,10 +1944,10 @@ export default function FirstRunOnboardingDialog({
             </Typography>
           )}
 
-          {!!settingsFeedback && <Alert severity="success">{settingsFeedback}</Alert>}
-          {!!settingsError && <Alert severity="warning">{settingsError}</Alert>}
-          {!!voiceFeedback && <Alert severity="success">{voiceFeedback}</Alert>}
-          {!!voiceError && <Alert severity="warning">{voiceError}</Alert>}
+          {activeStep === 1 && !!settingsFeedback && <Alert severity="success">{settingsFeedback}</Alert>}
+          {activeStep === 1 && !!settingsError && <Alert severity="warning">{settingsError}</Alert>}
+          {(activeStep === 2 || activeStep === 3) && !!voiceFeedback && <Alert severity="success">{voiceFeedback}</Alert>}
+          {(activeStep === 2 || activeStep === 3) && !!voiceError && <Alert severity="warning">{voiceError}</Alert>}
         </Stack>
       </DialogContent>
       <DialogActions>

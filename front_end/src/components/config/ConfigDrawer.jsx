@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Accordion,
   AccordionDetails,
@@ -31,6 +31,10 @@ import {
   THEME_MODE_SYSTEM,
   useThemeMode,
 } from '../../theme/ThemeModeContext.jsx';
+import {
+  extendNanobotProviderOptionsWithLegacy,
+  NANOBOT_PROVIDER_OPTIONS,
+} from '../../constants/nanobotProviders.js';
 
 const CONFIG_DRAWER_WIDTH = 420;
 const MASKED_SECRET_VALUE = '********';
@@ -158,6 +162,10 @@ export default function ConfigDrawer({
   const testButtonDisabled = settingsSaving
     || settingsTesting
     || (selectedBackend === 'nanobot' && !nanobotSettings.enabled);
+  const nanobotProviderOptions = useMemo(
+    () => extendNanobotProviderOptionsWithLegacy(NANOBOT_PROVIDER_OPTIONS, nanobotSettings.provider || ''),
+    [nanobotSettings.provider],
+  );
 
   useEffect(() => {
     if (!open) {
@@ -367,12 +375,23 @@ export default function ConfigDrawer({
                       </TextField>
 
                       <TextField
+                        select
                         label={t('app.nanobotProvider')}
                         value={nanobotSettings.provider || ''}
                         onChange={(event) => onNanobotSettingChange?.('provider', event.target.value)}
-                        placeholder="openrouter"
                         fullWidth
-                      />
+                      >
+                        {nanobotProviderOptions.map((option) => (
+                          <MenuItem key={option.value} value={option.value}>
+                            {option.legacyValue
+                              ? t('nanobot.provider.legacy', { provider: option.legacyValue })
+                              : (() => {
+                                const localized = t(option.labelKey);
+                                return localized === option.labelKey ? option.fallbackLabel : localized;
+                              })()}
+                          </MenuItem>
+                        ))}
+                      </TextField>
 
                       <TextField
                         label={t('app.nanobotModel')}
