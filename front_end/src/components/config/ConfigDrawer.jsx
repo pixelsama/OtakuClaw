@@ -100,22 +100,6 @@ function formatUpdaterSpeed(bytesPerSecond = 0) {
   return `${Math.round(bytes)} B/s`;
 }
 
-function formatNanobotDebugLog(entry = {}) {
-  const timestamp = typeof entry.timestamp === 'string' ? entry.timestamp : '';
-  const timeText = timestamp ? timestamp.replace('T', ' ').replace('Z', '') : '';
-  const source = typeof entry.source === 'string' ? entry.source : '';
-  const stage = typeof entry.stage === 'string' ? entry.stage : '';
-  const message = typeof entry.message === 'string' ? entry.message : '';
-  const details = entry.details == null ? '' : JSON.stringify(entry.details, null, 2);
-  return [
-    timeText ? `[${timeText}]` : '',
-    source ? `[${source}]` : '',
-    stage ? `[${stage}]` : '',
-    message,
-    details,
-  ].filter(Boolean).join('\n');
-}
-
 function normalizeMaskedSecretInput(rawValue, hasSavedSecret) {
   if (!hasSavedSecret) {
     return rawValue;
@@ -191,8 +175,6 @@ export default function ConfigDrawer({
   onImportNanobotSkillsZip,
   onDeleteNanobotSkill,
   onOpenNanobotSkillsLibrary,
-  nanobotDebugLogs = [],
-  onClearNanobotDebugLogs,
   onOpenDownloadCenter,
   onBuiltinTtsEnabledChange,
 }) {
@@ -795,49 +777,6 @@ export default function ConfigDrawer({
                         </Box>
                       </Stack>
                     )}
-                  </SectionAccordion>
-                )}
-
-                {selectedBackend === 'nanobot' && desktopMode && (
-                  <SectionAccordion title={t('app.nanobotDebugLogs')}>
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                      }}
-                    >
-                      <Box component="span" sx={{ fontSize: 14, fontWeight: 600 }}>
-                        {t('app.nanobotDebugLogs')}
-                      </Box>
-                      <Button
-                        size="small"
-                        onClick={() => onClearNanobotDebugLogs?.()}
-                        disabled={!nanobotDebugLogs.length}
-                      >
-                        {t('app.clearNanobotDebugLogs')}
-                      </Button>
-                    </Box>
-                    <Box
-                      component="pre"
-                      sx={{
-                        m: 0,
-                        p: 1.5,
-                        minHeight: 160,
-                        maxHeight: 260,
-                        overflow: 'auto',
-                        borderRadius: 1,
-                        bgcolor: 'action.hover',
-                        color: 'text.primary',
-                        fontSize: 12,
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word',
-                      }}
-                    >
-                      {nanobotDebugLogs.length
-                        ? nanobotDebugLogs.map((entry) => formatNanobotDebugLog(entry)).join('\n\n')
-                        : t('app.nanobotDebugLogsEmpty')}
-                    </Box>
                   </SectionAccordion>
                 )}
 

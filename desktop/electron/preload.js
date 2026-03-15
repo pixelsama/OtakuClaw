@@ -97,12 +97,6 @@ const nanobotRuntime = {
   },
 };
 
-const nanobotDebug = {
-  onLog(handler) {
-    return onChannel('nanobot-debug:log', handler);
-  },
-};
-
 const nanobotSkills = {
   list() {
     return ipcRenderer.invoke('nanobot-skills:list');
@@ -282,7 +276,6 @@ contextBridge.exposeInMainWorld('desktop', {
   settings,
   appUpdater,
   nanobotRuntime,
-  nanobotDebug,
   nanobotSkills,
   windowMode,
   windowControls,

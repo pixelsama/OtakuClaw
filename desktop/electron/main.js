@@ -501,15 +501,6 @@ async function bootstrap() {
           nanobotSkillsLibraryPath: nanobotSkillsLibrary.getRootDir(),
         }),
         resolveCapture: (captureId) => screenshotCaptureService?.resolveCapture(captureId) || null,
-        emitDebugLog: (payload = {}) => {
-          if (!mainWindow || mainWindow.isDestroyed()) {
-            return;
-          }
-          mainWindow.webContents.send('nanobot-debug:log', {
-            timestamp: new Date().toISOString(),
-            ...payload,
-          });
-        },
       }),
     ],
   });
@@ -617,15 +608,6 @@ async function bootstrap() {
     ipcMain,
     getSettings: () => settingsStore.getForMain(),
     backendManager: chatBackendManager,
-    emitDebugLog: (payload = {}) => {
-      if (!mainWindow || mainWindow.isDestroyed()) {
-        return;
-      }
-      mainWindow.webContents.send('nanobot-debug:log', {
-        timestamp: new Date().toISOString(),
-        ...payload,
-      });
-    },
     emitEvent: (payload) => {
       conversationRuntime?.onChatStreamEvent?.(payload);
       if (disposeVoiceSessionHandlers && typeof disposeVoiceSessionHandlers.enqueueSegmentReady === 'function') {
@@ -707,15 +689,6 @@ async function bootstrap() {
       }
 
       mainWindow.webContents.send('conversation:event', payload);
-    },
-    emitDebugLog: (payload = {}) => {
-      if (!mainWindow || mainWindow.isDestroyed()) {
-        return;
-      }
-      mainWindow.webContents.send('nanobot-debug:log', {
-        timestamp: new Date().toISOString(),
-        ...payload,
-      });
     },
   });
   disposeConversationHandlers = registerConversationIpc({

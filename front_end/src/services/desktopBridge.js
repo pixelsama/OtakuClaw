@@ -870,15 +870,6 @@ export const desktopBridge = {
       return api.nanobotRuntime.onProgress(handler);
     },
   },
-  nanobotDebug: {
-    onLog(handler) {
-      const api = getDesktopApi();
-      if (!api?.nanobotDebug?.onLog || typeof handler !== 'function') {
-        return () => {};
-      }
-      return api.nanobotDebug.onLog(handler);
-    },
-  },
   nanobotSkills: {
     async list() {
       const api = getDesktopApi();
