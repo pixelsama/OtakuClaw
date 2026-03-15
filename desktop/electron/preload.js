@@ -62,9 +62,6 @@ const settings = {
   pickNanobotWorkspace() {
     return ipcRenderer.invoke('settings:nanobot:pick-workspace');
   },
-  setNanobotWorkspace(payload) {
-    return ipcRenderer.invoke('settings:nanobot:set-workspace', payload);
-  },
   openNanobotWorkspace() {
     return ipcRenderer.invoke('settings:nanobot:open-workspace');
   },

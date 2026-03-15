@@ -215,10 +215,6 @@ body,
   transform: translateX(-50%) translateY(-1px);
 }
 
-.live2d-stage.pet-mode .pet-workspace-indicator.is-drop-active {
-  border-color: rgba(31, 76, 144, 0.56);
-}
-
 .live2d-stage.pet-mode .pet-workspace-indicator.is-disabled {
   cursor: default;
   opacity: 0.85;

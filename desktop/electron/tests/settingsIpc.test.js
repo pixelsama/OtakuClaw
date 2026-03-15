@@ -151,42 +151,6 @@ test('settings:nanobot:pick-workspace returns selected directory path', async ()
   assert.equal(result.path, '/tmp/selected-workspace');
 });
 
-test('settings:nanobot:set-workspace validates directory and saves settings', async () => {
-  const ipcMain = createIpcMainMock();
-  const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'settings-ipc-'));
-  const workspaceDir = path.join(rootDir, 'workspace');
-  await fs.mkdir(workspaceDir, { recursive: true });
-
-  let savedPayload = null;
-  registerSettingsIpc({
-    ipcMain,
-    settingsStore: {
-      getPublic: () => ({ nanobot: { workspace: '' } }),
-      save: async (payload) => {
-        savedPayload = payload;
-        return {
-          nanobot: {
-            workspace: payload?.nanobot?.workspace || '',
-          },
-        };
-      },
-    },
-    backendManager: {
-      resolveBackendName: () => 'nanobot',
-      testConnection: async () => ({ ok: true }),
-      mapError: (error) => ({ code: 'mapped_error', message: error?.message || 'error' }),
-    },
-  });
-
-  const result = await ipcMain.invoke('settings:nanobot:set-workspace', {
-    path: workspaceDir,
-  });
-
-  assert.equal(result.ok, true);
-  assert.equal(result.path, await fs.realpath(workspaceDir));
-  assert.equal(savedPayload.nanobot.workspace, await fs.realpath(workspaceDir));
-});
-
 test('settings:nanobot:open-workspace creates folder and delegates to shell', async () => {
   const ipcMain = createIpcMainMock();
   const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'settings-ipc-open-'));

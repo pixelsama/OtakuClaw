@@ -362,54 +362,6 @@ export function useChatBackendSettings({ t, normalizeError }) {
     }
   }, [formatError]);
 
-  const onSetNanobotWorkspaceFromPath = useCallback(async (workspacePath) => {
-    const normalizedPath = typeof workspacePath === 'string' ? workspacePath.trim() : '';
-    if (!normalizedPath) {
-      return {
-        ok: false,
-        error: {
-          code: 'nanobot_workspace_empty_path',
-          message: '工作区路径不能为空。',
-        },
-      };
-    }
-
-    setSettingsError('');
-    setSettingsFeedback('');
-
-    try {
-      const result = await desktopBridge.settings.setNanobotWorkspace(normalizedPath);
-      if (!result?.ok || !result?.path) {
-        if (result?.error) {
-          setSettingsError(formatError(result.error));
-        }
-        return result || { ok: false };
-      }
-
-      if (result?.settings) {
-        const normalizedSaved = normalizeSettingsForState(result.settings);
-        setChatBackendSettings(normalizedSaved);
-        setSavedSettingsSnapshot(buildComparableSettingsSnapshot(normalizedSaved));
-      } else {
-        setChatBackendSettings((prev) => ({
-          ...prev,
-          nanobot: {
-            ...prev.nanobot,
-            workspace: result.path,
-          },
-        }));
-      }
-
-      return result;
-    } catch (error) {
-      setSettingsError(formatError(error));
-      return {
-        ok: false,
-        error,
-      };
-    }
-  }, [formatError]);
-
   const onOpenNanobotWorkspace = useCallback(async () => {
     setSettingsError('');
     try {
@@ -642,7 +594,6 @@ export function useChatBackendSettings({ t, normalizeError }) {
     onOpenClawSettingChange,
     onNanobotSettingChange,
     onPickNanobotWorkspace,
-    onSetNanobotWorkspaceFromPath,
     onOpenNanobotWorkspace,
     onTestChatBackendSettings,
     onTestOpenClawSettings: onTestChatBackendSettings,

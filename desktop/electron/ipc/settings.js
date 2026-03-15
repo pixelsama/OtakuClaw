@@ -169,27 +169,6 @@ function registerSettingsIpc({
     };
   });
 
-  ipcMain.handle('settings:nanobot:set-workspace', async (_event, payload = {}) => {
-    try {
-      const workspacePath = await resolveExistingDirectoryPath(payload?.path);
-      const saved = await settingsStore.save({
-        nanobot: {
-          workspace: workspacePath,
-        },
-      });
-      return {
-        ok: true,
-        path: workspacePath,
-        settings: saved,
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        error: toWorkspaceError(error, 'nanobot_workspace_set_failed'),
-      };
-    }
-  });
-
   ipcMain.handle('settings:nanobot:open-workspace', async () => {
     try {
       const currentSettings = settingsStore.getPublic?.() || {};
@@ -222,7 +201,6 @@ function registerSettingsIpc({
     ipcMain.removeHandler('settings:save');
     ipcMain.removeHandler('settings:test');
     ipcMain.removeHandler('settings:nanobot:pick-workspace');
-    ipcMain.removeHandler('settings:nanobot:set-workspace');
     ipcMain.removeHandler('settings:nanobot:open-workspace');
   };
 }

@@ -318,7 +318,7 @@ const MESSAGES = {
     'pet.switchToWindowMode': '切换到主窗口模式',
     'pet.lockedTitle': '已锁定（点击解锁）',
     'pet.unlockedTitle': '未锁定（点击锁定）',
-    'pet.nanobotWorkspaceUnset': '未设置工作区（可拖入文件夹）',
+    'pet.nanobotWorkspaceUnset': '未设置工作区',
     'pet.nanobotWorkspaceOpen': '打开 Nanobot 工作区',
 
     'composer.placeholder': '输入你想让她说的话...',
@@ -753,7 +753,7 @@ const MESSAGES = {
     'pet.switchToWindowMode': 'Switch to Window Mode',
     'pet.lockedTitle': 'Locked (click to unlock)',
     'pet.unlockedTitle': 'Unlocked (click to lock)',
-    'pet.nanobotWorkspaceUnset': 'Workspace is not set (drop a folder here)',
+    'pet.nanobotWorkspaceUnset': 'Workspace is not set',
     'pet.nanobotWorkspaceOpen': 'Open Nanobot workspace',
 
     'composer.placeholder': 'Type what you want her to say...',
