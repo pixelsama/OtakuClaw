@@ -7,3 +7,6 @@ Assets in this folder are adapted from:
 Files:
 - default-pill/displacement-map.png
 - default-pill/specular-map.png
+
+Full license text:
+- See project root `THIRD_PARTY_NOTICES.md`.

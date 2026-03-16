@@ -46,6 +46,8 @@
     "files": [
       "desktop/electron/**/*",
       "front_end/dist/**/*",
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md",
       "package.json"
     ],
     "win": {

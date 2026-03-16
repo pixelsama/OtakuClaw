@@ -33,3 +33,8 @@ OtakuClaw 是一个可直接安装使用的 macOS 桌面应用（Electron）。
 ## 许可证
 
 Creative Commons Attribution-NonCommercial 4.0 International（CC BY-NC 4.0，见 `LICENSE`）
+
+## 第三方许可证说明
+
+- 本项目包含对 `bitifirefly/reflect-glass-button` 的改造与资源引用（MIT License）。
+- 具体引用信息与 MIT 许可证全文见 `THIRD_PARTY_NOTICES.md`。
