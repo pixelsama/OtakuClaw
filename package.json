@@ -1,6 +1,6 @@
 {
   "name": "otakuclaw-desktop",
-  "version": "0.2.1-beta.4",
+  "version": "0.2.1-beta.5",
   "private": true,
   "packageManager": "pnpm@10.28.0",
   "main": "desktop/electron/main.js",
@@ -64,7 +64,8 @@
         "NSMicrophoneUsageDescription": "需要麦克风权限来进行语音输入与语音对话。"
       },
       "target": [
-        "dmg"
+        "dmg",
+        "zip"
       ]
     },
     "linux": {
