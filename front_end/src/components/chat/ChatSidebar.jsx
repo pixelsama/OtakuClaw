@@ -340,7 +340,7 @@ export default function ChatSidebar({
         onMouseEnter={(event) => petHoverBindings?.onMouseEnter?.(event)}
         onMouseLeave={(event) => petHoverBindings?.onMouseLeave?.(event)}
       >
-        <Paper className="chat-sidebar-paper chat-pet-float-panel" style={{ width: drawerWidth }} elevation={12}>
+        <Paper className="chat-sidebar-paper chat-pet-float-panel" style={{ width: drawerWidth }} elevation={0}>
           {content}
         </Paper>
       </div>

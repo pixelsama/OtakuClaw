@@ -330,7 +330,7 @@ html[data-browser-engine="chromium"] .live2d-stage.pet-mode .pet-glass-icon-butt
   border-radius: 14px;
   border: 1px solid var(--floating-button-border);
   background: var(--floating-button-bg-strong);
-  box-shadow: var(--pet-surface-shadow);
+  box-shadow: none;
   backdrop-filter: blur(10px) saturate(130%);
   -webkit-backdrop-filter: blur(10px) saturate(130%);
   transform: translateX(-50%);
@@ -413,7 +413,7 @@ html[data-browser-engine="chromium"] .live2d-stage.pet-mode .pet-glass-icon-butt
   border-radius: 14px;
   border: 1px solid var(--floating-button-border);
   background: var(--floating-button-bg-strong);
-  box-shadow: var(--pet-surface-shadow);
+  box-shadow: none;
   backdrop-filter: blur(10px) saturate(130%);
   -webkit-backdrop-filter: blur(10px) saturate(130%);
   transform: translateX(-50%);
@@ -426,7 +426,7 @@ html[data-browser-engine="chromium"] .live2d-stage.pet-mode .pet-glass-icon-butt
 
 .live2d-stage.pet-mode .pet-workspace-indicator:hover {
   border-color: var(--floating-button-border-hover);
-  box-shadow: var(--pet-surface-shadow-hover);
+  box-shadow: none;
   transform: translateX(-50%) translateY(-1px);
 }
 
