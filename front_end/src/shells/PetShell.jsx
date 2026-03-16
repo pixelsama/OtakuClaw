@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Box, IconButton } from '@mui/material';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import LockIcon from '@mui/icons-material/Lock';
 import LockOpenIcon from '@mui/icons-material/LockOpen';
@@ -16,6 +15,83 @@ import { useI18n } from '../i18n/I18nContext.jsx';
 import { STORAGE_KEYS } from '../components/controls/constants.js';
 
 const PET_DEFAULT_MODEL_SCALE = 0.31;
+
+function ReflectGlassFilterDefs() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="0"
+      height="0"
+      className="pet-reflect-glass-defs"
+      focusable="false"
+    >
+      <defs>
+        <filter id="reflectGlass" colorInterpolationFilters="sRGB">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="0.8" result="blurredSource" />
+          <feTurbulence
+            type="fractalNoise"
+            baseFrequency="0.018 0.12"
+            numOctaves="1"
+            seed="7"
+            result="noise"
+          />
+          <feColorMatrix
+            in="noise"
+            type="matrix"
+            values="
+              1 0 0 0 0
+              0 1 0 0 0
+              0 0 0 0 0
+              0 0 0 1 0
+            "
+            result="displacementMap"
+          />
+          <feDisplacementMap
+            in="blurredSource"
+            in2="displacementMap"
+            scale="26"
+            xChannelSelector="R"
+            yChannelSelector="G"
+            result="displaced"
+          />
+          <feColorMatrix
+            in="displaced"
+            type="saturate"
+            values="3.2"
+            result="boosted"
+          />
+          <feBlend in="boosted" in2="displaced" mode="screen" />
+        </filter>
+      </defs>
+    </svg>
+  );
+}
+
+function PetGlassIconButton({
+  title,
+  ariaLabel,
+  onClick,
+  disabled = false,
+  active = false,
+  children,
+}) {
+  return (
+    <button
+      type="button"
+      className={`pet-glass-icon-button ${active ? 'is-active' : ''}`.trim()}
+      onClick={onClick}
+      title={title}
+      aria-label={ariaLabel || title}
+      disabled={disabled}
+    >
+      <span className="pet-glass-surface" aria-hidden="true"></span>
+      <span className="pet-glass-ornament" aria-hidden="true"></span>
+      <span className="pet-glass-icon" aria-hidden="true">
+        {children}
+      </span>
+    </button>
+  );
+}
 
 function normalizeModelScale(scale) {
   const rounded = Math.round(scale * 100) / 100;
@@ -258,8 +334,9 @@ export default function PetShell({
     .join(' ');
 
   return (
-    <Box className={stageClassName}>
-      <Box
+    <div className={stageClassName}>
+      <ReflectGlassFilterDefs />
+      <div
         ref={hitboxRef}
         className={`live2d-hitbox pet-draggable-hitbox ${isDragging ? 'pet-dragging' : ''}`.trim()}
         style={dragStyle}
@@ -291,7 +368,7 @@ export default function PetShell({
         }}
         {...dragBindings}
       >
-        <Box className="pet-render-shell">
+        <div className="pet-render-shell">
           <Live2DViewer
             ref={live2dViewerRef}
             modelPath={currentModelPath}
@@ -303,9 +380,9 @@ export default function PetShell({
             onModelError={onModelError}
             className="live2d-viewer"
           />
-        </Box>
+        </div>
         <SubtitleBar text={subtitleText} className="subtitle-pet-head" />
-        <Box
+        <div
           ref={controlsRef}
           className={`pet-hitbox-controls ${controlsVisible ? 'is-visible' : ''}`.trim()}
           onMouseEnter={(event) => {
@@ -320,29 +397,25 @@ export default function PetShell({
             event.stopPropagation();
           }}
         >
-          <IconButton
-            className="mode-toggle pet-mode-toggle"
-            color="primary"
+          <PetGlassIconButton
             onClick={() => {
               void onSwitchToWindowMode?.();
             }}
             title={t('pet.switchToWindowMode')}
           >
             <SwapHorizIcon />
-          </IconButton>
-          <IconButton
-            className="mode-toggle pet-mode-toggle"
-            color={isModelLocked ? 'secondary' : 'primary'}
+          </PetGlassIconButton>
+          <PetGlassIconButton
+            active={isModelLocked}
             onClick={() => {
               setIsModelLocked((prev) => !prev);
             }}
             title={isModelLocked ? t('pet.lockedTitle') : t('pet.unlockedTitle')}
           >
             {isModelLocked ? <LockIcon /> : <LockOpenIcon />}
-          </IconButton>
-          <IconButton
-            className="mode-toggle pet-mode-toggle"
-            color={voiceEnabled ? 'secondary' : 'primary'}
+          </PetGlassIconButton>
+          <PetGlassIconButton
+            active={voiceEnabled}
             onClick={() => {
               void onToggleVoice?.();
             }}
@@ -351,11 +424,9 @@ export default function PetShell({
             disabled={voiceToggleDisabled}
           >
             {voiceEnabled ? <MicIcon /> : <MicOffIcon />}
-          </IconButton>
+          </PetGlassIconButton>
           {canCaptureScreen && (
-            <IconButton
-              className="mode-toggle pet-mode-toggle"
-              color="primary"
+            <PetGlassIconButton
               onClick={() => {
                 onQuickCapture?.();
               }}
@@ -364,11 +435,10 @@ export default function PetShell({
               disabled={isStreaming}
             >
               <ContentCutIcon />
-            </IconButton>
+            </PetGlassIconButton>
           )}
-          <IconButton
-            className="mode-toggle pet-mode-toggle"
-            color={showChatPanel ? 'secondary' : 'primary'}
+          <PetGlassIconButton
+            active={showChatPanel}
             onClick={() => {
               if (showChatPanel) {
                 onCloseChatPanel?.();
@@ -380,10 +450,10 @@ export default function PetShell({
             aria-label={t('chat.openChat')}
           >
             <ChatIcon />
-          </IconButton>
-        </Box>
+          </PetGlassIconButton>
+        </div>
         {captureDraft?.captureId && (
-          <Box
+          <div
             className="pet-capture-preview"
             onMouseEnter={(event) => {
               captureHoverBindings.onMouseEnter?.(event);
@@ -402,16 +472,16 @@ export default function PetShell({
                 className="pet-capture-preview-image"
               />
             ) : (
-              <Box className="pet-capture-preview-placeholder">📷</Box>
+              <div className="pet-capture-preview-placeholder">📷</div>
             )}
-            <Box className="pet-capture-preview-meta">
-              <Box className="pet-capture-preview-title">{t('composer.captureAttached')}</Box>
+            <div className="pet-capture-preview-meta">
+              <div className="pet-capture-preview-title">{t('composer.captureAttached')}</div>
               {captureDraft.name ? (
-                <Box className="pet-capture-preview-name">{captureDraft.name}</Box>
+                <div className="pet-capture-preview-name">{captureDraft.name}</div>
               ) : null}
-            </Box>
-            <IconButton
-              size="small"
+            </div>
+            <button
+              type="button"
               className="pet-capture-preview-remove"
               onClick={() => {
                 onClearCaptureDraft?.();
@@ -420,11 +490,11 @@ export default function PetShell({
               aria-label={t('composer.captureRemove')}
             >
               <CloseIcon fontSize="small" />
-            </IconButton>
-          </Box>
+            </button>
+          </div>
         )}
         {controlsVisible ? (
-          <Box
+          <div
             className={[
               'pet-workspace-indicator',
               showVoicePermissionWarning && voicePermissionWarningText ? 'has-voice-warning' : '',
@@ -462,18 +532,18 @@ export default function PetShell({
             }}
           >
             <FolderOpenIcon fontSize="small" />
-            <Box className="pet-workspace-indicator-meta">
-              <Box className="pet-workspace-indicator-label">{t('app.nanobotWorkspace')}</Box>
-              <Box className={`pet-workspace-indicator-path ${hasWorkspacePath ? '' : 'is-empty'}`.trim()}>
+            <div className="pet-workspace-indicator-meta">
+              <div className="pet-workspace-indicator-label">{t('app.nanobotWorkspace')}</div>
+              <div className={`pet-workspace-indicator-path ${hasWorkspacePath ? '' : 'is-empty'}`.trim()}>
                 {hasWorkspacePath ? normalizedWorkspacePath : t('pet.nanobotWorkspaceUnset')}
-              </Box>
-            </Box>
-          </Box>
+              </div>
+            </div>
+          </div>
         ) : null}
         {showVoicePermissionWarning && voicePermissionWarningText ? (
-          <Box className="pet-voice-warning">{voicePermissionWarningText}</Box>
+          <div className="pet-voice-warning">{voicePermissionWarningText}</div>
         ) : null}
-      </Box>
-    </Box>
+      </div>
+    </div>
   );
 }
