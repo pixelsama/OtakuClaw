@@ -792,6 +792,7 @@ export const desktopBridge = {
             available: false,
             downloaded: false,
             supported: false,
+            supportReason: 'desktop_app_updater_unavailable',
           },
         };
       }

@@ -1,3 +1,5 @@
+const { spawnSync } = require('node:child_process');
+
 function toUpdaterError(error) {
   if (error && typeof error === 'object') {
     return {
@@ -32,17 +34,107 @@ function resolveAutoUpdater(explicitAutoUpdater = null) {
   return null;
 }
 
+function normalizeText(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function extractCodesignField(output, key) {
+  const normalizedOutput = normalizeText(output);
+  if (!normalizedOutput || !key) {
+    return '';
+  }
+
+  const pattern = new RegExp(`^${key}=([^\\n\\r]+)$`, 'm');
+  const match = normalizedOutput.match(pattern);
+  return normalizeText(match?.[1]);
+}
+
+function resolveAppBundlePath(app, fallbackExecPath = process.execPath) {
+  const candidatePaths = [];
+
+  if (app && typeof app.getPath === 'function') {
+    try {
+      candidatePaths.push(app.getPath('exe'));
+    } catch {
+      // noop
+    }
+  }
+  candidatePaths.push(fallbackExecPath);
+
+  for (const candidate of candidatePaths) {
+    const normalizedCandidate = normalizeText(candidate);
+    if (!normalizedCandidate) {
+      continue;
+    }
+
+    if (normalizedCandidate.endsWith('.app')) {
+      return normalizedCandidate;
+    }
+
+    const markerIndex = normalizedCandidate.lastIndexOf('.app/');
+    if (markerIndex >= 0) {
+      return normalizedCandidate.slice(0, markerIndex + '.app'.length);
+    }
+  }
+
+  return '';
+}
+
+function probeMacUpdaterSignatureSupport({
+  app,
+  spawnSyncImpl = spawnSync,
+} = {}) {
+  const appBundlePath = resolveAppBundlePath(app);
+  if (!appBundlePath) {
+    return {
+      supported: false,
+      reason: 'mac_unsigned_build',
+    };
+  }
+
+  const result = spawnSyncImpl('codesign', ['-dvv', appBundlePath], {
+    encoding: 'utf8',
+  });
+  if (result?.error || result?.status !== 0) {
+    return {
+      supported: false,
+      reason: 'mac_unsigned_build',
+    };
+  }
+
+  const rawOutput = `${result.stdout || ''}\n${result.stderr || ''}`;
+  const signature = extractCodesignField(rawOutput, 'Signature').toLowerCase();
+  if (signature.includes('adhoc')) {
+    return {
+      supported: false,
+      reason: 'mac_unsigned_build',
+    };
+  }
+
+  return {
+    supported: true,
+    reason: '',
+  };
+}
+
 class AppUpdaterService {
   constructor({
     app,
     autoUpdater = null,
     emitState,
     logger = console,
+    platform = process.platform,
+    macSignatureProbe = probeMacUpdaterSignatureSupport,
   } = {}) {
     this.app = app;
     this.autoUpdater = resolveAutoUpdater(autoUpdater);
     this.emitState = typeof emitState === 'function' ? emitState : () => {};
     this.logger = logger || console;
+    this.platform = normalizeText(platform) || process.platform;
+    this.macSignatureProbe = typeof macSignatureProbe === 'function'
+      ? macSignatureProbe
+      : probeMacUpdaterSignatureSupport;
+    this.supportState = this.resolveSupportState();
     this.listeners = [];
     this.state = {
       status: 'idle',
@@ -52,19 +144,65 @@ class AppUpdaterService {
       error: null,
       available: false,
       downloaded: false,
-      supported: this.isSupported(),
+      supported: this.supportState.supported,
+      supportReason: this.supportState.reason,
     };
 
     this.initUpdater();
   }
 
+  resolveSupportState() {
+    if (!this.autoUpdater) {
+      return {
+        supported: false,
+        reason: 'updater_unavailable',
+      };
+    }
+
+    if (!this.app || typeof this.app.isPackaged !== 'boolean' || !this.app.isPackaged) {
+      return {
+        supported: false,
+        reason: 'app_not_packaged',
+      };
+    }
+
+    if (this.platform === 'darwin') {
+      try {
+        const macSignatureSupport = this.macSignatureProbe({
+          app: this.app,
+        });
+        if (!macSignatureSupport?.supported) {
+          return {
+            supported: false,
+            reason:
+              normalizeText(macSignatureSupport?.reason)
+              || 'mac_unsigned_build',
+          };
+        }
+      } catch (error) {
+        this.logger.warn?.('Failed to probe macOS app signature support:', error);
+      }
+    }
+
+    return {
+      supported: true,
+      reason: '',
+    };
+  }
+
   isSupported() {
-    return Boolean(
-      this.app
-      && typeof this.app.isPackaged === 'boolean'
-      && this.app.isPackaged
-      && this.autoUpdater,
-    );
+    return Boolean(this.supportState?.supported);
+  }
+
+  getSupportReason() {
+    return normalizeText(this.supportState?.reason);
+  }
+
+  getUnsupportedResult() {
+    return {
+      ok: false,
+      reason: this.getSupportReason() || 'updater_unavailable',
+    };
   }
 
   initUpdater() {
@@ -135,6 +273,8 @@ class AppUpdaterService {
       this.logger.warn?.('Auto updater event error:', error);
       this.updateState({
         status: 'error',
+        downloaded: false,
+        progress: null,
         error: toUpdaterError(error),
       });
     });
@@ -154,6 +294,7 @@ class AppUpdaterService {
       ...this.state,
       ...partial,
       supported: this.isSupported(),
+      supportReason: this.getSupportReason(),
     };
     this.emitState(this.getState());
   }
@@ -170,22 +311,13 @@ class AppUpdaterService {
       error: this.state.error && typeof this.state.error === 'object'
         ? { ...this.state.error }
         : this.state.error,
+      supportReason: normalizeText(this.state.supportReason),
     };
   }
 
   async checkForUpdates() {
-    if (!this.autoUpdater) {
-      return {
-        ok: false,
-        reason: 'updater_unavailable',
-      };
-    }
-
-    if (!this.app?.isPackaged) {
-      return {
-        ok: false,
-        reason: 'app_not_packaged',
-      };
+    if (!this.isSupported()) {
+      return this.getUnsupportedResult();
     }
 
     try {
@@ -206,18 +338,8 @@ class AppUpdaterService {
   }
 
   async downloadUpdate() {
-    if (!this.autoUpdater) {
-      return {
-        ok: false,
-        reason: 'updater_unavailable',
-      };
-    }
-
-    if (!this.app?.isPackaged) {
-      return {
-        ok: false,
-        reason: 'app_not_packaged',
-      };
+    if (!this.isSupported()) {
+      return this.getUnsupportedResult();
     }
 
     try {
@@ -237,18 +359,8 @@ class AppUpdaterService {
   }
 
   installUpdate() {
-    if (!this.autoUpdater) {
-      return {
-        ok: false,
-        reason: 'updater_unavailable',
-      };
-    }
-
-    if (!this.app?.isPackaged) {
-      return {
-        ok: false,
-        reason: 'app_not_packaged',
-      };
+    if (!this.isSupported()) {
+      return this.getUnsupportedResult();
     }
 
     if (!this.state.downloaded) {
@@ -288,5 +400,7 @@ class AppUpdaterService {
 
 module.exports = {
   AppUpdaterService,
+  probeMacUpdaterSignatureSupport,
+  resolveAppBundlePath,
   toUpdaterError,
 };

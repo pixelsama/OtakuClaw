@@ -25,6 +25,7 @@ function registerAppUpdaterIpc({
       available: false,
       downloaded: false,
       supported: false,
+      supportReason: 'updater_unavailable',
     };
 
     return {

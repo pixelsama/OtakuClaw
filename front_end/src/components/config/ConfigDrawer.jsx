@@ -49,6 +49,7 @@ const DEFAULT_APP_UPDATER_STATE = {
   available: false,
   downloaded: false,
   supported: false,
+  supportReason: '',
 };
 
 function resolveUpdaterStatusLabel(t, status = 'idle') {
@@ -76,6 +77,9 @@ function resolveUpdaterFailureMessage(t, result = {}) {
   if (reason === 'app_not_packaged') {
     return t('preferences.updater.reason.appNotPackaged');
   }
+  if (reason === 'mac_unsigned_build') {
+    return t('preferences.updater.reason.macUnsigned');
+  }
   if (reason === 'updater_unavailable' || reason === 'desktop_app_updater_unavailable') {
     return t('preferences.updater.reason.unavailable');
   }
@@ -84,6 +88,10 @@ function resolveUpdaterFailureMessage(t, result = {}) {
     return result.error.message.trim();
   }
   return t('preferences.updater.actionFailed');
+}
+
+function resolveUpdaterUnsupportedMessage(t, reason = '') {
+  return resolveUpdaterFailureMessage(t, { reason });
 }
 
 function formatUpdaterSpeed(bytesPerSecond = 0) {
@@ -223,6 +231,9 @@ export default function ConfigDrawer({
     : 0;
   const updaterDownloadRate = formatUpdaterSpeed(appUpdaterState?.progress?.bytesPerSecond || 0);
   const updaterSupported = desktopMode && Boolean(appUpdaterState?.supported);
+  const updaterSupportReason = typeof appUpdaterState?.supportReason === 'string'
+    ? appUpdaterState.supportReason
+    : '';
   const updaterIsDownloading = updaterStatus === 'downloading';
   const updaterHasAvailable = Boolean(appUpdaterState?.available);
   const updaterDownloaded = Boolean(appUpdaterState?.downloaded);
@@ -331,6 +342,7 @@ export default function ConfigDrawer({
       if (payload?.status === 'error') {
         const message = typeof payload?.error?.message === 'string' ? payload.error.message : '';
         setAppUpdaterError(message || t('preferences.updater.actionFailed'));
+        setAppUpdaterFeedback('');
       } else {
         setAppUpdaterError('');
       }
@@ -866,7 +878,9 @@ export default function ConfigDrawer({
                   )}
 
                   {desktopMode && !updaterSupported && (
-                    <Alert severity="info">{t('preferences.updater.reason.appNotPackaged')}</Alert>
+                    <Alert severity="info">
+                      {resolveUpdaterUnsupportedMessage(t, updaterSupportReason || 'updater_unavailable')}
+                    </Alert>
                   )}
 
                   <Box sx={{ color: 'text.secondary', fontSize: 13 }}>
