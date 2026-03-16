@@ -167,7 +167,7 @@ body,
   border: 1px solid transparent;
   background: transparent;
   color: #0f5ea8;
-  box-shadow: var(--pet-surface-shadow);
+  box-shadow: none;
   text-decoration: none;
   transform: translate3d(0, 0, 0);
   cursor: pointer;
@@ -250,12 +250,12 @@ body,
 }
 
 .live2d-stage.pet-mode .pet-glass-icon-button .pet-glass-icon > .MuiSvgIcon-root {
-  font-size: 1.65rem;
+  font-size: 1.32rem;
 }
 
 .live2d-stage.pet-mode .pet-glass-icon-button:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: var(--pet-surface-shadow-hover);
+  box-shadow: none;
 }
 
 .live2d-stage.pet-mode .pet-glass-icon-button:active:not(:disabled) {
@@ -273,9 +273,7 @@ body,
 }
 
 html[data-browser-engine="chromium"] .live2d-stage.pet-mode .pet-glass-icon-button {
-  box-shadow:
-    0 4px 18px rgba(15, 23, 42, 0.07),
-    0 12px 24px rgba(15, 23, 42, 0.035);
+  box-shadow: none;
 }
 
 html[data-browser-engine="chromium"] .live2d-stage.pet-mode .pet-glass-icon-button .pet-glass-surface {
