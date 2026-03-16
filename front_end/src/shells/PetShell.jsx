@@ -13,6 +13,8 @@ import SubtitleBar from '../components/subtitle/SubtitleBar.jsx';
 import { usePetDraggable } from '../hooks/pet/usePetDraggable.js';
 import { useI18n } from '../i18n/I18nContext.jsx';
 import { STORAGE_KEYS } from '../components/controls/constants.js';
+import reflectDisplacementMapUrl from '../assets/reflect-glass/default-pill/displacement-map.png';
+import reflectSpecularMapUrl from '../assets/reflect-glass/default-pill/specular-map.png';
 
 const PET_DEFAULT_MODEL_SCALE = 0.31;
 
@@ -28,28 +30,19 @@ function ReflectGlassFilterDefs() {
       <defs>
         <filter id="reflectGlass" colorInterpolationFilters="sRGB">
           <feGaussianBlur in="SourceGraphic" stdDeviation="0.8" result="blurredSource" />
-          <feTurbulence
-            type="fractalNoise"
-            baseFrequency="0.018 0.12"
-            numOctaves="1"
-            seed="7"
-            result="noise"
-          />
-          <feColorMatrix
-            in="noise"
-            type="matrix"
-            values="
-              1 0 0 0 0
-              0 1 0 0 0
-              0 0 0 0 0
-              0 0 0 1 0
-            "
+          <feImage
+            href={reflectDisplacementMapUrl}
+            x="0"
+            y="0"
+            width="196"
+            height="56"
+            preserveAspectRatio="none"
             result="displacementMap"
           />
           <feDisplacementMap
             in="blurredSource"
             in2="displacementMap"
-            scale="26"
+            scale="62"
             xChannelSelector="R"
             yChannelSelector="G"
             result="displaced"
@@ -57,10 +50,34 @@ function ReflectGlassFilterDefs() {
           <feColorMatrix
             in="displaced"
             type="saturate"
-            values="3.2"
-            result="boosted"
+            values="5.2"
+            result="displacedSaturated"
           />
-          <feBlend in="boosted" in2="displaced" mode="screen" />
+          <feImage
+            href={reflectSpecularMapUrl}
+            x="0"
+            y="0"
+            width="196"
+            height="56"
+            preserveAspectRatio="none"
+            result="specularLayer"
+          />
+          <feComposite
+            in="displacedSaturated"
+            in2="specularLayer"
+            operator="in"
+            result="specularSaturated"
+          />
+          <feComponentTransfer in="specularLayer" result="specularFaded">
+            <feFuncA type="linear" slope="0.42" />
+          </feComponentTransfer>
+          <feBlend
+            in="specularSaturated"
+            in2="displaced"
+            mode="normal"
+            result="withSpecular"
+          />
+          <feBlend in="specularFaded" in2="withSpecular" mode="normal" />
         </filter>
       </defs>
     </svg>
@@ -124,6 +141,22 @@ function persistModelScale(scale) {
   } catch (error) {
     console.warn('Failed to persist pet mode model scale:', error);
   }
+}
+
+function detectBrowserEngine(doc) {
+  const documentRef = doc || document;
+  const brands = navigator.userAgentData && Array.isArray(navigator.userAgentData.brands)
+    ? navigator.userAgentData.brands
+    : [];
+  const brandMatch = brands.some((item) => /Chromium|Google Chrome|Microsoft Edge|Opera/i.test(item.brand));
+  const ua = navigator.userAgent || '';
+  const isIOS = /\b(iPad|iPhone|iPod)\b/.test(ua);
+  const uaMatch =
+    !isIOS
+    && /\b(?:Chromium|Chrome|Edg|OPR|SamsungBrowser)\//.test(ua)
+    && !/\b(?:Firefox|FxiOS)\//.test(ua);
+
+  documentRef.documentElement.dataset.browserEngine = brandMatch || uaMatch ? 'chromium' : 'default';
 }
 
 export default function PetShell({
@@ -332,6 +365,10 @@ export default function PetShell({
   const stageClassName = ['live2d-stage', 'pet-mode', desktopMode ? `platform-${platform}` : '']
     .filter(Boolean)
     .join(' ');
+
+  useEffect(() => {
+    detectBrowserEngine(document);
+  }, []);
 
   return (
     <div className={stageClassName}>

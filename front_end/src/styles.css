@@ -130,28 +130,54 @@ body,
 
 /* Adapted from bitifirefly/reflect-glass-button (MIT), tuned for compact icon controls. */
 .live2d-stage.pet-mode .pet-glass-icon-button {
+  --reflect-glass-width: 54px;
+  --reflect-glass-height: 54px;
+  --reflect-glass-min-width: 54px;
+  --reflect-glass-min-height: 54px;
+  --reflect-glass-padding: 0;
+  --reflect-glass-radius: 999px;
+  --reflect-glass-inner-radius: 999px;
+  --reflect-glass-highlight-top: 6px;
+  --reflect-glass-highlight-height: 14px;
+  --reflect-glass-highlight-margin: 8px;
+  --reflect-glass-glow-side: 10px;
+  --reflect-glass-glow-bottom: 7px;
+  --reflect-glass-glow-height: 9px;
+  --reflect-glass-label-size: 0.98rem;
+  --reflect-glass-label-line-height: 1.2;
+  --reflect-glass-label-letter-spacing: 0.01em;
+  --reflect-glass-label-max-width: none;
+  --reflect-glass-filter: url("#reflectGlass");
+  --reflect-glass-chromium-highlight-top: 7px;
+  --reflect-glass-chromium-highlight-height: 9px;
+  --reflect-glass-chromium-highlight-margin: 10px;
+  --reflect-glass-chromium-glow-side: 12px;
+  --reflect-glass-chromium-glow-bottom: 6px;
+  --reflect-glass-chromium-glow-height: 7px;
   position: relative;
-  width: 54px;
-  height: 54px;
-  border: 1px solid rgba(134, 170, 212, 0.44);
-  border-radius: 999px;
-  padding: 0;
+  width: var(--reflect-glass-width);
+  height: var(--reflect-glass-height);
+  min-width: var(--reflect-glass-min-width);
+  min-height: var(--reflect-glass-min-height);
+  padding: var(--reflect-glass-padding);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #1668c2;
-  background: rgba(255, 255, 255, 0.2);
+  border-radius: var(--reflect-glass-radius);
+  border: 1px solid transparent;
+  background: transparent;
+  color: #0f5ea8;
   box-shadow: var(--pet-surface-shadow);
-  backdrop-filter: blur(10px) saturate(130%);
-  -webkit-backdrop-filter: blur(10px) saturate(130%);
+  text-decoration: none;
+  transform: translate3d(0, 0, 0);
   cursor: pointer;
   overflow: hidden;
   isolation: isolate;
   transition:
-    transform 140ms ease,
-    box-shadow 140ms ease,
-    border-color 140ms ease,
-    color 140ms ease;
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    background 180ms ease,
+    border-color 180ms ease;
   -webkit-app-region: no-drag;
 }
 
@@ -170,13 +196,14 @@ body,
     inset 0 0 0 1px rgba(255, 255, 255, 0.4),
     inset 0 1px 0 rgba(255, 255, 255, 0.8),
     inset 0 -8px 12px rgba(162, 196, 232, 0.08);
-  backdrop-filter: blur(10px) saturate(140%);
-  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  backdrop-filter: blur(12px) saturate(145%);
+  -webkit-backdrop-filter: blur(12px) saturate(145%);
 }
 
 .live2d-stage.pet-mode .pet-glass-icon-button .pet-glass-ornament {
   z-index: 1;
   inset: 1px;
+  border-radius: var(--reflect-glass-inner-radius);
   background:
     radial-gradient(88% 46% at 50% 0%, rgba(255, 255, 255, 0.46) 0%, rgba(255, 255, 255, 0.1) 30%, transparent 56%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.02) 64%, rgba(196, 221, 247, 0.08) 100%);
@@ -185,18 +212,33 @@ body,
     inset 0 -6px 12px rgba(167, 199, 232, 0.06);
 }
 
-.live2d-stage.pet-mode .pet-glass-icon-button::before {
+.live2d-stage.pet-mode .pet-glass-icon-button::before,
+.live2d-stage.pet-mode .pet-glass-icon-button::after {
   content: "";
   position: absolute;
-  left: 8px;
-  right: 8px;
-  top: 6px;
-  height: 9px;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+
+.live2d-stage.pet-mode .pet-glass-icon-button::before {
+  top: var(--reflect-glass-highlight-top);
+  height: var(--reflect-glass-highlight-height);
+  margin: 0 var(--reflect-glass-highlight-margin);
   border-radius: 999px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.84) 0%, rgba(255, 255, 255, 0.26) 90%, transparent 100%);
-  opacity: 0.64;
+  opacity: 0.7;
   z-index: 2;
-  pointer-events: none;
+}
+
+.live2d-stage.pet-mode .pet-glass-icon-button::after {
+  inset: auto var(--reflect-glass-glow-side) var(--reflect-glass-glow-bottom);
+  height: var(--reflect-glass-glow-height);
+  z-index: 1;
+  border-radius: 999px;
+  background: radial-gradient(circle at center, rgba(126, 180, 240, 0.12) 0%, rgba(126, 180, 240, 0.04) 56%, transparent 100%);
+  filter: blur(7px);
+  opacity: 0.6;
 }
 
 .live2d-stage.pet-mode .pet-glass-icon-button .pet-glass-icon {
@@ -213,7 +255,6 @@ body,
 
 .live2d-stage.pet-mode .pet-glass-icon-button:hover:not(:disabled) {
   transform: translateY(-1px);
-  border-color: rgba(98, 147, 208, 0.55);
   box-shadow: var(--pet-surface-shadow-hover);
 }
 
@@ -222,8 +263,7 @@ body,
 }
 
 .live2d-stage.pet-mode .pet-glass-icon-button.is-active {
-  color: #0f5ea8;
-  border-color: rgba(72, 128, 196, 0.56);
+  color: #0b528f;
 }
 
 .live2d-stage.pet-mode .pet-glass-icon-button:disabled {
@@ -232,14 +272,51 @@ body,
   transform: none;
 }
 
-@supports ((backdrop-filter: url("#reflectGlass")) or (-webkit-backdrop-filter: url("#reflectGlass"))) {
-  .live2d-stage.pet-mode .pet-glass-icon-button .pet-glass-surface {
-    background: rgba(255, 255, 255, 0.28);
-    box-shadow:
-      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-      inset 0 1px 0 rgba(255, 255, 255, 0.08);
-    backdrop-filter: url("#reflectGlass");
-    -webkit-backdrop-filter: url("#reflectGlass");
+html[data-browser-engine="chromium"] .live2d-stage.pet-mode .pet-glass-icon-button {
+  box-shadow:
+    0 4px 18px rgba(15, 23, 42, 0.07),
+    0 12px 24px rgba(15, 23, 42, 0.035);
+}
+
+html[data-browser-engine="chromium"] .live2d-stage.pet-mode .pet-glass-icon-button .pet-glass-surface {
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: var(--reflect-glass-filter) blur(12px) saturate(145%);
+  -webkit-backdrop-filter: var(--reflect-glass-filter) blur(12px) saturate(145%);
+}
+
+html[data-browser-engine="chromium"] .live2d-stage.pet-mode .pet-glass-icon-button .pet-glass-ornament {
+  border-radius: var(--reflect-glass-inner-radius);
+  background:
+    radial-gradient(88% 46% at 50% 0%, rgba(255, 255, 255, 0.42) 0%, rgba(255, 255, 255, 0.12) 32%, transparent 56%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(248, 251, 255, 0.02) 58%, rgba(212, 229, 247, 0.03) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.46),
+    inset 0 -1px 0 rgba(182, 205, 231, 0.12),
+    0 0 0 1px rgba(255, 255, 255, 0.12);
+  opacity: 0.72;
+}
+
+html[data-browser-engine="chromium"] .live2d-stage.pet-mode .pet-glass-icon-button::before {
+  top: var(--reflect-glass-chromium-highlight-top);
+  height: var(--reflect-glass-chromium-highlight-height);
+  margin: 0 var(--reflect-glass-chromium-highlight-margin);
+  opacity: 0.4;
+}
+
+html[data-browser-engine="chromium"] .live2d-stage.pet-mode .pet-glass-icon-button::after {
+  inset: auto var(--reflect-glass-chromium-glow-side) var(--reflect-glass-chromium-glow-bottom);
+  height: var(--reflect-glass-chromium-glow-height);
+  opacity: 0.24;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .live2d-stage.pet-mode .pet-glass-icon-button {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(236, 244, 251, 0.94) 100%) padding-box,
+      linear-gradient(145deg, rgba(255, 255, 255, 0.98) 0%, rgba(166, 198, 235, 0.4) 100%) border-box;
   }
 }
 
@@ -510,21 +587,6 @@ body,
 
 :root[data-theme-mode='dark'] .live2d-stage.pet-mode .pet-capture-preview-title {
   color: rgba(227, 236, 252, 0.9);
-}
-
-:root[data-theme-mode='dark'] .live2d-stage.pet-mode .pet-glass-icon-button {
-  color: rgba(174, 207, 255, 0.96);
-  border-color: rgba(109, 152, 216, 0.44);
-  background: rgba(13, 24, 42, 0.2);
-}
-
-:root[data-theme-mode='dark'] .live2d-stage.pet-mode .pet-glass-icon-button.is-active {
-  color: rgba(214, 229, 255, 0.98);
-  border-color: rgba(142, 181, 238, 0.62);
-}
-
-:root[data-theme-mode='dark'] .live2d-stage.pet-mode .pet-glass-icon-button:hover:not(:disabled) {
-  border-color: rgba(142, 181, 238, 0.62);
 }
 
 :root[data-theme-mode='dark'] .live2d-stage.pet-mode .pet-capture-preview-name {
