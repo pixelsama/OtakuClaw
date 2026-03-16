@@ -568,6 +568,8 @@ export default function PetShell({
               }
             }}
           >
+            <span className="pet-workspace-glass-surface" aria-hidden="true"></span>
+            <span className="pet-workspace-glass-ornament" aria-hidden="true"></span>
             <FolderOpenIcon fontSize="small" />
             <div className="pet-workspace-indicator-meta">
               <div className="pet-workspace-indicator-label">{t('app.nanobotWorkspace')}</div>

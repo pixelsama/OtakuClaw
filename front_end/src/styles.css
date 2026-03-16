@@ -411,17 +411,101 @@ html[data-browser-engine="chromium"] .live2d-stage.pet-mode .pet-glass-icon-butt
   gap: 10px;
   padding: 8px 10px;
   border-radius: 14px;
-  border: 1px solid var(--floating-button-border);
-  background: var(--floating-button-bg-strong);
+  border: 1px solid transparent;
+  background: transparent;
   box-shadow: none;
-  backdrop-filter: blur(10px) saturate(130%);
-  -webkit-backdrop-filter: blur(10px) saturate(130%);
   transform: translateX(-50%);
   z-index: 9;
   pointer-events: auto;
   cursor: pointer;
   transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
   -webkit-app-region: no-drag;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.live2d-stage.pet-mode .pet-workspace-glass-surface,
+.live2d-stage.pet-mode .pet-workspace-glass-ornament {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.live2d-stage.pet-mode .pet-workspace-glass-surface {
+  z-index: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.86) 0%, rgba(255, 255, 255, 0.34) 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    inset 0 -10px 16px rgba(162, 196, 232, 0.08);
+  backdrop-filter: blur(12px) saturate(145%);
+  -webkit-backdrop-filter: blur(12px) saturate(145%);
+}
+
+.live2d-stage.pet-mode .pet-workspace-glass-ornament {
+  z-index: 1;
+  inset: 1px;
+  border-radius: 13px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.02) 48%, rgba(196, 221, 247, 0.04) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    inset 0 -7px 14px rgba(167, 199, 232, 0.05);
+}
+
+.live2d-stage.pet-mode .pet-workspace-indicator::before,
+.live2d-stage.pet-mode .pet-workspace-indicator::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+
+.live2d-stage.pet-mode .pet-workspace-indicator::before {
+  top: 6px;
+  height: 11px;
+  margin: 0 14px;
+  z-index: 2;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, rgba(255, 255, 255, 0.22) 82%, transparent 100%);
+  opacity: 0.68;
+}
+
+.live2d-stage.pet-mode .pet-workspace-indicator::after {
+  inset: auto 20px 7px;
+  height: 8px;
+  z-index: 1;
+  border-radius: 999px;
+  background: radial-gradient(circle at center, rgba(126, 180, 240, 0.12) 0%, rgba(126, 180, 240, 0.04) 56%, transparent 100%);
+  filter: blur(7px);
+  opacity: 0.46;
+}
+
+.live2d-stage.pet-mode .pet-workspace-indicator > .MuiSvgIcon-root,
+.live2d-stage.pet-mode .pet-workspace-indicator-meta {
+  position: relative;
+  z-index: 3;
+}
+
+html[data-browser-engine="chromium"] .live2d-stage.pet-mode .pet-workspace-glass-surface {
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: var(--reflect-glass-filter) blur(12px) saturate(145%);
+  -webkit-backdrop-filter: var(--reflect-glass-filter) blur(12px) saturate(145%);
+}
+
+html[data-browser-engine="chromium"] .live2d-stage.pet-mode .pet-workspace-glass-ornament {
+  background:
+    radial-gradient(88% 46% at 50% 0%, rgba(255, 255, 255, 0.42) 0%, rgba(255, 255, 255, 0.12) 32%, transparent 56%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(248, 251, 255, 0.02) 58%, rgba(212, 229, 247, 0.03) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.46),
+    inset 0 -1px 0 rgba(182, 205, 231, 0.12),
+    0 0 0 1px rgba(255, 255, 255, 0.12);
+  opacity: 0.72;
 }
 
 .live2d-stage.pet-mode .pet-workspace-indicator:hover {
