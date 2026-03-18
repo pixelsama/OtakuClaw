@@ -54,6 +54,57 @@
   - Frontend tests: `pnpm run test:frontend`
   - Frontend lint: `cd front_end && pnpm run lint`
 
+## macOS Signed Release SOP (Developer ID + Notarization)
+- Goal:
+  - Build and publish macOS artifacts that pass Gatekeeper (`Developer ID` signed + notarized), and keep `electron-updater` usable.
+- One-time prerequisites (local machine):
+  - Apple Developer membership is active.
+  - `Developer ID Application` certificate is installed and valid.
+  - Verify identity:
+    - `security find-identity -v -p codesigning`
+    - Expected: at least one `Developer ID Application: ... (TEAM_ID)` entry.
+  - Store notary credentials in keychain profile:
+    - `xcrun notarytool store-credentials "otakuclaw-notary" --apple-id "<APPLE_ID>" --team-id "<TEAM_ID>" --password "<APP_SPECIFIC_PASSWORD>"`
+    - Verify:
+      - `xcrun notarytool history --keychain-profile "otakuclaw-notary"`
+- Versioning and commit:
+  - Bump root `package.json` version first, then commit (tag/release must match bundle version).
+- Build signed + notarized artifacts:
+  - Use:
+    - `APPLE_KEYCHAIN_PROFILE="otakuclaw-notary" CSC_NAME="<Common Name (TEAM_ID)>" APPLE_TEAM_ID="<TEAM_ID>" pnpm run desktop:build`
+  - Notes:
+    - `CSC_NAME` must be common name form, for example `Jiapeng Li (56FQ7L436P)`.
+    - Do not include `Developer ID Application:` prefix in `CSC_NAME`.
+    - Avoid forcing `APPLE_KEYCHAIN` unless necessary; wrong keychain path can make notary profile undiscoverable.
+- Verify artifacts locally before upload:
+  - ZIP app validation:
+    - `unzip -q release/OtakuClaw-<ver>-arm64-mac.zip -d /tmp/oc-verify-zip`
+    - `codesign -dvv /tmp/oc-verify-zip/OtakuClaw.app`
+    - `spctl -a -vv /tmp/oc-verify-zip/OtakuClaw.app`
+  - DMG-mounted app validation:
+    - `hdiutil attach release/OtakuClaw-<ver>-arm64.dmg -mountpoint /tmp/oc-verify-mnt -nobrowse`
+    - `codesign -dvv /tmp/oc-verify-mnt/OtakuClaw.app`
+    - `spctl -a -vv /tmp/oc-verify-mnt/OtakuClaw.app`
+    - `hdiutil detach /tmp/oc-verify-mnt`
+  - Expected signals:
+    - Authority chain includes `Developer ID Application`, `Developer ID Certification Authority`, `Apple Root CA`.
+    - `TeamIdentifier=<TEAM_ID>`.
+    - `spctl` shows `accepted` and `source=Notarized Developer ID`.
+    - Must not be `Signature=adhoc`.
+- Publish to GitHub release:
+  - `gh release create v<ver> release/latest-mac.yml release/OtakuClaw-<ver>-arm64-mac.zip release/OtakuClaw-<ver>-arm64-mac.zip.blockmap release/OtakuClaw-<ver>-arm64.dmg release/OtakuClaw-<ver>-arm64.dmg.blockmap --title "v<ver>" --generate-notes --prerelease`
+- Critical post-release verification (mandatory):
+  - Re-download assets from GitHub release and re-run signature checks on downloaded files.
+  - Compare downloaded hashes with local release hashes (`shasum -a 256 ...`) to ensure uploaded assets are exactly the signed builds.
+- CI overwrite pitfall (important):
+  - Unsigned CI tag builds can overwrite signed manual assets if a tag-release workflow also uploads same filenames.
+  - Current safeguard:
+    - `.github/workflows/release-macos.yml` runs only when `secrets.MAC_RELEASE_ENABLED == 'true'`.
+  - Rule:
+    - Keep `MAC_RELEASE_ENABLED` unset/false unless CI runner has proper signing + notarization secrets configured.
+  - If overwrite happened, re-upload signed artifacts with:
+    - `gh release upload v<ver> <assets...> --clobber`
+
 ## Chat & Conversation Runtime Notes (Current State)
 - Supported chat backends:
   - `openclaw` (default)
