@@ -11,6 +11,7 @@ permissions:
 jobs:
   build-and-release-macos:
     name: Build and Release macOS
+    if: ${{ secrets.MAC_RELEASE_ENABLED == 'true' }}
     runs-on: macos-latest
 
     steps:
