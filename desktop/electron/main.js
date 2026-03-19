@@ -93,6 +93,10 @@ function normalizeEnvText(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function prepareQuitForUpdate() {
+  isQuitting = true;
+}
+
 function getDefaultVoiceToggleAccelerator() {
   if (process.platform === 'darwin') {
     // Space-based shortcuts are commonly intercepted by macOS and IMEs.
@@ -516,6 +520,9 @@ async function bootstrap() {
   });
   appUpdaterService = new AppUpdaterService({
     app,
+    onBeforeInstallUpdate: () => {
+      prepareQuitForUpdate();
+    },
     emitState: (payload = {}) => {
       if (!mainWindow || mainWindow.isDestroyed()) {
         return;
@@ -789,7 +796,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  isQuitting = true;
+  prepareQuitForUpdate();
   unregisterGlobalVoiceToggleShortcut();
 
   if (conversationRuntime) {
@@ -855,4 +862,8 @@ app.on('before-quit', () => {
 
   trayManager?.destroy();
   globalShortcut.unregisterAll();
+});
+
+app.on('before-quit-for-update', () => {
+  prepareQuitForUpdate();
 });

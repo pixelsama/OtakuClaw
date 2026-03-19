@@ -125,6 +125,7 @@ class AppUpdaterService {
     logger = console,
     platform = process.platform,
     macSignatureProbe = probeMacUpdaterSignatureSupport,
+    onBeforeInstallUpdate = null,
   } = {}) {
     this.app = app;
     this.autoUpdater = resolveAutoUpdater(autoUpdater);
@@ -134,6 +135,9 @@ class AppUpdaterService {
     this.macSignatureProbe = typeof macSignatureProbe === 'function'
       ? macSignatureProbe
       : probeMacUpdaterSignatureSupport;
+    this.onBeforeInstallUpdate = typeof onBeforeInstallUpdate === 'function'
+      ? onBeforeInstallUpdate
+      : null;
     this.supportState = this.resolveSupportState();
     this.listeners = [];
     this.state = {
@@ -371,6 +375,13 @@ class AppUpdaterService {
     }
 
     try {
+      if (this.onBeforeInstallUpdate) {
+        try {
+          this.onBeforeInstallUpdate();
+        } catch (error) {
+          this.logger.warn?.('onBeforeInstallUpdate hook failed:', error);
+        }
+      }
       this.autoUpdater.quitAndInstall(false, true);
       return {
         ok: true,

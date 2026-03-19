@@ -79,3 +79,26 @@ test('AppUpdaterService resets downloaded state after updater error event', asyn
   assert.equal(service.getState().status, 'error');
   assert.equal(service.getState().error?.message, 'code signature validation failed');
 });
+
+test('AppUpdaterService runs pre-install hook before quitAndInstall', async () => {
+  const autoUpdater = createAutoUpdaterMock();
+  const calls = [];
+  const service = new AppUpdaterService({
+    app: createAppMock(),
+    autoUpdater,
+    platform: 'darwin',
+    macSignatureProbe: () => ({
+      supported: true,
+      reason: '',
+    }),
+    onBeforeInstallUpdate: () => {
+      calls.push('hook');
+    },
+  });
+
+  autoUpdater.emit('update-downloaded', { version: '0.2.1-beta.5' });
+  const installResult = service.installUpdate();
+  assert.deepEqual(installResult, { ok: true });
+  assert.equal(autoUpdater.quitAndInstallCalls, 1);
+  assert.deepEqual(calls, ['hook']);
+});
