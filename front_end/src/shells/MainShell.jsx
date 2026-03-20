@@ -1,7 +1,10 @@
-import { Box, IconButton } from '@mui/material';
+import { useState } from 'react';
+import { Box, Button, IconButton } from '@mui/material';
 import TuneIcon from '@mui/icons-material/Tune';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import ChatIcon from '@mui/icons-material/Chat';
+import GridViewIcon from '@mui/icons-material/GridView';
+import ViewInArIcon from '@mui/icons-material/ViewInAr';
 import Live2DViewer from '../components/live2d/Live2DViewer.jsx';
 import SubtitleBar from '../components/subtitle/SubtitleBar.jsx';
 import WindowTitleBar from '../components/window/WindowTitleBar.jsx';
@@ -27,9 +30,15 @@ export default function MainShell({
   voicePermissionWarningText = '',
   officeScene = null,
   isNarrowViewport = false,
+  initialWindowViewMode = 'avatar',
 }) {
   const { t } = useI18n();
-  const stageClassName = ['live2d-stage', 'window-mode', desktopMode ? `platform-${platform}` : '']
+  const hasOfficeScene = Boolean(officeScene);
+  const [windowViewMode, setWindowViewMode] = useState(
+    initialWindowViewMode === 'office' && hasOfficeScene ? 'office' : 'avatar',
+  );
+  const showOfficeView = hasOfficeScene && windowViewMode === 'office';
+  const stageClassName = ['live2d-stage', 'window-mode', `window-view-${showOfficeView ? 'office' : 'avatar'}`, desktopMode ? `platform-${platform}` : '']
     .filter(Boolean)
     .join(' ');
 
@@ -50,25 +59,28 @@ export default function MainShell({
         />
       )}
 
-      <Box className="live2d-hitbox">
-        <Live2DViewer
-          ref={live2dViewerRef}
-          modelPath={currentModelPath}
-          motions={motions}
-          expressions={expressions}
-          width={400}
-          height={600}
-          onModelLoaded={onModelLoaded}
-          onModelError={onModelError}
-          className="live2d-viewer"
-        />
-      </Box>
+      {!showOfficeView ? (
+        <Box className="live2d-hitbox">
+          <Live2DViewer
+            ref={live2dViewerRef}
+            modelPath={currentModelPath}
+            motions={motions}
+            expressions={expressions}
+            width={400}
+            height={600}
+            onModelLoaded={onModelLoaded}
+            onModelError={onModelError}
+            className="live2d-viewer"
+          />
+        </Box>
+      ) : null}
 
-      {officeScene ? (
+      {showOfficeView ? (
         <OfficeScene
           scene={officeScene}
           compact={isNarrowViewport}
-          className="office-scene-dock"
+          variant="page"
+          className="office-scene-page"
         />
       ) : null}
 
@@ -82,6 +94,30 @@ export default function MainShell({
       </IconButton>
 
       <Box className="window-bottom-controls">
+        {officeScene ? (
+          <Box className="window-view-switcher" role="group" aria-label="Window view switcher">
+            <Button
+              className={`window-view-button ${windowViewMode === 'avatar' ? 'is-active' : ''}`.trim()}
+              size="small"
+              startIcon={<ViewInArIcon />}
+              onClick={() => {
+                setWindowViewMode('avatar');
+              }}
+            >
+              Live2D
+            </Button>
+            <Button
+              className={`window-view-button ${windowViewMode === 'office' ? 'is-active' : ''}`.trim()}
+              size="small"
+              startIcon={<GridViewIcon />}
+              onClick={() => {
+                setWindowViewMode('office');
+              }}
+            >
+              Pixel Room
+            </Button>
+          </Box>
+        ) : null}
         {desktopMode && (
           <IconButton
             className="mode-toggle"

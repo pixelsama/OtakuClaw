@@ -50,12 +50,18 @@ export default function OfficeScene({
   scene,
   compact = false,
   className = '',
+  variant = 'dock',
 }) {
   if (!scene) {
     return null;
   }
 
-  const normalizedClassName = ['office-room', compact ? 'is-compact' : '', className].filter(Boolean).join(' ');
+  const normalizedClassName = [
+    'office-room',
+    compact ? 'is-compact' : '',
+    variant === 'page' ? 'office-room--page' : 'office-room--dock',
+    className,
+  ].filter(Boolean).join(' ');
   const { title, subtitle, caption, labels, config, occupants, areaSummaries, primaryAgent, agentCount } = scene;
 
   return (
@@ -98,6 +104,8 @@ export default function OfficeScene({
           <div className="office-room__legend">
             <span className="tone-idle">idle</span>
             <span className="tone-focus">writing</span>
+            <span className="tone-think">researching</span>
+            <span className="tone-exec">executing</span>
             <span className="tone-sync">syncing</span>
             <span className="tone-error">error</span>
           </div>

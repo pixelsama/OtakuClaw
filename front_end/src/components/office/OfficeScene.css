@@ -12,6 +12,15 @@
   width: min(340px, calc(100vw - 120px));
 }
 
+.office-room--page {
+  left: 24px;
+  top: 72px;
+  right: 24px;
+  bottom: 88px;
+  width: auto;
+  pointer-events: auto;
+}
+
 .office-room__chrome {
   position: relative;
   padding: 16px;
@@ -24,6 +33,17 @@
   backdrop-filter: blur(14px) saturate(135%);
   -webkit-backdrop-filter: blur(14px) saturate(135%);
   overflow: hidden;
+}
+
+.office-room--page .office-room__chrome {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 22px;
+  border-radius: 30px;
+  background:
+    linear-gradient(180deg, rgba(254, 249, 240, 0.94) 0%, rgba(236, 243, 255, 0.9) 100%),
+    linear-gradient(135deg, rgba(48, 103, 192, 0.12), rgba(241, 171, 89, 0.14));
 }
 
 .office-room__chrome::before {
@@ -83,6 +103,14 @@
   overflow: hidden;
   background: linear-gradient(180deg, #d7ecff 0%, #f4f8ff 38%, #f5e7d3 38%, #e7cfaa 100%);
   box-shadow: inset 0 0 0 1px rgba(31, 76, 144, 0.14);
+}
+
+.office-room--page .office-room__stage {
+  flex: 1;
+  min-height: 420px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.32), transparent 20%),
+    linear-gradient(180deg, #c7dcff 0%, #dff0ff 34%, #efd8ae 34%, #d4b17d 100%);
 }
 
 .office-room__backdrop,
@@ -320,6 +348,14 @@
   color: #3150c8;
 }
 
+.tone-think {
+  color: #175f9f;
+}
+
+.tone-exec {
+  color: #8d4a1d;
+}
+
 .tone-sync {
   color: #188978;
 }
@@ -331,6 +367,11 @@
 .office-scene-dock {
   left: 28px;
   top: 68px;
+}
+
+.office-scene-page {
+  left: 24px;
+  top: 72px;
 }
 
 @keyframes officeBob {
@@ -351,6 +392,11 @@
   .office-room__stage {
     height: 224px;
   }
+
+  .office-room--page .office-room__stage {
+    min-height: 360px;
+    height: auto;
+  }
 }
 
 @media (max-width: 900px) {
@@ -359,6 +405,23 @@
     left: 16px;
     top: 54px;
     width: min(320px, calc(100vw - 40px));
+  }
+
+  .office-room--page,
+  .office-scene-page {
+    left: 14px;
+    right: 14px;
+    top: 62px;
+    bottom: 84px;
+    width: auto;
+  }
+
+  .office-room--page .office-room__chrome {
+    padding: 16px;
+  }
+
+  .office-room--page .office-room__stage {
+    min-height: 280px;
   }
 }
 
