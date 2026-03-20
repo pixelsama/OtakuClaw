@@ -11,6 +11,27 @@ function formatPercent(value) {
   return `${Number(clampPercent(value).toFixed(1))}%`;
 }
 
+function buildFurnitureHelpText(furniture) {
+  if (!furniture) {
+    return '';
+  }
+
+  const visibleWhenStates = Array.isArray(furniture.visibleWhenStates) ? furniture.visibleWhenStates : [];
+  const variantStates = Array.isArray(furniture.variantStates) ? furniture.variantStates : [];
+  const segments = [];
+  if (visibleWhenStates.length > 0) {
+    segments.push(`Auto-shows during: ${visibleWhenStates.join(', ')}.`);
+  }
+  if (variantStates.length > 0) {
+    segments.push(`Reacts during: ${variantStates.join(', ')}.`);
+  }
+  if (segments.length === 0) {
+    segments.push('Always available in the current theme.');
+  }
+  segments.push('Drag directly in the room for quick placement.');
+  return segments.join(' ');
+}
+
 export default function OfficeSceneEditor({
   themeId = '',
   themeOptions = [],
@@ -25,6 +46,13 @@ export default function OfficeSceneEditor({
   onFurnitureReset,
 }) {
   const selectedFurniture = furniture.find((item) => item.id === selectedFurnitureId) || furniture[0] || null;
+  const selectedFurnitureAutoStates = selectedFurniture
+    ? [
+        ...(Array.isArray(selectedFurniture.visibleWhenStates) ? selectedFurniture.visibleWhenStates : []),
+        ...(Array.isArray(selectedFurniture.variantStates) ? selectedFurniture.variantStates : []),
+      ]
+        .filter((value, index, values) => value && values.indexOf(value) === index)
+    : [];
 
   return (
     <aside className="office-room__editor" aria-label="Pixel room editor">
@@ -114,11 +142,7 @@ export default function OfficeSceneEditor({
             <div>
               <div className="office-room__editor-label">{selectedFurniture.label}</div>
               <div className="office-room__editor-help">
-                {selectedFurniture.visibleWhenStates.length > 0
-                  ? `Auto-shows during: ${selectedFurniture.visibleWhenStates.join(', ')}.`
-                  : 'Always available in the current theme.'}
-                {' '}
-                Drag directly in the room for quick placement.
+                {buildFurnitureHelpText(selectedFurniture)}
               </div>
             </div>
             <button
@@ -142,6 +166,14 @@ export default function OfficeSceneEditor({
             />
             <span>Show this furniture</span>
           </label>
+
+          {selectedFurnitureAutoStates.length > 0 ? (
+            <div className="office-room__editor-help">
+              Active state reaction:
+              {' '}
+              {selectedFurniture.activeVariantState || (selectedFurniture.isVisible ? 'visible' : 'waiting')}
+            </div>
+          ) : null}
 
           <label className="office-room__editor-field">
             <span className="office-room__editor-range-header">

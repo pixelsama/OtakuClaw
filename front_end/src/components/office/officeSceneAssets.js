@@ -3,9 +3,14 @@ import deskAsset from '../../assets/office/star-office/desk-v3.webp';
 import sofaAsset from '../../assets/office/star-office/sofa-idle-v3.png';
 import sofaShadowAsset from '../../assets/office/star-office/sofa-shadow-v1.png';
 import coffeeMachineAsset from '../../assets/office/star-office/coffee-machine-v3-grid.webp';
+import plantsAsset from '../../assets/office/star-office/plants-spritesheet.webp';
+import postersAsset from '../../assets/office/star-office/posters-spritesheet.webp';
+import serverRoomAsset from '../../assets/office/star-office/serverroom-spritesheet.webp';
+import flowersAsset from '../../assets/office/star-office/flowers-bloom-v2.webp';
 import starIdleAsset from '../../assets/office/star-office/star-idle-v5.png';
 import starWorkingAsset from '../../assets/office/star-office/star-working-spritesheet-grid.webp';
 import errorBugAsset from '../../assets/office/star-office/error-bug-spritesheet-grid.webp';
+import catsAsset from '../../assets/office/star-office/cats-spritesheet.webp';
 import guestRole1Asset from '../../assets/office/star-office/guest_role_1.png';
 import guestRole2Asset from '../../assets/office/star-office/guest_role_2.png';
 import guestRole3Asset from '../../assets/office/star-office/guest_role_3.png';
@@ -17,8 +22,13 @@ export const OFFICE_SCENE_ASSET_REGISTRY = {
   starOfficeBackdrop: { key: 'starOfficeBackdrop', url: officeBgAsset, cols: 1, rows: 1 },
   desk: { key: 'desk', url: deskAsset, cols: 1, rows: 1 },
   coffeeMachine: { key: 'coffeeMachine', url: coffeeMachineAsset, cols: 12, rows: 8 },
+  plants: { key: 'plants', url: plantsAsset, cols: 4, rows: 4 },
+  posters: { key: 'posters', url: postersAsset, cols: 4, rows: 8 },
+  serverRoom: { key: 'serverRoom', url: serverRoomAsset, cols: 40, rows: 1 },
+  flowers: { key: 'flowers', url: flowersAsset, cols: 4, rows: 4 },
   sofaShadow: { key: 'sofaShadow', url: sofaShadowAsset, cols: 1, rows: 1 },
   sofa: { key: 'sofa', url: sofaAsset, cols: 1, rows: 1 },
+  cats: { key: 'cats', url: catsAsset, cols: 4, rows: 4 },
   errorBug: { key: 'errorBug', url: errorBugAsset, cols: 10, rows: 11 },
   starIdle: { key: 'starIdle', url: starIdleAsset, cols: 8, rows: 6 },
   starWorking: { key: 'starWorking', url: starWorkingAsset, cols: 8, rows: 5 },

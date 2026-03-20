@@ -98,6 +98,13 @@ describe('resolveOfficeSceneState', () => {
       aspectRatio: '276 / 214',
       isVisible: true,
     });
+    expect(scene.config.furniture.find((item) => item.id === 'poster')).toMatchObject({
+      assetKey: 'posters',
+      cols: 4,
+      rows: 8,
+      frameIndex: 6,
+      isVisible: true,
+    });
   });
 
   it('supports conditional furniture visibility from business states', () => {
@@ -139,6 +146,9 @@ describe('resolveOfficeSceneState', () => {
     expect(scene.config.themeId).toBe('star-office-classic');
     expect(scene.config.themeLabel).toBe('Star Office Classic');
     expect(scene.config.furniture.map((item) => item.id)).toContain('coffee');
+    expect(scene.config.furniture.map((item) => item.id)).toEqual(
+      expect.arrayContaining(['poster', 'plantLeft', 'plantCenter', 'serverroom', 'flowers', 'cat', 'plantBedroom']),
+    );
     expect(scene.config.furniture.find((item) => item.id === 'sofa')).toMatchObject({
       layers: [
         { id: 'sofa-shadow', assetKey: 'sofaShadow' },
@@ -169,9 +179,45 @@ describe('resolveOfficeSceneState', () => {
 
     expect(minimalScene.config.themeId).toBe('star-office-minimal');
     expect(minimalScene.config.furniture.find((item) => item.id === 'coffee')).toBeUndefined();
+    expect(minimalScene.config.furniture.find((item) => item.id === 'plantCenter')).toBeUndefined();
     expect(minimalScene.config.furniture.find((item) => item.id === 'sofa')).toMatchObject({
       left: 49,
       top: 18,
+    });
+  });
+
+  it('applies stateful furniture variants for reachable business states', () => {
+    const syncingScene = resolveOfficeSceneState({
+      officeState: normalizeOfficeState({
+        revision: 1,
+        activeAgentId: 'main',
+        agents: [
+          { agentId: 'main', displayName: 'Main', businessState: 'syncing', detail: 'Syncing assets.' },
+        ],
+      }),
+    });
+
+    const errorScene = resolveOfficeSceneState({
+      officeState: normalizeOfficeState({
+        revision: 1,
+        activeAgentId: 'main',
+        agents: [
+          { agentId: 'main', displayName: 'Main', businessState: 'error', detail: 'Bug found.' },
+        ],
+      }),
+    });
+
+    expect(syncingScene.config.furniture.find((item) => item.id === 'serverroom')).toMatchObject({
+      activeVariantState: 'syncing',
+      frameIndex: 18,
+    });
+    expect(syncingScene.config.furniture.find((item) => item.id === 'cat')).toMatchObject({
+      activeVariantState: 'syncing',
+      frameIndex: 8,
+    });
+    expect(errorScene.config.furniture.find((item) => item.id === 'flowers')).toMatchObject({
+      activeVariantState: 'error',
+      frameIndex: 14,
     });
   });
 
@@ -238,6 +284,28 @@ describe('resolveOfficeSceneEditorState', () => {
     expect(editor.furniture.find((item) => item.id === 'sofa-shadow')).toBeUndefined();
     expect(editor.furniture.find((item) => item.id === 'bug')).toMatchObject({
       ruleLabel: 'Error-only',
+    });
+    expect(editor.furniture.find((item) => item.id === 'cat')).toMatchObject({
+      ruleLabel: 'State furniture',
+    });
+  });
+
+  it('marks state-variant furniture in the classic theme editor list', () => {
+    const editor = resolveOfficeSceneEditorState({
+      sceneConfig: {
+        themeId: 'star-office-classic',
+      },
+      officeState: normalizeOfficeState({
+        revision: 1,
+        activeAgentId: 'main',
+        agents: [
+          { agentId: 'main', displayName: 'Main', businessState: 'idle', detail: 'Standing by.' },
+        ],
+      }),
+    });
+
+    expect(editor.furniture.find((item) => item.id === 'serverroom')).toMatchObject({
+      ruleLabel: 'State furniture',
     });
   });
 });

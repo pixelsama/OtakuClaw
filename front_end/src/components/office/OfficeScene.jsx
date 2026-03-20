@@ -22,6 +22,7 @@ function OfficeDecorLayer({ furniture, layer, isInteractive = false, isSelected 
         zIndex: layer.zIndex,
         opacity: layer.opacity,
         backgroundImage: `url(${layer.assetUrl})`,
+        backgroundPosition: `${layer.backgroundPositionX || 0}% ${layer.backgroundPositionY || 0}%`,
         '--office-cols': layer.cols,
         '--office-rows': layer.rows,
       }}

@@ -79,6 +79,120 @@ export const OFFICE_FURNITURE_CATALOG = {
     zIndex: 6,
     visibleWhenStates: ['error'],
   },
+  poster: {
+    id: 'poster',
+    label: 'Friends Poster',
+    kind: 'decor',
+    assetKey: 'posters',
+    left: 13.4,
+    top: 1.2,
+    width: 12.5,
+    aspectRatio: '1 / 1',
+    zIndex: 4,
+    frameIndex: 6,
+  },
+  plantLeft: {
+    id: 'plantLeft',
+    label: 'Lounge Plant',
+    kind: 'decor',
+    assetKey: 'plants',
+    left: 11.7,
+    top: 14.6,
+    width: 12.5,
+    aspectRatio: '1 / 1',
+    zIndex: 5,
+    frameIndex: 5,
+  },
+  plantCenter: {
+    id: 'plantCenter',
+    label: 'Divider Plant',
+    kind: 'decor',
+    assetKey: 'plants',
+    left: 37.9,
+    top: 13.6,
+    width: 12.5,
+    aspectRatio: '1 / 1',
+    zIndex: 5,
+    frameIndex: 1,
+  },
+  plantBedroom: {
+    id: 'plantBedroom',
+    label: 'Bedroom Plant',
+    kind: 'decor',
+    assetKey: 'plants',
+    left: 70.1,
+    top: 57.8,
+    width: 12.5,
+    aspectRatio: '1 / 1',
+    zIndex: 5,
+    frameIndex: 10,
+  },
+  flowers: {
+    id: 'flowers',
+    label: 'Desk Flowers',
+    kind: 'decor',
+    assetKey: 'flowers',
+    left: 20.2,
+    top: 47.1,
+    width: 8,
+    aspectRatio: '1 / 1',
+    zIndex: 10,
+    frameIndex: 7,
+    stateVariants: {
+      error: {
+        frameIndex: 14,
+      },
+    },
+  },
+  cat: {
+    id: 'cat',
+    label: 'Cat Cushion',
+    kind: 'decor',
+    assetKey: 'cats',
+    left: 1.1,
+    top: 66.2,
+    width: 12.5,
+    aspectRatio: '1 / 1',
+    zIndex: 14,
+    frameIndex: 3,
+    stateVariants: {
+      syncing: {
+        frameIndex: 8,
+      },
+      error: {
+        frameIndex: 12,
+      },
+    },
+  },
+  serverroom: {
+    id: 'serverroom',
+    label: 'Server Room',
+    kind: 'status',
+    assetKey: 'serverRoom',
+    left: 72.7,
+    top: 2.3,
+    width: 14.1,
+    aspectRatio: '180 / 251',
+    zIndex: 2,
+    frameIndex: 0,
+    stateVariants: {
+      writing: {
+        frameIndex: 6,
+      },
+      researching: {
+        frameIndex: 9,
+      },
+      executing: {
+        frameIndex: 12,
+      },
+      syncing: {
+        frameIndex: 18,
+      },
+      error: {
+        frameIndex: 24,
+      },
+    },
+  },
 };
 
 export const OFFICE_ROOM_THEMES = {
@@ -88,7 +202,19 @@ export const OFFICE_ROOM_THEMES = {
     backdrop: {
       assetKey: 'starOfficeBackdrop',
     },
-    furnitureIds: ['desk', 'coffee', 'sofa', 'bug'],
+    furnitureIds: [
+      'poster',
+      'plantLeft',
+      'plantCenter',
+      'serverroom',
+      'desk',
+      'flowers',
+      'coffee',
+      'sofa',
+      'bug',
+      'cat',
+      'plantBedroom',
+    ],
   },
   'star-office-minimal': {
     id: 'star-office-minimal',
@@ -96,7 +222,7 @@ export const OFFICE_ROOM_THEMES = {
     backdrop: {
       assetKey: 'starOfficeBackdrop',
     },
-    furnitureIds: ['desk', 'sofa', 'bug'],
+    furnitureIds: ['poster', 'plantLeft', 'desk', 'sofa', 'bug', 'cat'],
   },
 };
 
@@ -236,28 +362,119 @@ function formatStateLabel(state = '') {
 function buildFurnitureRuleLabel({
   visibleWhenStates = [],
   hiddenWhenStates = [],
+  variantStates = [],
 } = {}) {
   if (visibleWhenStates.length === 1 && hiddenWhenStates.length === 0) {
     return `${formatStateLabel(visibleWhenStates[0])}-only`;
   }
 
-  if (visibleWhenStates.length > 0 || hiddenWhenStates.length > 0) {
+  if (visibleWhenStates.length > 0 || hiddenWhenStates.length > 0 || variantStates.length > 0) {
     return 'State furniture';
   }
 
   return 'Always';
 }
 
+const OFFICE_VARIANT_STATE_PRIORITY = [
+  'error',
+  'syncing',
+  'executing',
+  'researching',
+  'writing',
+  'thinking',
+  'streaming',
+  'gaming',
+  'singing',
+  'comforting',
+  'chatting',
+  'sleeping',
+  'idle',
+];
+
+function normalizeStateVariants(variants = {}) {
+  if (!isObject(variants)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(variants)
+      .map(([state, value]) => [normalizeString(state, '').toLowerCase(), value])
+      .filter(([state, value]) => state && isObject(value)),
+  );
+}
+
+function pickMatchingVariantState(variants = {}, activeStates = []) {
+  const normalizedVariants = normalizeStateVariants(variants);
+  const normalizedActiveStates = normalizeStringList(activeStates);
+  const prioritizedState = OFFICE_VARIANT_STATE_PRIORITY.find(
+    (state) => normalizedActiveStates.includes(state) && normalizedVariants[state],
+  );
+  if (prioritizedState) {
+    return prioritizedState;
+  }
+
+  return normalizedActiveStates.find((state) => normalizedVariants[state]) || '';
+}
+
+function applyMatchingStateVariant(source = {}, activeStates = []) {
+  const normalizedSource = source && typeof source === 'object' ? source : {};
+  const normalizedVariants = normalizeStateVariants(normalizedSource.stateVariants);
+  const matchedState = pickMatchingVariantState(normalizedVariants, activeStates);
+  if (!matchedState) {
+    return {
+      ...normalizedSource,
+      stateVariants: normalizedVariants,
+      activeVariantState: '',
+    };
+  }
+
+  return {
+    ...normalizedSource,
+    ...(normalizedVariants[matchedState] || {}),
+    stateVariants: normalizedVariants,
+    activeVariantState: matchedState,
+  };
+}
+
+function normalizeFrameIndex(value, cols = 1, rows = 1) {
+  const numeric = Number.isFinite(value) ? value : Number(value);
+  const frameCount = Math.max(1, (Number(cols) || 1) * (Number(rows) || 1));
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(frameCount - 1, Math.round(numeric)));
+}
+
+function resolveFramePosition(frameIndex = 0, cols = 1, rows = 1) {
+  const safeCols = Math.max(1, Number(cols) || 1);
+  const safeRows = Math.max(1, Number(rows) || 1);
+  const normalizedFrameIndex = normalizeFrameIndex(frameIndex, safeCols, safeRows);
+  const frameColumn = normalizedFrameIndex % safeCols;
+  const frameRow = Math.floor(normalizedFrameIndex / safeCols);
+  return {
+    frameIndex: normalizedFrameIndex,
+    backgroundPositionX: safeCols === 1 ? 0 : Number(((frameColumn / (safeCols - 1)) * 100).toFixed(4)),
+    backgroundPositionY: safeRows === 1 ? 0 : Number(((frameRow / (safeRows - 1)) * 100).toFixed(4)),
+  };
+}
+
 function normalizeFurnitureItem(item = {}, activeStates = []) {
-  const source = item && typeof item === 'object' ? item : {};
+  const source = applyMatchingStateVariant(item, activeStates);
   const assetKey = normalizeString(source.assetKey, '');
   const asset = resolveOfficeSceneAsset(assetKey);
   const visibleWhenStates = normalizeStringList(source.visibleWhenStates);
   const hiddenWhenStates = normalizeStringList(source.hiddenWhenStates);
+  const variantStates = Object.keys(normalizeStateVariants(source.stateVariants));
   const hidden = source.hidden === true;
   const shouldShowForVisibleStates = visibleWhenStates.length === 0
     || visibleWhenStates.some((state) => activeStates.includes(state));
   const shouldHideForHiddenStates = hiddenWhenStates.some((state) => activeStates.includes(state));
+  const frame = resolveFramePosition(
+    source.frameIndex,
+    Number.isFinite(source.cols) ? source.cols : asset?.cols || 1,
+    Number.isFinite(source.rows) ? source.rows : asset?.rows || 1,
+  );
 
   return {
     ...source,
@@ -277,11 +494,16 @@ function normalizeFurnitureItem(item = {}, activeStates = []) {
     hidden,
     visibleWhenStates,
     hiddenWhenStates,
+    variantStates,
+    activeVariantState: normalizeString(source.activeVariantState, '').toLowerCase(),
+    frameIndex: frame.frameIndex,
+    backgroundPositionX: frame.backgroundPositionX,
+    backgroundPositionY: frame.backgroundPositionY,
     isVisible: !hidden && shouldShowForVisibleStates && !shouldHideForHiddenStates,
   };
 }
 
-function normalizeFurnitureLayers(item = {}) {
+function normalizeFurnitureLayers(item = {}, activeStates = []) {
   const source = item && typeof item === 'object' ? item : {};
   const itemId = normalizeString(source.id, 'furniture');
   const itemWidth = Number.isFinite(source.width) ? source.width : 10;
@@ -304,12 +526,15 @@ function normalizeFurnitureLayers(item = {}) {
 
   return sourceLayers
     .map((layer, index) => {
-      const layerSource = layer && typeof layer === 'object' ? layer : {};
+      const layerSource = applyMatchingStateVariant(layer, activeStates);
       const layerAssetKey = normalizeString(layerSource.assetKey, '');
       const layerAsset = resolveOfficeSceneAsset(layerAssetKey);
       if (!layerAsset?.url) {
         return null;
       }
+      const cols = Number.isFinite(layerSource.cols) ? layerSource.cols : layerAsset.cols || 1;
+      const rows = Number.isFinite(layerSource.rows) ? layerSource.rows : layerAsset.rows || 1;
+      const frame = resolveFramePosition(layerSource.frameIndex, cols, rows);
 
       return {
         ...layerSource,
@@ -317,12 +542,15 @@ function normalizeFurnitureLayers(item = {}) {
         kind: normalizeString(layerSource.kind, normalizeString(source.kind, 'furniture')),
         assetKey: layerAssetKey,
         assetUrl: layerAsset.url,
-        cols: Number.isFinite(layerSource.cols) ? layerSource.cols : layerAsset.cols || 1,
-        rows: Number.isFinite(layerSource.rows) ? layerSource.rows : layerAsset.rows || 1,
+        cols,
+        rows,
         width: Number.isFinite(layerSource.width) ? layerSource.width : itemWidth,
         aspectRatio: normalizeString(layerSource.aspectRatio, itemAspectRatio),
         zIndex: Number.isFinite(layerSource.zIndex) ? layerSource.zIndex : itemZIndex,
         opacity: Number.isFinite(layerSource.opacity) ? layerSource.opacity : itemOpacity,
+        frameIndex: frame.frameIndex,
+        backgroundPositionX: frame.backgroundPositionX,
+        backgroundPositionY: frame.backgroundPositionY,
       };
     })
     .filter(Boolean);
@@ -332,7 +560,7 @@ function normalizeFurniture(items = [], activeStates = []) {
   return cloneFurniture(items)
     .map((item) => {
       const normalizedItem = normalizeFurnitureItem(item, activeStates);
-      const normalizedLayers = normalizeFurnitureLayers(normalizedItem);
+      const normalizedLayers = normalizeFurnitureLayers(normalizedItem, activeStates);
       return {
         ...normalizedItem,
         assetUrl: normalizedLayers[normalizedLayers.length - 1]?.assetUrl || normalizedItem.assetUrl,
@@ -437,6 +665,7 @@ export function resolveOfficeSceneEditorState({
         ruleLabel: buildFurnitureRuleLabel({
           visibleWhenStates: normalized.visibleWhenStates,
           hiddenWhenStates: normalized.hiddenWhenStates,
+          variantStates: normalized.variantStates,
         }),
         left: normalized.left,
         top: normalized.top,
@@ -444,6 +673,8 @@ export function resolveOfficeSceneEditorState({
         zIndex: normalized.zIndex,
         visibleWhenStates: normalized.visibleWhenStates,
         hiddenWhenStates: normalized.hiddenWhenStates,
+        variantStates: normalized.variantStates,
+        activeVariantState: normalized.activeVariantState,
         defaultLeft: Number.isFinite(baseItem.left) ? baseItem.left : normalized.left,
         defaultTop: Number.isFinite(baseItem.top) ? baseItem.top : normalized.top,
       };

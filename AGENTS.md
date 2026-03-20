@@ -147,7 +147,12 @@
 - Current implementation status:
   - art assets are present
   - room visuals are migrated enough for feature evaluation
-  - furniture system is not implemented yet; current furniture is static scene art, not user-configurable data
+  - furniture system now has a minimal data-driven/editor-backed layer:
+    - theme switching
+    - furniture show/hide
+    - drag/slider placement with persisted overrides
+    - state-driven visibility and sprite variants for selected objects
+  - current placeable `Star-Office-UI` objects include desk, coffee bar, sofa, poster, plants, flowers, server room, cat, and bug alert
 - If this project moves toward commercial distribution, replace all migrated `Star-Office-UI` art assets before release.
 
 ## Voice Runtime Notes (Current State)
