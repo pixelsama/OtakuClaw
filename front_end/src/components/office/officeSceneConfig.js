@@ -1,3 +1,5 @@
+import { resolveOfficeSceneAsset } from './officeSceneAssets.js';
+
 export const OFFICE_PRIMARY_AGENT_ID = 'main';
 
 const DEFAULT_LABELS = {
@@ -14,6 +16,9 @@ const DEFAULT_LABELS = {
 };
 
 export const DEFAULT_OFFICE_SCENE_CONFIG = {
+  backdrop: {
+    assetKey: 'starOfficeBackdrop',
+  },
   areas: {
     lounge: {
       id: 'lounge',
@@ -61,14 +66,58 @@ export const DEFAULT_OFFICE_SCENE_CONFIG = {
     },
   },
   furniture: [
-    { id: 'window', kind: 'window', x: 14, y: 12, w: 19, h: 18 },
-    { id: 'plant', kind: 'plant', x: 35, y: 18, w: 8, h: 12 },
-    { id: 'sofa', kind: 'sofa', x: 8, y: 62, w: 26, h: 18 },
-    { id: 'desk', kind: 'desk', x: 39, y: 58, w: 26, h: 17 },
-    { id: 'monitor', kind: 'monitor', x: 49, y: 42, w: 11, h: 10 },
-    { id: 'server', kind: 'server', x: 72, y: 56, w: 18, h: 22 },
-    { id: 'bug', kind: 'bug', x: 78, y: 20, w: 9, h: 9 },
-    { id: 'lamp', kind: 'lamp', x: 62, y: 18, w: 8, h: 16 },
+    {
+      id: 'desk',
+      kind: 'furniture',
+      assetKey: 'desk',
+      left: 6.3,
+      top: 43.1,
+      width: 21.6,
+      aspectRatio: '276 / 214',
+      zIndex: 8,
+    },
+    {
+      id: 'coffee',
+      kind: 'furniture',
+      assetKey: 'coffeeMachine',
+      left: 40.7,
+      top: 42.3,
+      width: 21.6,
+      aspectRatio: '276 / 184',
+      zIndex: 9,
+    },
+    {
+      id: 'sofa-shadow',
+      kind: 'shadow',
+      assetKey: 'sofaShadow',
+      left: 52.3,
+      top: 20,
+      width: 20,
+      aspectRatio: '1 / 1',
+      zIndex: 6,
+      opacity: 0.72,
+    },
+    {
+      id: 'sofa',
+      kind: 'furniture',
+      assetKey: 'sofa',
+      left: 52.3,
+      top: 20,
+      width: 20,
+      aspectRatio: '1 / 1',
+      zIndex: 7,
+    },
+    {
+      id: 'bug',
+      kind: 'status',
+      assetKey: 'errorBug',
+      left: 71.8,
+      top: 18.2,
+      width: 13.75,
+      aspectRatio: '176 / 180',
+      zIndex: 6,
+      visibleWhenStates: ['error'],
+    },
   ],
   stateMap: {
     idle: { areaId: 'lounge', mood: 'resting', palette: 'idle' },
@@ -100,6 +149,62 @@ function normalizeLabels(labels = {}) {
 
 function cloneFurniture(items = []) {
   return items.map((item) => ({ ...item }));
+}
+
+function normalizeBackdrop(backdrop = {}) {
+  const source = backdrop && typeof backdrop === 'object' ? backdrop : {};
+  const assetKey = normalizeString(source.assetKey, DEFAULT_OFFICE_SCENE_CONFIG.backdrop.assetKey);
+  const asset = resolveOfficeSceneAsset(assetKey);
+  return {
+    assetKey,
+    assetUrl: asset?.url || '',
+  };
+}
+
+function normalizeStringList(values = []) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  return values
+    .map((value) => normalizeString(value, '').toLowerCase())
+    .filter(Boolean);
+}
+
+function normalizeFurnitureItem(item = {}, activeStates = []) {
+  const source = item && typeof item === 'object' ? item : {};
+  const assetKey = normalizeString(source.assetKey, '');
+  const asset = resolveOfficeSceneAsset(assetKey);
+  const visibleWhenStates = normalizeStringList(source.visibleWhenStates);
+  const hiddenWhenStates = normalizeStringList(source.hiddenWhenStates);
+  const shouldShowForVisibleStates = visibleWhenStates.length === 0
+    || visibleWhenStates.some((state) => activeStates.includes(state));
+  const shouldHideForHiddenStates = hiddenWhenStates.some((state) => activeStates.includes(state));
+
+  return {
+    ...source,
+    id: normalizeString(source.id, assetKey || 'furniture'),
+    kind: normalizeString(source.kind, 'furniture'),
+    assetKey,
+    assetUrl: asset?.url || '',
+    cols: Number.isFinite(source.cols) ? source.cols : asset?.cols || 1,
+    rows: Number.isFinite(source.rows) ? source.rows : asset?.rows || 1,
+    left: Number.isFinite(source.left) ? source.left : 0,
+    top: Number.isFinite(source.top) ? source.top : 0,
+    width: Number.isFinite(source.width) ? source.width : 10,
+    aspectRatio: normalizeString(source.aspectRatio, '1 / 1'),
+    zIndex: Number.isFinite(source.zIndex) ? source.zIndex : 1,
+    opacity: Number.isFinite(source.opacity) ? source.opacity : 1,
+    visibleWhenStates,
+    hiddenWhenStates,
+    isVisible: shouldShowForVisibleStates && !shouldHideForHiddenStates,
+  };
+}
+
+function normalizeFurniture(items = [], activeStates = []) {
+  return cloneFurniture(items)
+    .map((item) => normalizeFurnitureItem(item, activeStates))
+    .filter((item) => item.assetUrl);
 }
 
 function normalizeStateMap(map = {}) {
@@ -321,9 +426,11 @@ export function resolveOfficeSceneState({
 } = {}) {
   const normalizedState = normalizeOfficeState(officeState);
   const normalizedLabels = normalizeLabels(labels);
+  const activeStates = normalizedState.agents.map((agent) => normalizeString(agent.businessState, 'idle').toLowerCase());
   const config = {
+    backdrop: normalizeBackdrop(sceneConfig?.backdrop || DEFAULT_OFFICE_SCENE_CONFIG.backdrop),
     areas: sceneConfig?.areas || DEFAULT_OFFICE_SCENE_CONFIG.areas,
-    furniture: cloneFurniture(sceneConfig?.furniture || DEFAULT_OFFICE_SCENE_CONFIG.furniture),
+    furniture: normalizeFurniture(sceneConfig?.furniture || DEFAULT_OFFICE_SCENE_CONFIG.furniture, activeStates),
     stateMap: normalizeStateMap(sceneConfig?.stateMap),
   };
   const occupants = buildOccupants({

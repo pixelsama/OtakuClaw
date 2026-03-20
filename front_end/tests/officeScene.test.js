@@ -76,6 +76,52 @@ describe('resolveOfficeSceneState', () => {
     expect(scene.occupants.find((agent) => agent.agentId === 'voice')?.areaId).toBe('syncDock');
     expect(scene.occupants.find((agent) => agent.agentId === 'watcher')?.areaId).toBe('lounge');
   });
+
+  it('resolves backdrop and furniture assets from configurable scene data', () => {
+    const scene = resolveOfficeSceneState({
+      officeState: normalizeOfficeState({
+        revision: 1,
+        activeAgentId: 'main',
+        agents: [
+          { agentId: 'main', displayName: 'Main', businessState: 'idle', detail: 'Standing by.' },
+        ],
+      }),
+    });
+
+    expect(scene.config.backdrop.assetKey).toBe('starOfficeBackdrop');
+    expect(scene.config.backdrop.assetUrl).toBeTruthy();
+    expect(scene.config.furniture.find((item) => item.id === 'desk')).toMatchObject({
+      assetKey: 'desk',
+      assetUrl: expect.any(String),
+      aspectRatio: '276 / 214',
+      isVisible: true,
+    });
+  });
+
+  it('supports conditional furniture visibility from business states', () => {
+    const idleScene = resolveOfficeSceneState({
+      officeState: normalizeOfficeState({
+        revision: 1,
+        activeAgentId: 'main',
+        agents: [
+          { agentId: 'main', displayName: 'Main', businessState: 'idle', detail: 'Standing by.' },
+        ],
+      }),
+    });
+
+    const errorScene = resolveOfficeSceneState({
+      officeState: normalizeOfficeState({
+        revision: 1,
+        activeAgentId: 'main',
+        agents: [
+          { agentId: 'main', displayName: 'Main', businessState: 'error', detail: 'Bug found.' },
+        ],
+      }),
+    });
+
+    expect(idleScene.config.furniture.find((item) => item.id === 'bug')?.isVisible).toBe(false);
+    expect(errorScene.config.furniture.find((item) => item.id === 'bug')?.isVisible).toBe(true);
+  });
 });
 
 describe('reduceOfficeActivityHint', () => {

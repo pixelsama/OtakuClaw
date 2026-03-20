@@ -1,125 +1,5 @@
-import officeBgAsset from '../../assets/office/star-office/office_bg.webp';
-import deskAsset from '../../assets/office/star-office/desk-v3.webp';
-import sofaAsset from '../../assets/office/star-office/sofa-idle-v3.png';
-import sofaShadowAsset from '../../assets/office/star-office/sofa-shadow-v1.png';
-import coffeeMachineAsset from '../../assets/office/star-office/coffee-machine-v3-grid.webp';
-import starIdleAsset from '../../assets/office/star-office/star-idle-v5.png';
-import starWorkingAsset from '../../assets/office/star-office/star-working-spritesheet-grid.webp';
-import errorBugAsset from '../../assets/office/star-office/error-bug-spritesheet-grid.webp';
-import guestRole1Asset from '../../assets/office/star-office/guest_role_1.png';
-import guestRole2Asset from '../../assets/office/star-office/guest_role_2.png';
-import guestRole3Asset from '../../assets/office/star-office/guest_role_3.png';
-import guestRole4Asset from '../../assets/office/star-office/guest_role_4.png';
-import guestRole5Asset from '../../assets/office/star-office/guest_role_5.png';
-import guestRole6Asset from '../../assets/office/star-office/guest_role_6.png';
+import { resolveOfficeOccupantSprite } from './officeSceneAssets.js';
 import './OfficeScene.css';
-
-const GUEST_ROLE_ASSETS = [
-  guestRole1Asset,
-  guestRole2Asset,
-  guestRole3Asset,
-  guestRole4Asset,
-  guestRole5Asset,
-  guestRole6Asset,
-];
-
-const DECORATIVE_LAYERS = [
-  {
-    id: 'desk',
-    asset: deskAsset,
-    left: 6.3,
-    top: 43.1,
-    width: 21.6,
-    cols: 1,
-    rows: 1,
-  },
-  {
-    id: 'coffee',
-    asset: coffeeMachineAsset,
-    left: 40.7,
-    top: 42.3,
-    width: 21.6,
-    cols: 10,
-    rows: 10,
-  },
-  {
-    id: 'sofa-shadow',
-    asset: sofaShadowAsset,
-    left: 52.3,
-    top: 20,
-    width: 20,
-    cols: 1,
-    rows: 1,
-  },
-  {
-    id: 'sofa',
-    asset: sofaAsset,
-    left: 52.3,
-    top: 20,
-    width: 20,
-    cols: 1,
-    rows: 1,
-  },
-  {
-    id: 'bug',
-    asset: errorBugAsset,
-    left: 71.8,
-    top: 18.2,
-    width: 13.75,
-    cols: 10,
-    rows: 11,
-  },
-];
-
-function pickGuestAsset(agentId) {
-  const value = String(agentId || 'guest');
-  const hash = [...value].reduce((accumulator, character) => accumulator + character.charCodeAt(0), 0);
-  return GUEST_ROLE_ASSETS[hash % GUEST_ROLE_ASSETS.length];
-}
-
-function getPrimarySprite(occupant) {
-  switch (occupant.businessState) {
-    case 'writing':
-    case 'researching':
-    case 'executing':
-    case 'thinking':
-    case 'streaming':
-    case 'gaming':
-      return {
-        asset: starWorkingAsset,
-        cols: 8,
-        rows: 5,
-        variant: 'working',
-      };
-    case 'error':
-      return {
-        asset: errorBugAsset,
-        cols: 10,
-        rows: 11,
-        variant: 'alert',
-      };
-    default:
-      return {
-        asset: starIdleAsset,
-        cols: 8,
-        rows: 6,
-        variant: 'idle',
-      };
-  }
-}
-
-function getOccupantSprite(occupant) {
-  if (occupant.isPrimary) {
-    return getPrimarySprite(occupant);
-  }
-
-  return {
-    asset: pickGuestAsset(occupant.agentId),
-    cols: 2,
-    rows: 1,
-    variant: 'guest',
-  };
-}
 
 function OfficeDecorLayer({ layer }) {
   return (
@@ -129,7 +9,10 @@ function OfficeDecorLayer({ layer }) {
         left: `${layer.left}%`,
         top: `${layer.top}%`,
         width: `${layer.width}%`,
-        backgroundImage: `url(${layer.asset})`,
+        aspectRatio: layer.aspectRatio,
+        zIndex: layer.zIndex,
+        opacity: layer.opacity,
+        backgroundImage: `url(${layer.assetUrl})`,
         '--office-cols': layer.cols,
         '--office-rows': layer.rows,
       }}
@@ -152,7 +35,7 @@ function OfficeAreaLabel({ area, count }) {
 }
 
 function OfficeOccupant({ occupant }) {
-  const sprite = getOccupantSprite(occupant);
+  const sprite = resolveOfficeOccupantSprite(occupant);
 
   return (
     <div
@@ -222,11 +105,11 @@ export default function OfficeScene({
           <div className="office-room__stage">
             <div
               className="office-room__scene-backdrop"
-              style={{ backgroundImage: `url(${officeBgAsset})` }}
+              style={{ backgroundImage: `url(${config.backdrop.assetUrl})` }}
               aria-hidden="true"
             />
             <div className="office-room__scene-vignette" aria-hidden="true" />
-            {DECORATIVE_LAYERS.map((layer) => (
+            {config.furniture.filter((layer) => layer.isVisible !== false).map((layer) => (
               <OfficeDecorLayer key={layer.id} layer={layer} />
             ))}
             {Object.values(config.areas).map((area) => {
