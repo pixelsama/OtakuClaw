@@ -31,11 +31,13 @@
 - `front_end/` — React + Vite renderer (`src/`, `tests/`, `package.json`).
   - `src/App.jsx` — app composition root (chat, subtitles, voice, settings, download center).
   - `src/shells/MainShell.jsx`, `src/shells/PetShell.jsx` — window/pet mode shells.
+  - `src/components/office/OfficeScene.jsx`, `OfficeScene.css`, `officeSceneConfig.js` — Pixel Room scene, art-driven office rendering, and state/slot mapping.
   - `src/components/config/ConfigDrawer.jsx` — chat backend, Nanobot runtime, voice, and preferences panels.
   - `src/components/config/VoiceSettingsPanel.jsx` — voice session controls + model catalog install/select UI.
   - `src/services/desktopBridge.js` — normalized desktop/web bridge and `conversation:event` routing helpers.
   - `src/hooks/chat/useStreamingSubtitleBridge.js` — subtitle sync from chat envelope and playback lifecycle.
   - `src/hooks/voice/` — VAD, capture, session bridge, and TTS playback handling.
+- `front_end/src/assets/office/star-office/` — migrated `Star-Office-UI` art assets used by the current Pixel Room preview. Treat these assets as non-commercial evaluation/learning material only.
 - `docs/` — current plans and architecture notes (historical docs are in `docs/archive/`).
 - Root `package.json` — desktop scripts and packaging (`electron-builder`).
 
@@ -120,6 +122,33 @@
   - request APIs: `conversation:submit-user-text`, `conversation:abort-active`
   - event channel: `conversation:event` envelope with `channel: chat|voice`
 - Legacy mirrors (`chat:stream:event`, `voice:event`) are compatibility-only and gated by `OPENCLAW_ENABLE_LEGACY_STREAM_EVENTS`.
+- Nanobot tool-hint activity is currently surfaced into office-scene activity states:
+  - read/search-style tool hints map to `researching`
+  - exec/edit-style tool hints map to `executing`
+  - final text generation maps back to `writing`
+
+## Office / Pixel Room Notes (Current State)
+- The renderer now supports a dedicated `Pixel Room` page in window mode, switched from `MainShell` via the `Live2D / Pixel Room` toggle.
+- The main-process office state pipeline is local-only for now:
+  - `desktop/electron/services/officeStateStore.js`
+  - `desktop/electron/ipc/officeState.js`
+- Current office business states wired end-to-end:
+  - `idle`
+  - `writing`
+  - `researching`
+  - `executing`
+  - `syncing`
+  - `error`
+- The office scene is already structured for future multi-agent expansion:
+  - normalized state shape carries `revision`, `activeAgentId`, `agents`
+  - room placement uses per-area slot assignment
+  - guest agents currently render with placeholder guest sprites
+- Current implementation uses migrated `Star-Office-UI` art assets for visual evaluation, but it does not reuse the original Flask/Phaser runtime.
+- Current implementation status:
+  - art assets are present
+  - room visuals are migrated enough for feature evaluation
+  - furniture system is not implemented yet; current furniture is static scene art, not user-configurable data
+- If this project moves toward commercial distribution, replace all migrated `Star-Office-UI` art assets before release.
 
 ## Voice Runtime Notes (Current State)
 - Providers currently supported in main process:
