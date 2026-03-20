@@ -59,6 +59,28 @@ function renderMainShell(props = {}) {
       showVoicePermissionWarning: false,
       voicePermissionWarningText: '',
       officeScene: createOfficeScene(),
+      officeEditor: {
+        themeId: 'star-office-classic',
+        themeOptions: [
+          { id: 'star-office-classic', label: 'Star Office Classic' },
+          { id: 'star-office-minimal', label: 'Star Office Minimal' },
+        ],
+        furniture: [
+          {
+            id: 'desk',
+            label: 'Desk',
+            hidden: false,
+            isVisible: true,
+            left: 6.3,
+            top: 43.1,
+            visibleWhenStates: [],
+          },
+        ],
+        onThemeChange: () => {},
+        onFurnitureHiddenChange: () => {},
+        onFurniturePositionChange: () => {},
+        onFurnitureReset: () => {},
+      },
       ...props,
     }),
   );
@@ -81,5 +103,7 @@ describe('MainShell window view mode', () => {
     const html = renderMainShell({ initialWindowViewMode: 'office' });
     expect(html).toContain('office-scene-page');
     expect(html).not.toContain('data-testid="live2d-viewer-mock"');
+    expect(html).toContain('Pixel room editor');
+    expect(html).toContain('Star Office Classic');
   });
 });

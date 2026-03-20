@@ -22,10 +22,12 @@ import { subscribeTtsPlaybackLifecycle } from './hooks/voice/ttsPlaybackLifecycl
 import { buildVoiceStreamRequest } from './hooks/voice/voiceStreamRequest.js';
 import {
   derivePrimaryOfficeAgent,
+  getOfficeFurnitureCatalogItem,
   normalizeOfficeSceneLayout,
   normalizeOfficeState,
   OFFICE_PRIMARY_AGENT_ID,
   reduceOfficeActivityHint,
+  resolveOfficeSceneEditorState,
   resolveOfficeSceneState,
 } from './components/office/officeSceneConfig.js';
 import { ModeProvider, MODE_PET, MODE_WINDOW, useModeContext } from './mode/ModeContext.jsx';
@@ -736,6 +738,82 @@ function AppContent({ desktopMode }) {
     });
   }, [primaryOfficeAgent]);
 
+  const updateOfficeSceneLayout = useCallback((updater) => {
+    setOfficeSceneLayout((currentLayout) => {
+      const nextLayout = typeof updater === 'function' ? updater(currentLayout) : updater;
+      return normalizeOfficeSceneLayout(nextLayout);
+    });
+  }, []);
+
+  const handleOfficeThemeChange = useCallback((themeId) => {
+    updateOfficeSceneLayout((currentLayout) => ({
+      ...currentLayout,
+      themeId,
+    }));
+  }, [updateOfficeSceneLayout]);
+
+  const handleOfficeFurnitureHiddenChange = useCallback((furnitureId, hidden) => {
+    updateOfficeSceneLayout((currentLayout) => {
+      const currentOverride = currentLayout.furnitureOverrides?.[furnitureId] || {};
+      return {
+        ...currentLayout,
+        furnitureOverrides: {
+          ...(currentLayout.furnitureOverrides || {}),
+          [furnitureId]: {
+            ...currentOverride,
+            hidden: Boolean(hidden),
+          },
+        },
+      };
+    });
+  }, [updateOfficeSceneLayout]);
+
+  const handleOfficeFurniturePositionChange = useCallback((furnitureId, patch = {}) => {
+    updateOfficeSceneLayout((currentLayout) => {
+      const currentOverride = currentLayout.furnitureOverrides?.[furnitureId] || {};
+      return {
+        ...currentLayout,
+        furnitureOverrides: {
+          ...(currentLayout.furnitureOverrides || {}),
+          [furnitureId]: {
+            ...currentOverride,
+            ...(Number.isFinite(patch.left) ? { left: patch.left } : {}),
+            ...(Number.isFinite(patch.top) ? { top: patch.top } : {}),
+          },
+        },
+      };
+    });
+  }, [updateOfficeSceneLayout]);
+
+  const handleOfficeFurnitureReset = useCallback((furnitureId) => {
+    updateOfficeSceneLayout((currentLayout) => {
+      const catalogItem = getOfficeFurnitureCatalogItem(furnitureId);
+      const currentOverride = currentLayout.furnitureOverrides?.[furnitureId] || {};
+      const nextOverride = {
+        ...currentOverride,
+      };
+
+      delete nextOverride.hidden;
+      delete nextOverride.left;
+      delete nextOverride.top;
+
+      const nextFurnitureOverrides = {
+        ...(currentLayout.furnitureOverrides || {}),
+      };
+
+      if (catalogItem && Object.keys(nextOverride).length === 0) {
+        delete nextFurnitureOverrides[furnitureId];
+      } else {
+        nextFurnitureOverrides[furnitureId] = nextOverride;
+      }
+
+      return {
+        ...currentLayout,
+        furnitureOverrides: nextFurnitureOverrides,
+      };
+    });
+  }, [updateOfficeSceneLayout]);
+
   const officeScene = useMemo(() => {
     const normalizedSnapshot = normalizeOfficeState(officeStateSnapshot);
     const hasPrimaryAgent = normalizedSnapshot.agents.some((agent) => agent.agentId === OFFICE_PRIMARY_AGENT_ID);
@@ -758,6 +836,40 @@ function AppContent({ desktopMode }) {
           : 'Single-agent today, multi-agent ready for later.',
     });
   }, [desktopMode, officeSceneLayout, officeStateSnapshot, officeWorkspacePath, primaryOfficeAgent]);
+
+  const officeEditor = useMemo(() => {
+    const normalizedSnapshot = normalizeOfficeState(officeStateSnapshot);
+    const hasPrimaryAgent = normalizedSnapshot.agents.some((agent) => agent.agentId === OFFICE_PRIMARY_AGENT_ID);
+    const officeState =
+      hasPrimaryAgent
+        ? normalizedSnapshot
+        : normalizeOfficeState({
+            ...normalizedSnapshot,
+            activeAgentId: OFFICE_PRIMARY_AGENT_ID,
+            agents: [primaryOfficeAgent, ...normalizedSnapshot.agents],
+          });
+
+    const editorState = resolveOfficeSceneEditorState({
+      sceneConfig: officeSceneLayout,
+      officeState,
+    });
+
+    return {
+      ...editorState,
+      onThemeChange: handleOfficeThemeChange,
+      onFurnitureHiddenChange: handleOfficeFurnitureHiddenChange,
+      onFurniturePositionChange: handleOfficeFurniturePositionChange,
+      onFurnitureReset: handleOfficeFurnitureReset,
+    };
+  }, [
+    handleOfficeFurnitureHiddenChange,
+    handleOfficeFurniturePositionChange,
+    handleOfficeFurnitureReset,
+    handleOfficeThemeChange,
+    officeSceneLayout,
+    officeStateSnapshot,
+    primaryOfficeAgent,
+  ]);
 
   useStreamingSubtitleBridge({
     appendDelta,
@@ -921,6 +1033,7 @@ function AppContent({ desktopMode }) {
           showVoicePermissionWarning={showVoicePermissionWarning}
           voicePermissionWarningText={voicePermissionWarningText}
           officeScene={officeScene}
+          officeEditor={officeEditor}
         />
       )}
 

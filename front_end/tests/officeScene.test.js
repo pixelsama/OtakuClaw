@@ -3,6 +3,7 @@ import {
   derivePrimaryOfficeAgent,
   normalizeOfficeState,
   reduceOfficeActivityHint,
+  resolveOfficeSceneEditorState,
   resolveOfficeSceneState,
 } from '../src/components/office/officeSceneConfig.js';
 
@@ -164,6 +165,67 @@ describe('resolveOfficeSceneState', () => {
     expect(minimalScene.config.furniture.find((item) => item.id === 'sofa')).toMatchObject({
       left: 49,
       top: 18,
+    });
+  });
+
+  it('supports manual furniture hiding through layout overrides', () => {
+    const scene = resolveOfficeSceneState({
+      officeState: normalizeOfficeState({
+        revision: 1,
+        activeAgentId: 'main',
+        agents: [
+          { agentId: 'main', displayName: 'Main', businessState: 'idle', detail: 'Standing by.' },
+        ],
+      }),
+      sceneConfig: {
+        themeId: 'star-office-classic',
+        furnitureOverrides: {
+          desk: {
+            hidden: true,
+          },
+        },
+      },
+    });
+
+    expect(scene.config.furniture.find((item) => item.id === 'desk')).toMatchObject({
+      hidden: true,
+      isVisible: false,
+    });
+  });
+});
+
+describe('resolveOfficeSceneEditorState', () => {
+  it('exposes theme options and editable furniture state for the current layout', () => {
+    const editor = resolveOfficeSceneEditorState({
+      sceneConfig: {
+        themeId: 'star-office-minimal',
+        furnitureOverrides: {
+          sofa: {
+            left: 48.5,
+            top: 19.4,
+            hidden: true,
+          },
+        },
+      },
+      officeState: normalizeOfficeState({
+        revision: 1,
+        activeAgentId: 'main',
+        agents: [
+          { agentId: 'main', displayName: 'Main', businessState: 'idle', detail: 'Standing by.' },
+        ],
+      }),
+    });
+
+    expect(editor.themeId).toBe('star-office-minimal');
+    expect(editor.themeOptions.map((item) => item.id)).toContain('star-office-classic');
+    expect(editor.furniture.find((item) => item.id === 'sofa')).toMatchObject({
+      label: 'Sofa',
+      hidden: true,
+      isVisible: false,
+      left: 48.5,
+      top: 19.4,
+      defaultLeft: 52.3,
+      defaultTop: 20,
     });
   });
 });

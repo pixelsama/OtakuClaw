@@ -19,6 +19,7 @@ const DEFAULT_LABELS = {
 export const OFFICE_FURNITURE_CATALOG = {
   desk: {
     id: 'desk',
+    label: 'Desk',
     kind: 'furniture',
     assetKey: 'desk',
     left: 6.3,
@@ -29,6 +30,7 @@ export const OFFICE_FURNITURE_CATALOG = {
   },
   coffee: {
     id: 'coffee',
+    label: 'Coffee Bar',
     kind: 'furniture',
     assetKey: 'coffeeMachine',
     left: 40.7,
@@ -39,6 +41,7 @@ export const OFFICE_FURNITURE_CATALOG = {
   },
   'sofa-shadow': {
     id: 'sofa-shadow',
+    label: 'Sofa Shadow',
     kind: 'shadow',
     assetKey: 'sofaShadow',
     left: 52.3,
@@ -50,6 +53,7 @@ export const OFFICE_FURNITURE_CATALOG = {
   },
   sofa: {
     id: 'sofa',
+    label: 'Sofa',
     kind: 'furniture',
     assetKey: 'sofa',
     left: 52.3,
@@ -60,6 +64,7 @@ export const OFFICE_FURNITURE_CATALOG = {
   },
   bug: {
     id: 'bug',
+    label: 'Bug Alert',
     kind: 'status',
     assetKey: 'errorBug',
     left: 71.8,
@@ -89,6 +94,13 @@ export const OFFICE_ROOM_THEMES = {
     furnitureIds: ['desk', 'sofa-shadow', 'sofa', 'bug'],
   },
 };
+
+export function listOfficeRoomThemes() {
+  return Object.values(OFFICE_ROOM_THEMES).map((theme) => ({
+    id: theme.id,
+    label: theme.label,
+  }));
+}
 
 export const DEFAULT_OFFICE_SCENE_CONFIG = {
   themeId: DEFAULT_OFFICE_THEME_ID,
@@ -182,7 +194,7 @@ function normalizeThemeId(value) {
   return normalizeString(value, DEFAULT_OFFICE_THEME_ID);
 }
 
-function resolveOfficeRoomTheme(themeId = DEFAULT_OFFICE_THEME_ID) {
+export function resolveOfficeRoomTheme(themeId = DEFAULT_OFFICE_THEME_ID) {
   const resolvedThemeId = normalizeThemeId(themeId);
   return OFFICE_ROOM_THEMES[resolvedThemeId] || OFFICE_ROOM_THEMES[DEFAULT_OFFICE_THEME_ID];
 }
@@ -213,6 +225,7 @@ function normalizeFurnitureItem(item = {}, activeStates = []) {
   const asset = resolveOfficeSceneAsset(assetKey);
   const visibleWhenStates = normalizeStringList(source.visibleWhenStates);
   const hiddenWhenStates = normalizeStringList(source.hiddenWhenStates);
+  const hidden = source.hidden === true;
   const shouldShowForVisibleStates = visibleWhenStates.length === 0
     || visibleWhenStates.some((state) => activeStates.includes(state));
   const shouldHideForHiddenStates = hiddenWhenStates.some((state) => activeStates.includes(state));
@@ -220,6 +233,7 @@ function normalizeFurnitureItem(item = {}, activeStates = []) {
   return {
     ...source,
     id: normalizeString(source.id, assetKey || 'furniture'),
+    label: normalizeString(source.label, normalizeString(source.id, assetKey || 'Furniture')),
     kind: normalizeString(source.kind, 'furniture'),
     assetKey,
     assetUrl: asset?.url || '',
@@ -231,9 +245,10 @@ function normalizeFurnitureItem(item = {}, activeStates = []) {
     aspectRatio: normalizeString(source.aspectRatio, '1 / 1'),
     zIndex: Number.isFinite(source.zIndex) ? source.zIndex : 1,
     opacity: Number.isFinite(source.opacity) ? source.opacity : 1,
+    hidden,
     visibleWhenStates,
     hiddenWhenStates,
-    isVisible: shouldShowForVisibleStates && !shouldHideForHiddenStates,
+    isVisible: !hidden && shouldShowForVisibleStates && !shouldHideForHiddenStates,
   };
 }
 
@@ -260,6 +275,17 @@ export function normalizeOfficeSceneLayout(layout = {}) {
   return {
     themeId: normalizeThemeId(source.themeId),
     furnitureOverrides: normalizeFurnitureOverrides(source.furnitureOverrides),
+  };
+}
+
+export function getOfficeFurnitureCatalogItem(furnitureId = '') {
+  const normalizedId = normalizeString(furnitureId, '');
+  if (!normalizedId || !OFFICE_FURNITURE_CATALOG[normalizedId]) {
+    return null;
+  }
+
+  return {
+    ...OFFICE_FURNITURE_CATALOG[normalizedId],
   };
 }
 
@@ -290,6 +316,53 @@ function resolveThemeFurniture({
     .filter(Boolean);
 
   return normalizeFurniture(items, activeStates);
+}
+
+export function resolveOfficeSceneEditorState({
+  sceneConfig = DEFAULT_OFFICE_SCENE_CONFIG,
+  officeState = {},
+} = {}) {
+  const normalizedLayout = normalizeOfficeSceneLayout(sceneConfig);
+  const normalizedState = normalizeOfficeState(officeState);
+  const activeStates = normalizedState.agents.map((agent) => normalizeString(agent.businessState, 'idle').toLowerCase());
+  const theme = resolveOfficeRoomTheme(normalizedLayout.themeId);
+  const furniture = (theme.furnitureIds || [])
+    .map((furnitureId) => {
+      const baseItem = getOfficeFurnitureCatalogItem(furnitureId);
+      if (!baseItem) {
+        return null;
+      }
+
+      const override = normalizedLayout.furnitureOverrides[furnitureId] || {};
+      const normalized = normalizeFurnitureItem({
+        ...baseItem,
+        ...override,
+      }, activeStates);
+
+      return {
+        id: normalized.id,
+        label: normalized.label,
+        kind: normalized.kind,
+        hidden: normalized.hidden,
+        isVisible: normalized.isVisible,
+        left: normalized.left,
+        top: normalized.top,
+        width: normalized.width,
+        zIndex: normalized.zIndex,
+        visibleWhenStates: normalized.visibleWhenStates,
+        hiddenWhenStates: normalized.hiddenWhenStates,
+        defaultLeft: Number.isFinite(baseItem.left) ? baseItem.left : normalized.left,
+        defaultTop: Number.isFinite(baseItem.top) ? baseItem.top : normalized.top,
+      };
+    })
+    .filter(Boolean);
+
+  return {
+    themeId: theme.id,
+    themeLabel: theme.label,
+    themeOptions: listOfficeRoomThemes(),
+    furniture,
+  };
 }
 
 function normalizeStateMap(map = {}) {

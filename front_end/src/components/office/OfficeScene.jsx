@@ -1,4 +1,5 @@
 import { resolveOfficeOccupantSprite } from './officeSceneAssets.js';
+import OfficeSceneEditor from './OfficeSceneEditor.jsx';
 import './OfficeScene.css';
 
 function OfficeDecorLayer({ layer }) {
@@ -74,6 +75,7 @@ export default function OfficeScene({
   compact = false,
   className = '',
   variant = 'dock',
+  editor = null,
 }) {
   if (!scene) {
     return null;
@@ -101,32 +103,36 @@ export default function OfficeScene({
           </div>
         </div>
 
-        <div className="office-room__stage-wrap">
-          <div className="office-room__stage">
-            <div
-              className="office-room__scene-backdrop"
-              style={{ backgroundImage: `url(${config.backdrop.assetUrl})` }}
-              aria-hidden="true"
-            />
-            <div className="office-room__scene-vignette" aria-hidden="true" />
-            {config.furniture.filter((layer) => layer.isVisible !== false).map((layer) => (
-              <OfficeDecorLayer key={layer.id} layer={layer} />
-            ))}
-            {Object.values(config.areas).map((area) => {
-              const areaSummary = areaSummaries.find((item) => item.id === area.id);
-              return (
-                <OfficeAreaLabel
-                  key={area.id}
-                  area={area}
-                  count={areaSummary?.occupantCount || 0}
-                />
-              );
-            })}
-            {occupants.map((occupant) => (
-              <OfficeOccupant key={occupant.agentId} occupant={occupant} />
-            ))}
+        <div className={`office-room__content ${editor ? 'has-editor' : ''}`.trim()}>
+          <div className="office-room__stage-wrap">
+            <div className="office-room__stage">
+              <div
+                className="office-room__scene-backdrop"
+                style={{ backgroundImage: `url(${config.backdrop.assetUrl})` }}
+                aria-hidden="true"
+              />
+              <div className="office-room__scene-vignette" aria-hidden="true" />
+              {config.furniture.filter((layer) => layer.isVisible !== false).map((layer) => (
+                <OfficeDecorLayer key={layer.id} layer={layer} />
+              ))}
+              {Object.values(config.areas).map((area) => {
+                const areaSummary = areaSummaries.find((item) => item.id === area.id);
+                return (
+                  <OfficeAreaLabel
+                    key={area.id}
+                    area={area}
+                    count={areaSummary?.occupantCount || 0}
+                  />
+                );
+              })}
+              {occupants.map((occupant) => (
+                <OfficeOccupant key={occupant.agentId} occupant={occupant} />
+              ))}
+            </div>
+            <div className="office-room__plaque">{primaryAgent?.detail || caption || labels.multiAgentReady}</div>
           </div>
-          <div className="office-room__plaque">{primaryAgent?.detail || caption || labels.multiAgentReady}</div>
+
+          {editor ? <OfficeSceneEditor {...editor} /> : null}
         </div>
 
         <div className="office-room__footer">

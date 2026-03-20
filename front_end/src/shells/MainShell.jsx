@@ -29,6 +29,7 @@ export default function MainShell({
   showVoicePermissionWarning = false,
   voicePermissionWarningText = '',
   officeScene = null,
+  officeEditor = null,
   isNarrowViewport = false,
   initialWindowViewMode = 'avatar',
 }) {
@@ -81,6 +82,7 @@ export default function MainShell({
           compact={isNarrowViewport}
           variant="page"
           className="office-scene-page"
+          editor={officeEditor}
         />
       ) : null}
 
