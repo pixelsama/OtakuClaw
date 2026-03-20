@@ -1,5 +1,3 @@
-import { useEffect, useMemo, useState } from 'react';
-
 function clampPercent(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -17,6 +15,8 @@ export default function OfficeSceneEditor({
   themeId = '',
   themeOptions = [],
   furniture = [],
+  selectedFurnitureId = '',
+  onSelectFurniture,
   previewMode = 'live',
   onPreviewModeChange,
   onThemeChange,
@@ -24,20 +24,7 @@ export default function OfficeSceneEditor({
   onFurniturePositionChange,
   onFurnitureReset,
 }) {
-  const [selectedFurnitureId, setSelectedFurnitureId] = useState(furniture[0]?.id || '');
-
-  useEffect(() => {
-    if (furniture.some((item) => item.id === selectedFurnitureId)) {
-      return;
-    }
-
-    setSelectedFurnitureId(furniture[0]?.id || '');
-  }, [furniture, selectedFurnitureId]);
-
-  const selectedFurniture = useMemo(
-    () => furniture.find((item) => item.id === selectedFurnitureId) || furniture[0] || null,
-    [furniture, selectedFurnitureId],
-  );
+  const selectedFurniture = furniture.find((item) => item.id === selectedFurnitureId) || furniture[0] || null;
 
   return (
     <aside className="office-room__editor" aria-label="Pixel room editor">
@@ -100,7 +87,7 @@ export default function OfficeSceneEditor({
                 item.id === selectedFurniture?.id ? 'is-selected' : '',
               ].filter(Boolean).join(' ')}
               onClick={() => {
-                setSelectedFurnitureId(item.id);
+                onSelectFurniture?.(item.id);
               }}
             >
               <span className="office-room__editor-furniture-main">
@@ -130,6 +117,8 @@ export default function OfficeSceneEditor({
                 {selectedFurniture.visibleWhenStates.length > 0
                   ? `Auto-shows during: ${selectedFurniture.visibleWhenStates.join(', ')}.`
                   : 'Always available in the current theme.'}
+                {' '}
+                Drag directly in the room for quick placement.
               </div>
             </div>
             <button

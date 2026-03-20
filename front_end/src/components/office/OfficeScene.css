@@ -147,6 +147,19 @@
   pointer-events: none;
 }
 
+.office-room__prop.is-editable {
+  pointer-events: auto;
+  cursor: grab;
+}
+
+.office-room__prop.is-editable.is-selected {
+  filter: drop-shadow(0 0 0 rgba(0, 0, 0, 0)) drop-shadow(0 0 14px rgba(255, 226, 133, 0.45));
+}
+
+.office-room__prop.is-editable.is-dragging {
+  cursor: grabbing;
+}
+
 .office-room__prop--desk {
   aspect-ratio: 276 / 214;
   z-index: 8;

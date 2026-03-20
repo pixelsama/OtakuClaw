@@ -1,11 +1,19 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { resolveOfficeOccupantSprite } from './officeSceneAssets.js';
+import { calculateDraggedFurniturePosition } from './officeSceneDrag.js';
 import OfficeSceneEditor from './OfficeSceneEditor.jsx';
 import './OfficeScene.css';
 
-function OfficeDecorLayer({ layer }) {
+function OfficeDecorLayer({ layer, isInteractive = false, isSelected = false, isDragging = false, onPointerDown, onSelect }) {
   return (
     <div
-      className={`office-room__prop office-room__prop--${layer.id}`}
+      className={[
+        'office-room__prop',
+        `office-room__prop--${layer.id}`,
+        isInteractive ? 'is-editable' : '',
+        isSelected ? 'is-selected' : '',
+        isDragging ? 'is-dragging' : '',
+      ].filter(Boolean).join(' ')}
       style={{
         left: `${layer.left}%`,
         top: `${layer.top}%`,
@@ -18,6 +26,8 @@ function OfficeDecorLayer({ layer }) {
         '--office-rows': layer.rows,
       }}
       aria-hidden="true"
+      onPointerDown={onPointerDown}
+      onClick={onSelect}
     />
   );
 }
@@ -77,16 +87,104 @@ export default function OfficeScene({
   variant = 'dock',
   editor = null,
 }) {
-  if (!scene) {
-    return null;
-  }
-
+  const stageRef = useRef(null);
+  const dragStateRef = useRef(null);
+  const [selectedFurnitureId, setSelectedFurnitureId] = useState(editor?.furniture?.[0]?.id || '');
+  const [draggingFurnitureId, setDraggingFurnitureId] = useState('');
   const normalizedClassName = [
     'office-room',
     compact ? 'is-compact' : '',
     variant === 'page' ? 'office-room--page' : 'office-room--dock',
     className,
   ].filter(Boolean).join(' ');
+  const editableFurniture = useMemo(() => editor?.furniture || [], [editor?.furniture]);
+  const selectedFurniture = useMemo(
+    () => editableFurniture.find((item) => item.id === selectedFurnitureId) || editableFurniture[0] || null,
+    [editableFurniture, selectedFurnitureId],
+  );
+
+  useEffect(() => {
+    if (!editableFurniture.length) {
+      if (selectedFurnitureId) {
+        setSelectedFurnitureId('');
+      }
+      return;
+    }
+
+    if (!editableFurniture.some((item) => item.id === selectedFurnitureId)) {
+      setSelectedFurnitureId(editableFurniture[0].id);
+    }
+  }, [editableFurniture, selectedFurnitureId]);
+
+  useEffect(() => {
+    if (!draggingFurnitureId) {
+      return () => {};
+    }
+
+    const handlePointerMove = (event) => {
+      const dragState = dragStateRef.current;
+      const stageElement = stageRef.current;
+      if (!dragState || !stageElement || dragState.furnitureId !== draggingFurnitureId) {
+        return;
+      }
+
+      const nextPosition = calculateDraggedFurniturePosition({
+        stageRect: stageElement.getBoundingClientRect(),
+        layerRect: {
+          width: dragState.layerWidth,
+          height: dragState.layerHeight,
+        },
+        pointerClientX: event.clientX,
+        pointerClientY: event.clientY,
+        pointerOffsetX: dragState.pointerOffsetX,
+        pointerOffsetY: dragState.pointerOffsetY,
+      });
+
+      if (!nextPosition) {
+        return;
+      }
+
+      editor?.onFurniturePositionChange?.(dragState.furnitureId, nextPosition);
+    };
+
+    const handlePointerUp = () => {
+      dragStateRef.current = null;
+      setDraggingFurnitureId('');
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+  }, [draggingFurnitureId, editor]);
+
+  const handleDecorPointerDown = (event, layer) => {
+    if (!editor?.onFurniturePositionChange || !stageRef.current) {
+      return;
+    }
+
+    const layerRect = event.currentTarget.getBoundingClientRect();
+    dragStateRef.current = {
+      furnitureId: layer.id,
+      pointerOffsetX: event.clientX - layerRect.left,
+      pointerOffsetY: event.clientY - layerRect.top,
+      layerWidth: layerRect.width,
+      layerHeight: layerRect.height,
+    };
+    setSelectedFurnitureId(layer.id);
+    setDraggingFurnitureId(layer.id);
+    event.preventDefault();
+  };
+
+  if (!scene) {
+    return null;
+  }
+
   const { title, subtitle, caption, labels, config, occupants, areaSummaries, primaryAgent, agentCount } = scene;
 
   return (
@@ -105,7 +203,7 @@ export default function OfficeScene({
 
         <div className={`office-room__content ${editor ? 'has-editor' : ''}`.trim()}>
           <div className="office-room__stage-wrap">
-            <div className="office-room__stage">
+            <div className="office-room__stage" ref={stageRef}>
               <div
                 className="office-room__scene-backdrop"
                 style={{ backgroundImage: `url(${config.backdrop.assetUrl})` }}
@@ -113,7 +211,19 @@ export default function OfficeScene({
               />
               <div className="office-room__scene-vignette" aria-hidden="true" />
               {config.furniture.filter((layer) => layer.isVisible !== false).map((layer) => (
-                <OfficeDecorLayer key={layer.id} layer={layer} />
+                <OfficeDecorLayer
+                  key={layer.id}
+                  layer={layer}
+                  isInteractive={Boolean(editor?.onFurniturePositionChange)}
+                  isSelected={selectedFurniture?.id === layer.id}
+                  isDragging={draggingFurnitureId === layer.id}
+                  onPointerDown={(event) => {
+                    handleDecorPointerDown(event, layer);
+                  }}
+                  onSelect={() => {
+                    setSelectedFurnitureId(layer.id);
+                  }}
+                />
               ))}
               {Object.values(config.areas).map((area) => {
                 const areaSummary = areaSummaries.find((item) => item.id === area.id);
@@ -132,7 +242,13 @@ export default function OfficeScene({
             <div className="office-room__plaque">{primaryAgent?.detail || caption || labels.multiAgentReady}</div>
           </div>
 
-          {editor ? <OfficeSceneEditor {...editor} /> : null}
+          {editor ? (
+            <OfficeSceneEditor
+              {...editor}
+              selectedFurnitureId={selectedFurniture?.id || ''}
+              onSelectFurniture={setSelectedFurnitureId}
+            />
+          ) : null}
         </div>
 
         <div className="office-room__footer">
