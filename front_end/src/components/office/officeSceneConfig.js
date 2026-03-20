@@ -163,6 +163,10 @@ function normalizeString(value, fallback = '') {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
 }
 
+function isObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 function normalizeLabels(labels = {}) {
   return {
     ...DEFAULT_LABELS,
@@ -240,7 +244,7 @@ function normalizeFurniture(items = [], activeStates = []) {
 }
 
 function normalizeFurnitureOverrides(overrides = {}) {
-  if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) {
+  if (!isObject(overrides)) {
     return {};
   }
 
@@ -249,6 +253,14 @@ function normalizeFurnitureOverrides(overrides = {}) {
       .map(([key, value]) => [normalizeString(key, ''), value])
       .filter(([key, value]) => key && value && typeof value === 'object' && !Array.isArray(value)),
   );
+}
+
+export function normalizeOfficeSceneLayout(layout = {}) {
+  const source = isObject(layout) ? layout : {};
+  return {
+    themeId: normalizeThemeId(source.themeId),
+    furnitureOverrides: normalizeFurnitureOverrides(source.furnitureOverrides),
+  };
 }
 
 function resolveThemeFurniture({

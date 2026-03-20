@@ -22,6 +22,7 @@ import { subscribeTtsPlaybackLifecycle } from './hooks/voice/ttsPlaybackLifecycl
 import { buildVoiceStreamRequest } from './hooks/voice/voiceStreamRequest.js';
 import {
   derivePrimaryOfficeAgent,
+  normalizeOfficeSceneLayout,
   normalizeOfficeState,
   OFFICE_PRIMARY_AGENT_ID,
   reduceOfficeActivityHint,
@@ -49,9 +50,12 @@ function AppContent({ desktopMode }) {
   const [motions, setMotions] = useState([]);
   const [expressions, setExpressions] = useState([]);
   const [officeStateSnapshot, setOfficeStateSnapshot] = useState(() => normalizeOfficeState());
+  const [officeSceneLayout, setOfficeSceneLayout] = useState(() => normalizeOfficeSceneLayout());
   const [officeActivityHint, setOfficeActivityHint] = useState(null);
   const [builtinTtsEnabled, setBuiltinTtsEnabled] = useState(false);
   const [firstRunOnboardingOpen, setFirstRunOnboardingOpen] = useState(false);
+  const [officeLayoutLoaded, setOfficeLayoutLoaded] = useState(!desktopMode);
+  const savedOfficeLayoutSnapshotRef = useRef(JSON.stringify(normalizeOfficeSceneLayout()));
   const platform = usePlatformInfo({ desktopMode });
 
   // Chat history — persists to localStorage
@@ -339,6 +343,76 @@ function AppContent({ desktopMode }) {
       cancelled = true;
     };
   }, [desktopMode, syncBuiltinTtsEnabled]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!desktopMode) {
+      setOfficeSceneLayout(normalizeOfficeSceneLayout());
+      setOfficeLayoutLoaded(true);
+      savedOfficeLayoutSnapshotRef.current = JSON.stringify(normalizeOfficeSceneLayout());
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const loadOfficeSceneLayout = async () => {
+      try {
+        const settings = await desktopBridge.settings.get();
+        if (cancelled) {
+          return;
+        }
+        const normalizedLayout = normalizeOfficeSceneLayout(settings?.ui?.officeSceneLayout || {});
+        setOfficeSceneLayout(normalizedLayout);
+        savedOfficeLayoutSnapshotRef.current = JSON.stringify(normalizedLayout);
+      } catch (error) {
+        console.warn('Failed to load office scene layout settings:', error);
+      } finally {
+        if (!cancelled) {
+          setOfficeLayoutLoaded(true);
+        }
+      }
+    };
+
+    void loadOfficeSceneLayout();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [desktopMode]);
+
+  useEffect(() => {
+    if (!desktopMode || !officeLayoutLoaded) {
+      return () => {};
+    }
+
+    const normalizedLayout = normalizeOfficeSceneLayout(officeSceneLayout);
+    const nextSnapshot = JSON.stringify(normalizedLayout);
+    if (nextSnapshot === savedOfficeLayoutSnapshotRef.current) {
+      return () => {};
+    }
+
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const saved = await desktopBridge.settings.save({
+            ui: {
+              officeSceneLayout: normalizedLayout,
+            },
+          });
+          const savedLayout = normalizeOfficeSceneLayout(saved?.ui?.officeSceneLayout || normalizedLayout);
+          setOfficeSceneLayout(savedLayout);
+          savedOfficeLayoutSnapshotRef.current = JSON.stringify(savedLayout);
+        } catch (error) {
+          console.warn('Failed to persist office scene layout settings:', error);
+        }
+      })();
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [desktopMode, officeLayoutLoaded, officeSceneLayout]);
 
   useEffect(() => {
     let cancelled = false;
@@ -676,13 +750,14 @@ function AppContent({ desktopMode }) {
 
     return resolveOfficeSceneState({
       officeState,
+      sceneConfig: officeSceneLayout,
       subtitle: desktopMode ? 'Live local office' : 'Browser preview',
       caption:
         officeWorkspacePath
           ? `Workspace: ${officeWorkspacePath}`
           : 'Single-agent today, multi-agent ready for later.',
     });
-  }, [desktopMode, officeStateSnapshot, officeWorkspacePath, primaryOfficeAgent]);
+  }, [desktopMode, officeSceneLayout, officeStateSnapshot, officeWorkspacePath, primaryOfficeAgent]);
 
   useStreamingSubtitleBridge({
     appendDelta,

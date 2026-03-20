@@ -32,6 +32,10 @@ const DEFAULT_UI_SETTINGS = {
     completed: false,
     completedAt: '',
   },
+  officeSceneLayout: {
+    themeId: 'star-office-classic',
+    furnitureOverrides: {},
+  },
 };
 
 const DEFAULT_SETTINGS = {
@@ -152,10 +156,59 @@ function normalizeOnboardingSettings(settings = {}) {
   };
 }
 
+function normalizeOfficeSceneFurnitureOverride(settings = {}) {
+  const source = isObject(settings) ? settings : {};
+  const normalized = {};
+
+  if (Object.prototype.hasOwnProperty.call(source, 'left')) {
+    normalized.left = toFiniteNumber(source.left, 0);
+  }
+  if (Object.prototype.hasOwnProperty.call(source, 'top')) {
+    normalized.top = toFiniteNumber(source.top, 0);
+  }
+  if (Object.prototype.hasOwnProperty.call(source, 'width')) {
+    normalized.width = toFiniteNumber(source.width, 0);
+  }
+  if (Object.prototype.hasOwnProperty.call(source, 'opacity')) {
+    normalized.opacity = toFiniteNumber(source.opacity, 1);
+  }
+  if (Object.prototype.hasOwnProperty.call(source, 'zIndex')) {
+    normalized.zIndex = toPositiveInteger(source.zIndex, 1);
+  }
+  if (Object.prototype.hasOwnProperty.call(source, 'aspectRatio')) {
+    normalized.aspectRatio = normalizeString(source.aspectRatio);
+  }
+  if (Object.prototype.hasOwnProperty.call(source, 'assetKey')) {
+    normalized.assetKey = normalizeString(source.assetKey);
+  }
+  if (Object.prototype.hasOwnProperty.call(source, 'hidden')) {
+    normalized.hidden = Boolean(source.hidden);
+  }
+
+  return normalized;
+}
+
+function normalizeOfficeSceneLayoutSettings(settings = {}) {
+  const source = isObject(settings) ? settings : {};
+  const furnitureOverridesSource = isObject(source.furnitureOverrides) ? source.furnitureOverrides : {};
+  const furnitureOverrides = Object.fromEntries(
+    Object.entries(furnitureOverridesSource)
+      .map(([key, value]) => [normalizeString(key), normalizeOfficeSceneFurnitureOverride(value)])
+      .filter(([key, value]) => key && isObject(value) && Object.keys(value).length > 0),
+  );
+
+  return {
+    themeId: normalizeString(source.themeId, DEFAULT_UI_SETTINGS.officeSceneLayout.themeId),
+    furnitureOverrides,
+  };
+}
+
 function normalizeUiSettings(settings = {}) {
   const onboarding = isObject(settings.onboarding) ? settings.onboarding : {};
+  const officeSceneLayout = isObject(settings.officeSceneLayout) ? settings.officeSceneLayout : {};
   return {
     onboarding: normalizeOnboardingSettings(onboarding),
+    officeSceneLayout: normalizeOfficeSceneLayoutSettings(officeSceneLayout),
   };
 }
 
@@ -174,6 +227,12 @@ function cloneSettings(settings) {
       ...(settings.ui || DEFAULT_UI_SETTINGS),
       onboarding: {
         ...(settings.ui?.onboarding || DEFAULT_UI_SETTINGS.onboarding),
+      },
+      officeSceneLayout: {
+        ...(settings.ui?.officeSceneLayout || DEFAULT_UI_SETTINGS.officeSceneLayout),
+        furnitureOverrides: {
+          ...(settings.ui?.officeSceneLayout?.furnitureOverrides || DEFAULT_UI_SETTINGS.officeSceneLayout.furnitureOverrides),
+        },
       },
     },
   };
@@ -343,7 +402,9 @@ function normalizePatch(partialSettings = {}) {
   const uiPatch = {};
   const uiSource = isObject(source.ui) ? source.ui : {};
   const onboardingSource = isObject(uiSource.onboarding) ? uiSource.onboarding : {};
+  const officeSceneLayoutSource = isObject(uiSource.officeSceneLayout) ? uiSource.officeSceneLayout : {};
   const onboardingPatch = {};
+  const officeSceneLayoutPatch = {};
   if (Object.prototype.hasOwnProperty.call(onboardingSource, 'completed')) {
     onboardingPatch.completed = Boolean(onboardingSource.completed);
   }
@@ -352,6 +413,20 @@ function normalizePatch(partialSettings = {}) {
   }
   if (Object.keys(onboardingPatch).length > 0) {
     uiPatch.onboarding = onboardingPatch;
+  }
+  if (Object.prototype.hasOwnProperty.call(officeSceneLayoutSource, 'themeId')) {
+    officeSceneLayoutPatch.themeId = normalizeString(
+      officeSceneLayoutSource.themeId,
+      DEFAULT_UI_SETTINGS.officeSceneLayout.themeId,
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(officeSceneLayoutSource, 'furnitureOverrides')) {
+    officeSceneLayoutPatch.furnitureOverrides = normalizeOfficeSceneLayoutSettings({
+      furnitureOverrides: officeSceneLayoutSource.furnitureOverrides,
+    }).furnitureOverrides;
+  }
+  if (Object.keys(officeSceneLayoutPatch).length > 0) {
+    uiPatch.officeSceneLayout = officeSceneLayoutPatch;
   }
   if (Object.keys(uiPatch).length > 0) {
     patch.ui = uiPatch;
@@ -507,6 +582,12 @@ class SettingsStore {
         onboarding: {
           ...(this.settings.ui?.onboarding || {}),
         },
+        officeSceneLayout: {
+          ...(this.settings.ui?.officeSceneLayout || {}),
+          furnitureOverrides: {
+            ...(this.settings.ui?.officeSceneLayout?.furnitureOverrides || {}),
+          },
+        },
       },
       hasSecureStorage: this.hasSecureStorage,
 
@@ -540,6 +621,12 @@ class SettingsStore {
         ...this.settings.ui,
         onboarding: {
           ...(this.settings.ui?.onboarding || {}),
+        },
+        officeSceneLayout: {
+          ...(this.settings.ui?.officeSceneLayout || {}),
+          furnitureOverrides: {
+            ...(this.settings.ui?.officeSceneLayout?.furnitureOverrides || {}),
+          },
         },
       },
 
@@ -589,6 +676,14 @@ class SettingsStore {
         onboarding: {
           ...(this.settings.ui?.onboarding || {}),
           ...(patch.ui.onboarding || {}),
+        },
+        officeSceneLayout: {
+          ...(this.settings.ui?.officeSceneLayout || {}),
+          ...(patch.ui.officeSceneLayout || {}),
+          furnitureOverrides: {
+            ...(this.settings.ui?.officeSceneLayout?.furnitureOverrides || {}),
+            ...(patch.ui.officeSceneLayout?.furnitureOverrides || {}),
+          },
         },
       });
     }
@@ -693,6 +788,14 @@ class SettingsStore {
         onboarding: {
           ...(merged.ui?.onboarding || {}),
           ...(patch.ui.onboarding || {}),
+        },
+        officeSceneLayout: {
+          ...(merged.ui?.officeSceneLayout || {}),
+          ...(patch.ui.officeSceneLayout || {}),
+          furnitureOverrides: {
+            ...(merged.ui?.officeSceneLayout?.furnitureOverrides || {}),
+            ...(patch.ui.officeSceneLayout?.furnitureOverrides || {}),
+          },
         },
       });
     }

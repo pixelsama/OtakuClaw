@@ -244,6 +244,83 @@ describe('desktopBridge office bridge', () => {
   });
 });
 
+describe('desktopBridge settings bridge', () => {
+  it('normalizes office scene layout from desktop settings payloads', async () => {
+    globalThis.window = {
+      desktop: {
+        isElectron: true,
+        settings: {
+          get: vi.fn(async () => ({
+            ui: {
+              officeSceneLayout: {
+                themeId: 'star-office-minimal',
+                furnitureOverrides: {
+                  sofa: {
+                    left: 47.5,
+                  },
+                },
+              },
+            },
+          })),
+        },
+      },
+    };
+
+    const settings = await desktopBridge.settings.get();
+
+    expect(settings.ui.officeSceneLayout).toEqual({
+      themeId: 'star-office-minimal',
+      furnitureOverrides: {
+        sofa: {
+          left: 47.5,
+        },
+      },
+    });
+  });
+
+  it('persists office scene layout in web fallback storage', async () => {
+    const storage = new Map();
+    globalThis.window = {
+      localStorage: {
+        getItem: vi.fn((key) => (storage.has(key) ? storage.get(key) : null)),
+        setItem: vi.fn((key, value) => {
+          storage.set(key, value);
+        }),
+      },
+    };
+
+    const saved = await desktopBridge.settings.save({
+      ui: {
+        officeSceneLayout: {
+          themeId: 'star-office-minimal',
+          furnitureOverrides: {
+            desk: {
+              width: 24,
+            },
+          },
+        },
+      },
+    });
+
+    expect(saved.ui.officeSceneLayout).toEqual({
+      themeId: 'star-office-minimal',
+      furnitureOverrides: {
+        desk: {
+          width: 24,
+        },
+      },
+    });
+    expect(JSON.parse(storage.get('openclaw.settings')).ui.officeSceneLayout).toEqual({
+      themeId: 'star-office-minimal',
+      furnitureOverrides: {
+        desk: {
+          width: 24,
+        },
+      },
+    });
+  });
+});
+
 describe('desktopBridge app updater bridge', () => {
   it('returns fallback state when app updater API is unavailable', async () => {
     globalThis.window = {

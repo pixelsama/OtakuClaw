@@ -168,6 +168,18 @@ function normalizeSettingsResponse(settings = {}) {
             ? settings.ui.onboarding.completedAt.trim()
             : '',
       },
+      officeSceneLayout: {
+        themeId:
+          typeof settings?.ui?.officeSceneLayout?.themeId === 'string'
+            ? settings.ui.officeSceneLayout.themeId.trim() || 'star-office-classic'
+            : 'star-office-classic',
+        furnitureOverrides:
+          settings?.ui?.officeSceneLayout?.furnitureOverrides
+          && typeof settings.ui.officeSceneLayout.furnitureOverrides === 'object'
+          && !Array.isArray(settings.ui.officeSceneLayout.furnitureOverrides)
+            ? settings.ui.officeSceneLayout.furnitureOverrides
+            : {},
+      },
     },
     hasSecureStorage: settings.hasSecureStorage !== false,
   };
@@ -470,6 +482,33 @@ function normalizeSettingsPatch(settings = {}) {
                             : {},
                       }
                     : {}),
+                  ...(Object.prototype.hasOwnProperty.call(settings.ui, 'officeSceneLayout')
+                    ? {
+                        officeSceneLayout:
+                          typeof settings.ui.officeSceneLayout === 'object' && settings.ui.officeSceneLayout
+                            ? {
+                                ...(Object.prototype.hasOwnProperty.call(settings.ui.officeSceneLayout, 'themeId')
+                                  ? {
+                                      themeId:
+                                        typeof settings.ui.officeSceneLayout.themeId === 'string'
+                                          ? settings.ui.officeSceneLayout.themeId.trim()
+                                          : '',
+                                    }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.ui.officeSceneLayout, 'furnitureOverrides')
+                                  ? {
+                                      furnitureOverrides:
+                                        settings.ui.officeSceneLayout.furnitureOverrides
+                                        && typeof settings.ui.officeSceneLayout.furnitureOverrides === 'object'
+                                        && !Array.isArray(settings.ui.officeSceneLayout.furnitureOverrides)
+                                          ? settings.ui.officeSceneLayout.furnitureOverrides
+                                          : {},
+                                    }
+                                  : {}),
+                              }
+                            : {},
+                      }
+                    : {}),
                 }
               : {}),
           },
@@ -529,6 +568,14 @@ function saveWebSettings(partialSettings = {}) {
       onboarding: {
         ...(current.ui?.onboarding || {}),
         ...(patch.ui?.onboarding || {}),
+      },
+      officeSceneLayout: {
+        ...(current.ui?.officeSceneLayout || {}),
+        ...(patch.ui?.officeSceneLayout || {}),
+        furnitureOverrides: {
+          ...(current.ui?.officeSceneLayout?.furnitureOverrides || {}),
+          ...(patch.ui?.officeSceneLayout?.furnitureOverrides || {}),
+        },
       },
     },
     hasSecureStorage: false,
@@ -598,6 +645,10 @@ function saveWebSettings(partialSettings = {}) {
           onboarding: {
             completed: Boolean(merged.ui?.onboarding?.completed),
             completedAt: merged.ui?.onboarding?.completedAt || '',
+          },
+          officeSceneLayout: {
+            themeId: merged.ui?.officeSceneLayout?.themeId || 'star-office-classic',
+            furnitureOverrides: merged.ui?.officeSceneLayout?.furnitureOverrides || {},
           },
         },
       }),

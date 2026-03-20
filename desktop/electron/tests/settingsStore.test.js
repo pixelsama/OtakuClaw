@@ -420,3 +420,86 @@ test('persists first-run onboarding completion state', async () => {
   assert.equal(persisted.ui.onboarding.completed, true);
   assert.equal(persisted.ui.onboarding.completedAt, '2026-03-10T09:30:00.000Z');
 });
+
+test('persists office scene layout state under ui settings', async () => {
+  const { store, tmpDir } = await setupTempStore({
+    secretStore: new FakeSecretStore({ available: true }),
+  });
+
+  await store.save({
+    ui: {
+      officeSceneLayout: {
+        themeId: 'star-office-minimal',
+        furnitureOverrides: {
+          sofa: {
+            left: 48.5,
+            top: 19.25,
+            hidden: true,
+          },
+        },
+      },
+    },
+  });
+
+  const publicSettings = store.getPublic();
+  assert.equal(publicSettings.ui.officeSceneLayout.themeId, 'star-office-minimal');
+  assert.deepEqual(publicSettings.ui.officeSceneLayout.furnitureOverrides, {
+    sofa: {
+      left: 48.5,
+      top: 19.25,
+      hidden: true,
+    },
+  });
+
+  const fileRaw = await fs.readFile(path.join(tmpDir, 'openclaw-settings.json'), 'utf-8');
+  const persisted = JSON.parse(fileRaw);
+  assert.equal(persisted.ui.officeSceneLayout.themeId, 'star-office-minimal');
+  assert.deepEqual(persisted.ui.officeSceneLayout.furnitureOverrides, {
+    sofa: {
+      left: 48.5,
+      top: 19.25,
+      hidden: true,
+    },
+  });
+});
+
+test('merge keeps existing office scene layout and applies override patch', async () => {
+  const { store } = await setupTempStore({
+    fileContent: {
+      ui: {
+        officeSceneLayout: {
+          themeId: 'star-office-classic',
+          furnitureOverrides: {
+            sofa: {
+              left: 52.3,
+            },
+          },
+        },
+      },
+    },
+    secretStore: new FakeSecretStore({ available: true }),
+  });
+
+  const merged = store.merge({
+    ui: {
+      officeSceneLayout: {
+        themeId: 'star-office-minimal',
+        furnitureOverrides: {
+          desk: {
+            width: 24,
+          },
+        },
+      },
+    },
+  });
+
+  assert.equal(merged.ui.officeSceneLayout.themeId, 'star-office-minimal');
+  assert.deepEqual(merged.ui.officeSceneLayout.furnitureOverrides, {
+    sofa: {
+      left: 52.3,
+    },
+    desk: {
+      width: 24,
+    },
+  });
+});
