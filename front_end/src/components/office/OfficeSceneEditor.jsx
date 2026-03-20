@@ -17,6 +17,8 @@ export default function OfficeSceneEditor({
   themeId = '',
   themeOptions = [],
   furniture = [],
+  previewMode = 'live',
+  onPreviewModeChange,
   onThemeChange,
   onFurnitureHiddenChange,
   onFurniturePositionChange,
@@ -57,6 +59,33 @@ export default function OfficeSceneEditor({
             ))}
           </select>
         </label>
+      </div>
+
+      <div className="office-room__editor-section">
+        <div className="office-room__editor-label">Preview</div>
+        <div className="office-room__editor-help">
+          Force a room state while editing furniture that only appears during specific agent states.
+        </div>
+        <div className="office-room__editor-pill-group" role="group" aria-label="Pixel room preview mode">
+          <button
+            type="button"
+            className={`office-room__editor-pill ${previewMode === 'live' ? 'is-active' : ''}`.trim()}
+            onClick={() => {
+              onPreviewModeChange?.('live');
+            }}
+          >
+            Live
+          </button>
+          <button
+            type="button"
+            className={`office-room__editor-pill ${previewMode === 'error' ? 'is-active' : ''}`.trim()}
+            onClick={() => {
+              onPreviewModeChange?.('error');
+            }}
+          >
+            Error Preview
+          </button>
+        </div>
       </div>
 
       <div className="office-room__editor-section">

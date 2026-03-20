@@ -452,6 +452,34 @@
   padding-right: 4px;
 }
 
+.office-room__editor-pill-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.office-room__editor-pill {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(162, 178, 255, 0.22);
+  background: rgba(245, 247, 255, 0.08);
+  color: #f5f1df;
+  font: inherit;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.office-room__editor-pill:hover,
+.office-room__editor-pill.is-active {
+  border-color: rgba(255, 223, 133, 0.38);
+  background: rgba(255, 224, 138, 0.12);
+}
+
+.office-room__editor-pill.is-active {
+  color: #fff1be;
+  transform: translateY(-1px);
+}
+
 .office-room__editor-furniture-item,
 .office-room__editor-reset {
   border: 1px solid rgba(162, 178, 255, 0.2);

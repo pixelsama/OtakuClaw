@@ -16,7 +16,7 @@ import guestRole6Asset from '../../assets/office/star-office/guest_role_6.png';
 export const OFFICE_SCENE_ASSET_REGISTRY = {
   starOfficeBackdrop: { key: 'starOfficeBackdrop', url: officeBgAsset, cols: 1, rows: 1 },
   desk: { key: 'desk', url: deskAsset, cols: 1, rows: 1 },
-  coffeeMachine: { key: 'coffeeMachine', url: coffeeMachineAsset, cols: 10, rows: 10 },
+  coffeeMachine: { key: 'coffeeMachine', url: coffeeMachineAsset, cols: 12, rows: 8 },
   sofaShadow: { key: 'sofaShadow', url: sofaShadowAsset, cols: 1, rows: 1 },
   sofa: { key: 'sofa', url: sofaAsset, cols: 1, rows: 1 },
   errorBug: { key: 'errorBug', url: errorBugAsset, cols: 10, rows: 11 },

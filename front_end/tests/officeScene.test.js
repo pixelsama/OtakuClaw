@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildOfficeDisplayState,
   derivePrimaryOfficeAgent,
   normalizeOfficeState,
   reduceOfficeActivityHint,
@@ -226,6 +227,37 @@ describe('resolveOfficeSceneEditorState', () => {
       top: 19.4,
       defaultLeft: 52.3,
       defaultTop: 20,
+    });
+  });
+});
+
+describe('buildOfficeDisplayState', () => {
+  it('forces the primary agent into error mode during error preview without mutating support agents', () => {
+    const officeState = buildOfficeDisplayState({
+      officeState: normalizeOfficeState({
+        revision: 2,
+        activeAgentId: 'main',
+        agents: [
+          { agentId: 'main', displayName: 'Main', businessState: 'writing', detail: 'Replying now.' },
+          { agentId: 'voice', displayName: 'Voice', businessState: 'syncing', detail: 'Preparing audio.' },
+        ],
+      }),
+      primaryAgent: {
+        agentId: 'main',
+        displayName: 'Main',
+        businessState: 'writing',
+        detail: 'Replying now.',
+      },
+      previewMode: 'error',
+    });
+
+    expect(officeState.agents.find((agent) => agent.agentId === 'main')).toMatchObject({
+      businessState: 'error',
+      detail: 'Previewing error-state furniture.',
+    });
+    expect(officeState.agents.find((agent) => agent.agentId === 'voice')).toMatchObject({
+      businessState: 'syncing',
+      detail: 'Preparing audio.',
     });
   });
 });

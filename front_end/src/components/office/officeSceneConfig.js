@@ -35,8 +35,8 @@ export const OFFICE_FURNITURE_CATALOG = {
     assetKey: 'coffeeMachine',
     left: 40.7,
     top: 42.3,
-    width: 21.6,
-    aspectRatio: '276 / 184',
+    width: 18,
+    aspectRatio: '1 / 1',
     zIndex: 9,
   },
   'sofa-shadow': {
@@ -536,6 +536,43 @@ export function reduceOfficeActivityHint(currentHint = null, event = {}) {
   }
 
   return null;
+}
+
+export function buildOfficeDisplayState({
+  officeState = {},
+  primaryAgent = null,
+  previewMode = 'live',
+} = {}) {
+  const normalizedSnapshot = normalizeOfficeState(officeState);
+  const normalizedPrimaryAgent = primaryAgent ? normalizeOfficeAgent(primaryAgent, OFFICE_PRIMARY_AGENT_ID) : null;
+  const hasPrimaryAgent = normalizedSnapshot.agents.some((agent) => agent.agentId === OFFICE_PRIMARY_AGENT_ID);
+  const baseState =
+    hasPrimaryAgent || !normalizedPrimaryAgent
+      ? normalizedSnapshot
+      : normalizeOfficeState({
+          ...normalizedSnapshot,
+          activeAgentId: OFFICE_PRIMARY_AGENT_ID,
+          agents: [normalizedPrimaryAgent, ...normalizedSnapshot.agents],
+        });
+
+  if (normalizeString(previewMode, 'live') !== 'error') {
+    return baseState;
+  }
+
+  return normalizeOfficeState({
+    ...baseState,
+    activeAgentId: OFFICE_PRIMARY_AGENT_ID,
+    agents: baseState.agents.map((agent) => (
+      agent.agentId !== OFFICE_PRIMARY_AGENT_ID
+        ? agent
+        : {
+            ...agent,
+            businessState: 'error',
+            detail: 'Previewing error-state furniture.',
+            updatedAt: new Date().toISOString(),
+          }
+    )),
+  });
 }
 
 function resolveSceneSlot(area, index) {

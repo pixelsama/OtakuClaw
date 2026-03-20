@@ -65,6 +65,7 @@ function renderMainShell(props = {}) {
           { id: 'star-office-classic', label: 'Star Office Classic' },
           { id: 'star-office-minimal', label: 'Star Office Minimal' },
         ],
+        previewMode: 'live',
         furniture: [
           {
             id: 'desk',
@@ -76,6 +77,7 @@ function renderMainShell(props = {}) {
             visibleWhenStates: [],
           },
         ],
+        onPreviewModeChange: () => {},
         onThemeChange: () => {},
         onFurnitureHiddenChange: () => {},
         onFurniturePositionChange: () => {},
@@ -105,5 +107,6 @@ describe('MainShell window view mode', () => {
     expect(html).not.toContain('data-testid="live2d-viewer-mock"');
     expect(html).toContain('Pixel room editor');
     expect(html).toContain('Star Office Classic');
+    expect(html).toContain('Error Preview');
   });
 });

@@ -21,6 +21,7 @@ import { useVoiceMicToggle } from './hooks/voice/useVoiceMicToggle.js';
 import { subscribeTtsPlaybackLifecycle } from './hooks/voice/ttsPlaybackLifecycle.js';
 import { buildVoiceStreamRequest } from './hooks/voice/voiceStreamRequest.js';
 import {
+  buildOfficeDisplayState,
   derivePrimaryOfficeAgent,
   getOfficeFurnitureCatalogItem,
   normalizeOfficeSceneLayout,
@@ -54,6 +55,7 @@ function AppContent({ desktopMode }) {
   const [officeStateSnapshot, setOfficeStateSnapshot] = useState(() => normalizeOfficeState());
   const [officeSceneLayout, setOfficeSceneLayout] = useState(() => normalizeOfficeSceneLayout());
   const [officeActivityHint, setOfficeActivityHint] = useState(null);
+  const [officePreviewMode, setOfficePreviewMode] = useState('live');
   const [builtinTtsEnabled, setBuiltinTtsEnabled] = useState(false);
   const [firstRunOnboardingOpen, setFirstRunOnboardingOpen] = useState(false);
   const [officeLayoutLoaded, setOfficeLayoutLoaded] = useState(!desktopMode);
@@ -814,20 +816,15 @@ function AppContent({ desktopMode }) {
     });
   }, [updateOfficeSceneLayout]);
 
-  const officeScene = useMemo(() => {
-    const normalizedSnapshot = normalizeOfficeState(officeStateSnapshot);
-    const hasPrimaryAgent = normalizedSnapshot.agents.some((agent) => agent.agentId === OFFICE_PRIMARY_AGENT_ID);
-    const officeState =
-      hasPrimaryAgent
-        ? normalizedSnapshot
-        : normalizeOfficeState({
-            ...normalizedSnapshot,
-            activeAgentId: OFFICE_PRIMARY_AGENT_ID,
-            agents: [primaryOfficeAgent, ...normalizedSnapshot.agents],
-          });
+  const officeDisplayState = useMemo(() => buildOfficeDisplayState({
+    officeState: officeStateSnapshot,
+    primaryAgent: primaryOfficeAgent,
+    previewMode: officePreviewMode,
+  }), [officePreviewMode, officeStateSnapshot, primaryOfficeAgent]);
 
+  const officeScene = useMemo(() => {
     return resolveOfficeSceneState({
-      officeState,
+      officeState: officeDisplayState,
       sceneConfig: officeSceneLayout,
       subtitle: desktopMode ? 'Live local office' : 'Browser preview',
       caption:
@@ -835,27 +832,18 @@ function AppContent({ desktopMode }) {
           ? `Workspace: ${officeWorkspacePath}`
           : 'Single-agent today, multi-agent ready for later.',
     });
-  }, [desktopMode, officeSceneLayout, officeStateSnapshot, officeWorkspacePath, primaryOfficeAgent]);
+  }, [desktopMode, officeDisplayState, officeSceneLayout, officeWorkspacePath]);
 
   const officeEditor = useMemo(() => {
-    const normalizedSnapshot = normalizeOfficeState(officeStateSnapshot);
-    const hasPrimaryAgent = normalizedSnapshot.agents.some((agent) => agent.agentId === OFFICE_PRIMARY_AGENT_ID);
-    const officeState =
-      hasPrimaryAgent
-        ? normalizedSnapshot
-        : normalizeOfficeState({
-            ...normalizedSnapshot,
-            activeAgentId: OFFICE_PRIMARY_AGENT_ID,
-            agents: [primaryOfficeAgent, ...normalizedSnapshot.agents],
-          });
-
     const editorState = resolveOfficeSceneEditorState({
       sceneConfig: officeSceneLayout,
-      officeState,
+      officeState: officeDisplayState,
     });
 
     return {
       ...editorState,
+      previewMode: officePreviewMode,
+      onPreviewModeChange: setOfficePreviewMode,
       onThemeChange: handleOfficeThemeChange,
       onFurnitureHiddenChange: handleOfficeFurnitureHiddenChange,
       onFurniturePositionChange: handleOfficeFurniturePositionChange,
@@ -866,9 +854,9 @@ function AppContent({ desktopMode }) {
     handleOfficeFurniturePositionChange,
     handleOfficeFurnitureReset,
     handleOfficeThemeChange,
+    officeDisplayState,
     officeSceneLayout,
-    officeStateSnapshot,
-    primaryOfficeAgent,
+    officePreviewMode,
   ]);
 
   useStreamingSubtitleBridge({
