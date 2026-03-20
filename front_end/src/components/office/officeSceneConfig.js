@@ -1,6 +1,7 @@
 import { resolveOfficeSceneAsset } from './officeSceneAssets.js';
 
 export const OFFICE_PRIMARY_AGENT_ID = 'main';
+export const DEFAULT_OFFICE_THEME_ID = 'star-office-classic';
 
 const DEFAULT_LABELS = {
   title: 'Pixel Room',
@@ -15,7 +16,82 @@ const DEFAULT_LABELS = {
   primaryAgent: 'Primary agent',
 };
 
+export const OFFICE_FURNITURE_CATALOG = {
+  desk: {
+    id: 'desk',
+    kind: 'furniture',
+    assetKey: 'desk',
+    left: 6.3,
+    top: 43.1,
+    width: 21.6,
+    aspectRatio: '276 / 214',
+    zIndex: 8,
+  },
+  coffee: {
+    id: 'coffee',
+    kind: 'furniture',
+    assetKey: 'coffeeMachine',
+    left: 40.7,
+    top: 42.3,
+    width: 21.6,
+    aspectRatio: '276 / 184',
+    zIndex: 9,
+  },
+  'sofa-shadow': {
+    id: 'sofa-shadow',
+    kind: 'shadow',
+    assetKey: 'sofaShadow',
+    left: 52.3,
+    top: 20,
+    width: 20,
+    aspectRatio: '1 / 1',
+    zIndex: 6,
+    opacity: 0.72,
+  },
+  sofa: {
+    id: 'sofa',
+    kind: 'furniture',
+    assetKey: 'sofa',
+    left: 52.3,
+    top: 20,
+    width: 20,
+    aspectRatio: '1 / 1',
+    zIndex: 7,
+  },
+  bug: {
+    id: 'bug',
+    kind: 'status',
+    assetKey: 'errorBug',
+    left: 71.8,
+    top: 18.2,
+    width: 13.75,
+    aspectRatio: '176 / 180',
+    zIndex: 6,
+    visibleWhenStates: ['error'],
+  },
+};
+
+export const OFFICE_ROOM_THEMES = {
+  [DEFAULT_OFFICE_THEME_ID]: {
+    id: DEFAULT_OFFICE_THEME_ID,
+    label: 'Star Office Classic',
+    backdrop: {
+      assetKey: 'starOfficeBackdrop',
+    },
+    furnitureIds: ['desk', 'coffee', 'sofa-shadow', 'sofa', 'bug'],
+  },
+  'star-office-minimal': {
+    id: 'star-office-minimal',
+    label: 'Star Office Minimal',
+    backdrop: {
+      assetKey: 'starOfficeBackdrop',
+    },
+    furnitureIds: ['desk', 'sofa-shadow', 'sofa', 'bug'],
+  },
+};
+
 export const DEFAULT_OFFICE_SCENE_CONFIG = {
+  themeId: DEFAULT_OFFICE_THEME_ID,
   backdrop: {
     assetKey: 'starOfficeBackdrop',
   },
@@ -65,60 +141,7 @@ export const DEFAULT_OFFICE_SCENE_CONFIG = {
       ],
     },
   },
-  furniture: [
-    {
-      id: 'desk',
-      kind: 'furniture',
-      assetKey: 'desk',
-      left: 6.3,
-      top: 43.1,
-      width: 21.6,
-      aspectRatio: '276 / 214',
-      zIndex: 8,
-    },
-    {
-      id: 'coffee',
-      kind: 'furniture',
-      assetKey: 'coffeeMachine',
-      left: 40.7,
-      top: 42.3,
-      width: 21.6,
-      aspectRatio: '276 / 184',
-      zIndex: 9,
-    },
-    {
-      id: 'sofa-shadow',
-      kind: 'shadow',
-      assetKey: 'sofaShadow',
-      left: 52.3,
-      top: 20,
-      width: 20,
-      aspectRatio: '1 / 1',
-      zIndex: 6,
-      opacity: 0.72,
-    },
-    {
-      id: 'sofa',
-      kind: 'furniture',
-      assetKey: 'sofa',
-      left: 52.3,
-      top: 20,
-      width: 20,
-      aspectRatio: '1 / 1',
-      zIndex: 7,
-    },
-    {
-      id: 'bug',
-      kind: 'status',
-      assetKey: 'errorBug',
-      left: 71.8,
-      top: 18.2,
-      width: 13.75,
-      aspectRatio: '176 / 180',
-      zIndex: 6,
-      visibleWhenStates: ['error'],
-    },
-  ],
+  furnitureOverrides: {},
   stateMap: {
     idle: { areaId: 'lounge', mood: 'resting', palette: 'idle' },
     writing: { areaId: 'desk', mood: 'typing', palette: 'focus' },
@@ -149,6 +172,15 @@ function normalizeLabels(labels = {}) {
 
 function cloneFurniture(items = []) {
   return items.map((item) => ({ ...item }));
+}
+
+function normalizeThemeId(value) {
+  return normalizeString(value, DEFAULT_OFFICE_THEME_ID);
+}
+
+function resolveOfficeRoomTheme(themeId = DEFAULT_OFFICE_THEME_ID) {
+  const resolvedThemeId = normalizeThemeId(themeId);
+  return OFFICE_ROOM_THEMES[resolvedThemeId] || OFFICE_ROOM_THEMES[DEFAULT_OFFICE_THEME_ID];
 }
 
 function normalizeBackdrop(backdrop = {}) {
@@ -205,6 +237,47 @@ function normalizeFurniture(items = [], activeStates = []) {
   return cloneFurniture(items)
     .map((item) => normalizeFurnitureItem(item, activeStates))
     .filter((item) => item.assetUrl);
+}
+
+function normalizeFurnitureOverrides(overrides = {}) {
+  if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(overrides)
+      .map(([key, value]) => [normalizeString(key, ''), value])
+      .filter(([key, value]) => key && value && typeof value === 'object' && !Array.isArray(value)),
+  );
+}
+
+function resolveThemeFurniture({
+  themeId = DEFAULT_OFFICE_THEME_ID,
+  furniture = null,
+  furnitureOverrides = {},
+  activeStates = [],
+} = {}) {
+  if (Array.isArray(furniture) && furniture.length > 0) {
+    return normalizeFurniture(furniture, activeStates);
+  }
+
+  const theme = resolveOfficeRoomTheme(themeId);
+  const overrides = normalizeFurnitureOverrides(furnitureOverrides);
+  const items = (theme.furnitureIds || [])
+    .map((catalogId) => {
+      const item = OFFICE_FURNITURE_CATALOG[catalogId];
+      if (!item) {
+        return null;
+      }
+
+      return {
+        ...item,
+        ...(overrides[item.id] || {}),
+      };
+    })
+    .filter(Boolean);
+
+  return normalizeFurniture(items, activeStates);
 }
 
 function normalizeStateMap(map = {}) {
@@ -427,10 +500,18 @@ export function resolveOfficeSceneState({
   const normalizedState = normalizeOfficeState(officeState);
   const normalizedLabels = normalizeLabels(labels);
   const activeStates = normalizedState.agents.map((agent) => normalizeString(agent.businessState, 'idle').toLowerCase());
+  const theme = resolveOfficeRoomTheme(sceneConfig?.themeId || DEFAULT_OFFICE_SCENE_CONFIG.themeId);
   const config = {
-    backdrop: normalizeBackdrop(sceneConfig?.backdrop || DEFAULT_OFFICE_SCENE_CONFIG.backdrop),
+    themeId: theme.id,
+    themeLabel: theme.label,
+    backdrop: normalizeBackdrop(sceneConfig?.backdrop || theme.backdrop || DEFAULT_OFFICE_SCENE_CONFIG.backdrop),
     areas: sceneConfig?.areas || DEFAULT_OFFICE_SCENE_CONFIG.areas,
-    furniture: normalizeFurniture(sceneConfig?.furniture || DEFAULT_OFFICE_SCENE_CONFIG.furniture, activeStates),
+    furniture: resolveThemeFurniture({
+      themeId: sceneConfig?.themeId || DEFAULT_OFFICE_SCENE_CONFIG.themeId,
+      furniture: sceneConfig?.furniture,
+      furnitureOverrides: sceneConfig?.furnitureOverrides || DEFAULT_OFFICE_SCENE_CONFIG.furnitureOverrides,
+      activeStates,
+    }),
     stateMap: normalizeStateMap(sceneConfig?.stateMap),
   };
   const occupants = buildOccupants({

@@ -122,6 +122,50 @@ describe('resolveOfficeSceneState', () => {
     expect(idleScene.config.furniture.find((item) => item.id === 'bug')?.isVisible).toBe(false);
     expect(errorScene.config.furniture.find((item) => item.id === 'bug')?.isVisible).toBe(true);
   });
+
+  it('expands the default theme from the furniture catalog', () => {
+    const scene = resolveOfficeSceneState({
+      officeState: normalizeOfficeState({
+        revision: 1,
+        activeAgentId: 'main',
+        agents: [
+          { agentId: 'main', displayName: 'Main', businessState: 'idle', detail: 'Standing by.' },
+        ],
+      }),
+    });
+
+    expect(scene.config.themeId).toBe('star-office-classic');
+    expect(scene.config.themeLabel).toBe('Star Office Classic');
+    expect(scene.config.furniture.map((item) => item.id)).toContain('coffee');
+  });
+
+  it('supports theme switching and furniture overrides without changing the renderer', () => {
+    const minimalScene = resolveOfficeSceneState({
+      officeState: normalizeOfficeState({
+        revision: 1,
+        activeAgentId: 'main',
+        agents: [
+          { agentId: 'main', displayName: 'Main', businessState: 'idle', detail: 'Standing by.' },
+        ],
+      }),
+      sceneConfig: {
+        themeId: 'star-office-minimal',
+        furnitureOverrides: {
+          sofa: {
+            left: 49,
+            top: 18,
+          },
+        },
+      },
+    });
+
+    expect(minimalScene.config.themeId).toBe('star-office-minimal');
+    expect(minimalScene.config.furniture.find((item) => item.id === 'coffee')).toBeUndefined();
+    expect(minimalScene.config.furniture.find((item) => item.id === 'sofa')).toMatchObject({
+      left: 49,
+      top: 18,
+    });
+  });
 });
 
 describe('reduceOfficeActivityHint', () => {
