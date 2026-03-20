@@ -2,14 +2,14 @@
   position: absolute;
   left: 24px;
   top: 64px;
-  width: min(430px, calc(100vw - 220px));
+  width: min(520px, calc(100vw - 220px));
   z-index: 4;
   pointer-events: none;
-  color: #10233f;
+  color: #f5f1df;
 }
 
 .office-room.is-compact {
-  width: min(340px, calc(100vw - 120px));
+  width: min(360px, calc(100vw - 120px));
 }
 
 .office-room--page {
@@ -23,42 +23,31 @@
 
 .office-room__chrome {
   position: relative;
-  padding: 16px;
-  border-radius: 24px;
-  border: 1px solid rgba(30, 65, 121, 0.18);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(240, 246, 255, 0.78) 100%),
-    linear-gradient(135deg, rgba(118, 194, 255, 0.18), rgba(255, 194, 125, 0.12));
-  box-shadow: 0 26px 54px rgba(16, 39, 73, 0.2), 0 2px 10px rgba(16, 39, 73, 0.12);
-  backdrop-filter: blur(14px) saturate(135%);
-  -webkit-backdrop-filter: blur(14px) saturate(135%);
-  overflow: hidden;
-}
-
-.office-room--page .office-room__chrome {
   height: 100%;
-  display: flex;
-  flex-direction: column;
-  padding: 22px;
-  border-radius: 30px;
+  padding: 18px;
+  border-radius: 28px;
+  border: 1px solid rgba(122, 139, 237, 0.26);
   background:
-    linear-gradient(180deg, rgba(254, 249, 240, 0.94) 0%, rgba(236, 243, 255, 0.9) 100%),
-    linear-gradient(135deg, rgba(48, 103, 192, 0.12), rgba(241, 171, 89, 0.14));
+    linear-gradient(180deg, rgba(20, 24, 70, 0.97) 0%, rgba(15, 18, 54, 0.98) 100%);
+  box-shadow: 0 28px 56px rgba(9, 11, 32, 0.42);
+  overflow: hidden;
 }
 
 .office-room__chrome::before {
   content: '';
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.68), transparent 40%),
-    linear-gradient(135deg, rgba(22, 111, 194, 0.08), transparent 46%);
+  background-image:
+    linear-gradient(rgba(132, 145, 238, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(132, 145, 238, 0.12) 1px, transparent 1px);
+  background-size: 38px 38px;
+  opacity: 0.3;
   pointer-events: none;
 }
 
 .office-room__header,
 .office-room__footer,
-.office-room__stage {
+.office-room__stage-wrap {
   position: relative;
   z-index: 1;
 }
@@ -68,180 +57,198 @@
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 
-.office-room__eyebrow {
+.office-room__eyebrow,
+.office-room__summary,
+.office-room__caption {
   font-size: 11px;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: rgba(16, 35, 63, 0.68);
+  color: rgba(221, 227, 255, 0.72);
 }
 
 .office-room__title {
   margin: 4px 0 0;
-  font-size: 25px;
+  color: #fff7d4;
+  font-size: 28px;
   line-height: 1;
-  font-family: 'Avenir Next', 'Trebuchet MS', sans-serif;
+  font-family: 'Trebuchet MS', 'Avenir Next', sans-serif;
 }
 
 .office-room__summary {
   display: flex;
   flex-direction: column;
-  gap: 4px;
   align-items: flex-end;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: rgba(16, 35, 63, 0.7);
+  gap: 4px;
+}
+
+.office-room__stage-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .office-room__stage {
   position: relative;
-  height: 248px;
-  border-radius: 22px;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 24px;
   overflow: hidden;
-  background: linear-gradient(180deg, #d7ecff 0%, #f4f8ff 38%, #f5e7d3 38%, #e7cfaa 100%);
-  box-shadow: inset 0 0 0 1px rgba(31, 76, 144, 0.14);
+  background: #161947;
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.05),
+    0 16px 28px rgba(8, 10, 32, 0.3);
 }
 
 .office-room--page .office-room__stage {
-  flex: 1;
   min-height: 420px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.32), transparent 20%),
-    linear-gradient(180deg, #c7dcff 0%, #dff0ff 34%, #efd8ae 34%, #d4b17d 100%);
 }
 
-.office-room__backdrop,
-.office-room__grid,
-.office-room__floor {
+.office-room__scene-backdrop,
+.office-room__scene-vignette {
   position: absolute;
   inset: 0;
   pointer-events: none;
 }
 
-.office-room__backdrop {
+.office-room__scene-backdrop {
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  image-rendering: pixelated;
+}
+
+.office-room__scene-vignette {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.75), transparent 28%),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.16) 0 2%, transparent 2% 100%);
+    linear-gradient(180deg, rgba(255, 249, 220, 0.08), transparent 24%),
+    radial-gradient(circle at center, transparent 52%, rgba(8, 10, 24, 0.18));
 }
 
-.office-room__grid {
-  background-image:
-    linear-gradient(rgba(34, 84, 150, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(34, 84, 150, 0.08) 1px, transparent 1px);
-  background-size: 26px 26px;
-  opacity: 0.45;
-}
-
-.office-room__floor {
-  top: auto;
-  height: 40%;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0), rgba(191, 137, 73, 0.05) 14%),
-    repeating-linear-gradient(90deg, rgba(153, 96, 30, 0.12) 0 18px, rgba(255, 238, 220, 0.12) 18px 20px);
-}
-
-.office-room__furniture {
+.office-room__prop {
   position: absolute;
-  border-radius: 12px;
-  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.08), 0 8px 18px rgba(62, 39, 20, 0.14);
+  background-position: 0 0;
+  background-repeat: no-repeat;
+  background-size: calc(var(--office-cols, 1) * 100%) calc(var(--office-rows, 1) * 100%);
+  image-rendering: pixelated;
+  pointer-events: none;
 }
 
-.office-room__furniture--window {
-  background: linear-gradient(180deg, #eef8ff, #9ed1ff);
-  border: 5px solid #c78b52;
+.office-room__prop--desk {
+  aspect-ratio: 276 / 214;
+  z-index: 8;
 }
 
-.office-room__furniture--plant {
-  background: linear-gradient(180deg, #4d9f5b 0%, #24593b 70%);
-  border-radius: 999px 999px 10px 10px;
+.office-room__prop--coffee {
+  aspect-ratio: 276 / 184;
+  z-index: 9;
 }
 
-.office-room__furniture--sofa {
-  background: linear-gradient(180deg, #f4b06b, #cb6c4a);
+.office-room__prop--sofa-shadow,
+.office-room__prop--sofa {
+  aspect-ratio: 1 / 1;
 }
 
-.office-room__furniture--desk {
-  background: linear-gradient(180deg, #c68b56, #87512e);
+.office-room__prop--sofa-shadow {
+  z-index: 6;
+  opacity: 0.72;
 }
 
-.office-room__furniture--monitor {
-  background: linear-gradient(180deg, #203756, #10233f);
+.office-room__prop--sofa {
+  z-index: 7;
 }
 
-.office-room__furniture--server {
-  background: linear-gradient(180deg, #7a9bc9, #2d4e79);
-}
-
-.office-room__furniture--bug {
-  background: radial-gradient(circle at center, #ff8d6c 0, #ef5a44 62%, transparent 63%);
-}
-
-.office-room__furniture--lamp {
-  background: linear-gradient(180deg, #ffe3a8, #c69139);
+.office-room__prop--bug {
+  aspect-ratio: 176 / 180;
+  z-index: 6;
 }
 
 .office-room__area-label {
   position: absolute;
   display: inline-flex;
-  gap: 8px;
+  gap: 7px;
   align-items: center;
   transform: translate(-50%, -50%);
-  padding: 5px 10px;
+  padding: 5px 9px;
   border-radius: 999px;
-  background: rgba(16, 35, 63, 0.14);
-  color: rgba(16, 35, 63, 0.72);
+  background: rgba(12, 18, 49, 0.82);
+  border: 1px solid rgba(209, 219, 255, 0.16);
+  color: rgba(243, 241, 226, 0.88);
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  box-shadow: 0 6px 12px rgba(7, 10, 25, 0.18);
 }
 
 .office-room__area-label strong {
-  color: #1f63c5;
+  color: #ffdb6d;
 }
 
 .office-room__occupant {
   position: absolute;
   transform: translate(-50%, -50%);
   transition: left 260ms ease, top 260ms ease, transform 180ms ease;
+  z-index: 18;
 }
 
 .office-room__occupant.is-primary {
-  z-index: 3;
+  z-index: 22;
 }
 
 .office-room__agent-shadow {
   position: absolute;
   left: 50%;
   top: 100%;
-  width: 34px;
-  height: 10px;
-  transform: translate(-50%, -4px);
+  width: 46px;
+  height: 14px;
+  transform: translate(-50%, -6px);
   border-radius: 999px;
-  background: rgba(57, 36, 20, 0.18);
-  filter: blur(2px);
+  background: rgba(24, 20, 13, 0.28);
+  filter: blur(4px);
 }
 
 .office-room__agent-sprite {
-  width: 38px;
-  height: 46px;
-  border-radius: 12px 12px 14px 14px;
-  border: 2px solid rgba(255, 255, 255, 0.74);
-  box-shadow: 0 10px 18px rgba(16, 39, 73, 0.2);
-  animation: officeBob 2.4s ease-in-out infinite;
   position: relative;
+  background-position: 0 0;
+  background-repeat: no-repeat;
+  background-size: calc(var(--office-cols, 1) * 100%) calc(var(--office-rows, 1) * 100%);
+  image-rendering: pixelated;
+  filter: drop-shadow(0 10px 16px rgba(9, 11, 32, 0.22));
+  animation: officeBob 2.8s ease-in-out infinite;
 }
 
-.office-room__agent-face {
-  position: absolute;
-  left: 50%;
-  top: 16px;
-  transform: translateX(-50%);
-  font-size: 10px;
-  letter-spacing: 2px;
-  color: rgba(255, 255, 255, 0.88);
+.office-room__agent-sprite--working {
+  width: 88px;
+  height: 88px;
+}
+
+.office-room__agent-sprite--idle,
+.office-room__agent-sprite--alert {
+  width: 78px;
+  height: 78px;
+}
+
+.office-room__agent-sprite--guest {
+  width: 58px;
+  height: 29px;
+}
+
+.state-researching .office-room__agent-sprite,
+.state-executing .office-room__agent-sprite {
+  filter: drop-shadow(0 10px 16px rgba(9, 11, 32, 0.22)) saturate(1.06);
+}
+
+.state-syncing .office-room__agent-sprite {
+  filter:
+    drop-shadow(0 10px 16px rgba(9, 11, 32, 0.22))
+    drop-shadow(0 0 14px rgba(117, 230, 218, 0.42));
+}
+
+.state-error .office-room__agent-sprite {
+  filter:
+    drop-shadow(0 10px 16px rgba(9, 11, 32, 0.22))
+    drop-shadow(0 0 14px rgba(255, 120, 94, 0.38));
 }
 
 .office-room__agent-name,
@@ -254,8 +261,9 @@
   margin-top: 8px;
   font-size: 11px;
   font-weight: 700;
-  color: #17345b;
   text-align: center;
+  color: #fff4c8;
+  text-shadow: 0 1px 0 rgba(28, 21, 9, 0.55);
 }
 
 .office-room__agent-state {
@@ -264,22 +272,22 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
   text-align: center;
-  color: rgba(23, 52, 91, 0.68);
+  color: rgba(226, 231, 255, 0.78);
 }
 
 .office-room__agent-bubble {
   position: absolute;
   left: 50%;
-  bottom: calc(100% + 12px);
+  bottom: calc(100% + 14px);
   transform: translateX(-50%);
-  max-width: 180px;
-  padding: 7px 10px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.95);
-  box-shadow: 0 12px 20px rgba(16, 39, 73, 0.12);
-  color: #17345b;
-  font-size: 10px;
-  line-height: 1.4;
+  max-width: 220px;
+  padding: 9px 12px;
+  border-radius: 14px;
+  background: rgba(255, 249, 231, 0.96);
+  box-shadow: 0 16px 22px rgba(9, 11, 32, 0.18);
+  color: #47331c;
+  font-size: 11px;
+  line-height: 1.45;
   text-align: center;
 }
 
@@ -289,33 +297,24 @@
   left: 50%;
   top: 100%;
   transform: translateX(-50%);
-  border-width: 7px 6px 0 6px;
+  border-width: 8px 7px 0 7px;
   border-style: solid;
-  border-color: rgba(255, 255, 255, 0.95) transparent transparent transparent;
+  border-color: rgba(255, 249, 231, 0.96) transparent transparent transparent;
 }
 
-.palette-idle .office-room__agent-sprite {
-  background: linear-gradient(180deg, #82c3d8, #4c87b2);
-}
-
-.palette-focus .office-room__agent-sprite {
-  background: linear-gradient(180deg, #6175e7, #283b8c);
-}
-
-.palette-sync .office-room__agent-sprite {
-  background: linear-gradient(180deg, #41c6b5, #176d71);
-}
-
-.palette-error .office-room__agent-sprite {
-  background: linear-gradient(180deg, #ff8e71, #be3b36);
-}
-
-.mood-syncing {
-  animation-duration: 1.45s;
-}
-
-.mood-alert {
-  animation-duration: 0.9s;
+.office-room__plaque {
+  align-self: center;
+  max-width: min(460px, 100%);
+  padding: 10px 18px;
+  border-radius: 14px;
+  border: 2px solid #50301d;
+  background: linear-gradient(180deg, #6d4328, #55331f);
+  color: #ffe17a;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+  box-shadow: 0 10px 18px rgba(8, 10, 32, 0.22);
 }
 
 .office-room__footer {
@@ -323,7 +322,7 @@
   justify-content: space-between;
   gap: 16px;
   align-items: center;
-  margin-top: 12px;
+  margin-top: 14px;
 }
 
 .office-room__legend,
@@ -331,7 +330,6 @@
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(16, 35, 63, 0.65);
 }
 
 .office-room__legend {
@@ -341,32 +339,27 @@
 }
 
 .tone-idle {
-  color: #4c87b2;
+  color: #8cd4ff;
 }
 
 .tone-focus {
-  color: #3150c8;
+  color: #ffd97c;
 }
 
 .tone-think {
-  color: #175f9f;
+  color: #95bcff;
 }
 
 .tone-exec {
-  color: #8d4a1d;
+  color: #ffb47f;
 }
 
 .tone-sync {
-  color: #188978;
+  color: #77ebd8;
 }
 
 .tone-error {
-  color: #c3473d;
-}
-
-.office-scene-dock {
-  left: 28px;
-  top: 68px;
+  color: #ff9680;
 }
 
 .office-scene-page {
@@ -380,28 +373,29 @@
     transform: translateY(0);
   }
   50% {
-    transform: translateY(-4px);
+    transform: translateY(-3px);
   }
 }
 
 @media (max-width: 1100px) {
   .office-room {
-    width: min(360px, calc(100vw - 120px));
+    width: min(430px, calc(100vw - 120px));
   }
 
-  .office-room__stage {
-    height: 224px;
+  .office-room__agent-sprite--working {
+    width: 74px;
+    height: 74px;
   }
 
-  .office-room--page .office-room__stage {
-    min-height: 360px;
-    height: auto;
+  .office-room__agent-sprite--idle,
+  .office-room__agent-sprite--alert {
+    width: 64px;
+    height: 64px;
   }
 }
 
 @media (max-width: 900px) {
-  .office-room,
-  .office-scene-dock {
+  .office-room {
     left: 16px;
     top: 54px;
     width: min(320px, calc(100vw - 40px));
@@ -416,43 +410,17 @@
     width: auto;
   }
 
-  .office-room--page .office-room__chrome {
-    padding: 16px;
+  .office-room__chrome {
+    padding: 14px;
   }
 
-  .office-room--page .office-room__stage {
-    min-height: 280px;
+  .office-room__area-label {
+    font-size: 9px;
+    padding: 4px 8px;
   }
-}
 
-:root[data-theme-mode='dark'] .office-room__chrome {
-  color: rgba(231, 241, 255, 0.96);
-  border-color: rgba(120, 161, 228, 0.24);
-  background:
-    linear-gradient(180deg, rgba(14, 24, 39, 0.9) 0%, rgba(10, 18, 29, 0.82) 100%),
-    linear-gradient(135deg, rgba(65, 127, 214, 0.14), rgba(255, 166, 94, 0.08));
-  box-shadow: 0 26px 54px rgba(1, 4, 10, 0.52), 0 2px 10px rgba(1, 4, 10, 0.28);
-}
-
-:root[data-theme-mode='dark'] .office-room__eyebrow,
-:root[data-theme-mode='dark'] .office-room__summary,
-:root[data-theme-mode='dark'] .office-room__legend,
-:root[data-theme-mode='dark'] .office-room__caption,
-:root[data-theme-mode='dark'] .office-room__agent-state,
-:root[data-theme-mode='dark'] .office-room__area-label {
-  color: rgba(197, 213, 238, 0.74);
-}
-
-:root[data-theme-mode='dark'] .office-room__agent-name,
-:root[data-theme-mode='dark'] .office-room__title {
-  color: rgba(239, 246, 255, 0.96);
-}
-
-:root[data-theme-mode='dark'] .office-room__agent-bubble {
-  background: rgba(17, 28, 43, 0.94);
-  color: rgba(234, 242, 255, 0.94);
-}
-
-:root[data-theme-mode='dark'] .office-room__agent-bubble::after {
-  border-top-color: rgba(17, 28, 43, 0.94);
+  .office-room__agent-bubble {
+    max-width: 170px;
+    font-size: 10px;
+  }
 }
