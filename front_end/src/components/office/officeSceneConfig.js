@@ -39,18 +39,6 @@ export const OFFICE_FURNITURE_CATALOG = {
     aspectRatio: '1 / 1',
     zIndex: 9,
   },
-  'sofa-shadow': {
-    id: 'sofa-shadow',
-    label: 'Sofa Shadow',
-    kind: 'shadow',
-    assetKey: 'sofaShadow',
-    left: 52.3,
-    top: 20,
-    width: 20,
-    aspectRatio: '1 / 1',
-    zIndex: 6,
-    opacity: 0.72,
-  },
   sofa: {
     id: 'sofa',
     label: 'Sofa',
@@ -61,6 +49,23 @@ export const OFFICE_FURNITURE_CATALOG = {
     width: 20,
     aspectRatio: '1 / 1',
     zIndex: 7,
+    layers: [
+      {
+        id: 'sofa-shadow',
+        kind: 'shadow',
+        assetKey: 'sofaShadow',
+        aspectRatio: '1 / 1',
+        zIndex: 6,
+        opacity: 0.72,
+      },
+      {
+        id: 'sofa',
+        kind: 'furniture',
+        assetKey: 'sofa',
+        aspectRatio: '1 / 1',
+        zIndex: 7,
+      },
+    ],
   },
   bug: {
     id: 'bug',
@@ -83,7 +88,7 @@ export const OFFICE_ROOM_THEMES = {
     backdrop: {
       assetKey: 'starOfficeBackdrop',
     },
-    furnitureIds: ['desk', 'coffee', 'sofa-shadow', 'sofa', 'bug'],
+    furnitureIds: ['desk', 'coffee', 'sofa', 'bug'],
   },
   'star-office-minimal': {
     id: 'star-office-minimal',
@@ -91,7 +96,7 @@ export const OFFICE_ROOM_THEMES = {
     backdrop: {
       assetKey: 'starOfficeBackdrop',
     },
-    furnitureIds: ['desk', 'sofa-shadow', 'sofa', 'bug'],
+    furnitureIds: ['desk', 'sofa', 'bug'],
   },
 };
 
@@ -276,10 +281,70 @@ function normalizeFurnitureItem(item = {}, activeStates = []) {
   };
 }
 
+function normalizeFurnitureLayers(item = {}) {
+  const source = item && typeof item === 'object' ? item : {};
+  const itemId = normalizeString(source.id, 'furniture');
+  const itemWidth = Number.isFinite(source.width) ? source.width : 10;
+  const itemAspectRatio = normalizeString(source.aspectRatio, '1 / 1');
+  const itemOpacity = Number.isFinite(source.opacity) ? source.opacity : 1;
+  const itemZIndex = Number.isFinite(source.zIndex) ? source.zIndex : 1;
+  const sourceLayers = Array.isArray(source.layers) && source.layers.length > 0
+    ? source.layers
+    : [{
+        id: itemId,
+        kind: normalizeString(source.kind, 'furniture'),
+        assetKey: source.assetKey,
+        cols: source.cols,
+        rows: source.rows,
+        width: itemWidth,
+        aspectRatio: itemAspectRatio,
+        zIndex: itemZIndex,
+        opacity: itemOpacity,
+      }];
+
+  return sourceLayers
+    .map((layer, index) => {
+      const layerSource = layer && typeof layer === 'object' ? layer : {};
+      const layerAssetKey = normalizeString(layerSource.assetKey, '');
+      const layerAsset = resolveOfficeSceneAsset(layerAssetKey);
+      if (!layerAsset?.url) {
+        return null;
+      }
+
+      return {
+        ...layerSource,
+        id: normalizeString(layerSource.id, `${itemId}-layer-${index + 1}`),
+        kind: normalizeString(layerSource.kind, normalizeString(source.kind, 'furniture')),
+        assetKey: layerAssetKey,
+        assetUrl: layerAsset.url,
+        cols: Number.isFinite(layerSource.cols) ? layerSource.cols : layerAsset.cols || 1,
+        rows: Number.isFinite(layerSource.rows) ? layerSource.rows : layerAsset.rows || 1,
+        width: Number.isFinite(layerSource.width) ? layerSource.width : itemWidth,
+        aspectRatio: normalizeString(layerSource.aspectRatio, itemAspectRatio),
+        zIndex: Number.isFinite(layerSource.zIndex) ? layerSource.zIndex : itemZIndex,
+        opacity: Number.isFinite(layerSource.opacity) ? layerSource.opacity : itemOpacity,
+      };
+    })
+    .filter(Boolean);
+}
+
 function normalizeFurniture(items = [], activeStates = []) {
   return cloneFurniture(items)
-    .map((item) => normalizeFurnitureItem(item, activeStates))
-    .filter((item) => item.assetUrl);
+    .map((item) => {
+      const normalizedItem = normalizeFurnitureItem(item, activeStates);
+      const normalizedLayers = normalizeFurnitureLayers(normalizedItem);
+      return {
+        ...normalizedItem,
+        assetUrl: normalizedLayers[normalizedLayers.length - 1]?.assetUrl || normalizedItem.assetUrl,
+        cols: normalizedLayers[normalizedLayers.length - 1]?.cols || normalizedItem.cols,
+        rows: normalizedLayers[normalizedLayers.length - 1]?.rows || normalizedItem.rows,
+        aspectRatio: normalizedLayers[normalizedLayers.length - 1]?.aspectRatio || normalizedItem.aspectRatio,
+        zIndex: normalizedLayers[normalizedLayers.length - 1]?.zIndex || normalizedItem.zIndex,
+        opacity: normalizedLayers[normalizedLayers.length - 1]?.opacity || normalizedItem.opacity,
+        layers: normalizedLayers,
+      };
+    })
+    .filter((item) => item.layers.length > 0);
 }
 
 function normalizeFurnitureOverrides(overrides = {}) {

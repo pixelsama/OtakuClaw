@@ -4,7 +4,7 @@ import { calculateDraggedFurniturePosition } from './officeSceneDrag.js';
 import OfficeSceneEditor from './OfficeSceneEditor.jsx';
 import './OfficeScene.css';
 
-function OfficeDecorLayer({ layer, isInteractive = false, isSelected = false, isDragging = false, onPointerDown, onSelect }) {
+function OfficeDecorLayer({ furniture, layer, isInteractive = false, isSelected = false, isDragging = false, onPointerDown, onSelect }) {
   return (
     <div
       className={[
@@ -15,9 +15,9 @@ function OfficeDecorLayer({ layer, isInteractive = false, isSelected = false, is
         isDragging ? 'is-dragging' : '',
       ].filter(Boolean).join(' ')}
       style={{
-        left: `${layer.left}%`,
-        top: `${layer.top}%`,
-        width: `${layer.width}%`,
+        left: `${furniture.left}%`,
+        top: `${furniture.top}%`,
+        width: `${layer.width || furniture.width}%`,
         aspectRatio: layer.aspectRatio,
         zIndex: layer.zIndex,
         opacity: layer.opacity,
@@ -163,21 +163,21 @@ export default function OfficeScene({
     };
   }, [draggingFurnitureId, editor]);
 
-  const handleDecorPointerDown = (event, layer) => {
+  const handleDecorPointerDown = (event, furniture) => {
     if (!editor?.onFurniturePositionChange || !stageRef.current) {
       return;
     }
 
     const layerRect = event.currentTarget.getBoundingClientRect();
     dragStateRef.current = {
-      furnitureId: layer.id,
+      furnitureId: furniture.id,
       pointerOffsetX: event.clientX - layerRect.left,
       pointerOffsetY: event.clientY - layerRect.top,
       layerWidth: layerRect.width,
       layerHeight: layerRect.height,
     };
-    setSelectedFurnitureId(layer.id);
-    setDraggingFurnitureId(layer.id);
+    setSelectedFurnitureId(furniture.id);
+    setDraggingFurnitureId(furniture.id);
     event.preventDefault();
   };
 
@@ -210,20 +210,23 @@ export default function OfficeScene({
                 aria-hidden="true"
               />
               <div className="office-room__scene-vignette" aria-hidden="true" />
-              {config.furniture.filter((layer) => layer.isVisible !== false).map((layer) => (
-                <OfficeDecorLayer
-                  key={layer.id}
-                  layer={layer}
-                  isInteractive={Boolean(editor?.onFurniturePositionChange)}
-                  isSelected={selectedFurniture?.id === layer.id}
-                  isDragging={draggingFurnitureId === layer.id}
-                  onPointerDown={(event) => {
-                    handleDecorPointerDown(event, layer);
-                  }}
-                  onSelect={() => {
-                    setSelectedFurnitureId(layer.id);
-                  }}
-                />
+              {config.furniture.filter((item) => item.isVisible !== false).flatMap((item) => (
+                (item.layers || []).map((layer) => (
+                  <OfficeDecorLayer
+                    key={`${item.id}:${layer.id}`}
+                    furniture={item}
+                    layer={layer}
+                    isInteractive={Boolean(editor?.onFurniturePositionChange)}
+                    isSelected={selectedFurniture?.id === item.id}
+                    isDragging={draggingFurnitureId === item.id}
+                    onPointerDown={(event) => {
+                      handleDecorPointerDown(event, item);
+                    }}
+                    onSelect={() => {
+                      setSelectedFurnitureId(item.id);
+                    }}
+                  />
+                ))
               ))}
               {Object.values(config.areas).map((area) => {
                 const areaSummary = areaSummaries.find((item) => item.id === area.id);

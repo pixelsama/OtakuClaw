@@ -139,6 +139,12 @@ describe('resolveOfficeSceneState', () => {
     expect(scene.config.themeId).toBe('star-office-classic');
     expect(scene.config.themeLabel).toBe('Star Office Classic');
     expect(scene.config.furniture.map((item) => item.id)).toContain('coffee');
+    expect(scene.config.furniture.find((item) => item.id === 'sofa')).toMatchObject({
+      layers: [
+        { id: 'sofa-shadow', assetKey: 'sofaShadow' },
+        { id: 'sofa', assetKey: 'sofa' },
+      ],
+    });
   });
 
   it('supports theme switching and furniture overrides without changing the renderer', () => {
@@ -229,6 +235,7 @@ describe('resolveOfficeSceneEditorState', () => {
       defaultLeft: 52.3,
       defaultTop: 20,
     });
+    expect(editor.furniture.find((item) => item.id === 'sofa-shadow')).toBeUndefined();
     expect(editor.furniture.find((item) => item.id === 'bug')).toMatchObject({
       ruleLabel: 'Error-only',
     });
