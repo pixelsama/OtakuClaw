@@ -14,6 +14,7 @@ const {
 
 const { registerChatStreamIpc } = require('./ipc/chatStream');
 const { registerConversationIpc } = require('./ipc/conversation');
+const { registerOfficeStateIpc } = require('./ipc/officeState');
 const { registerLive2DModelsIpc } = require('./ipc/live2dModels');
 const { registerAppUpdaterIpc } = require('./ipc/appUpdater');
 const { registerNanobotSkillsIpc } = require('./ipc/nanobotSkills');
@@ -30,6 +31,7 @@ const { NanobotSkillsLibrary } = require('./services/chat/nanobot/nanobotSkillsL
 const { Live2DModelLibrary, MODEL_PROTOCOL } = require('./services/live2dModelLibrary');
 const { PythonEnvManager } = require('./services/python/pythonEnvManager');
 const { PythonRuntimeManager } = require('./services/python/pythonRuntimeManager');
+const { createOfficeStateStore } = require('./services/officeStateStore');
 const { SettingsStore } = require('./services/settingsStore');
 const { AppUpdaterService } = require('./services/appUpdaterService');
 const { ScreenshotCaptureService } = require('./services/screenshotCaptureService');
@@ -55,6 +57,7 @@ protocol.registerSchemesAsPrivileged([
 let mainWindow = null;
 let disposeChatStreamHandlers = null;
 let disposeConversationHandlers = null;
+let disposeOfficeStateHandlers = null;
 let disposeModeHandlers = null;
 let disposeLive2DModelsHandlers = null;
 let disposeAppUpdaterHandlers = null;
@@ -65,6 +68,7 @@ let disposeVoiceSessionHandlers = null;
 let disposeScreenshotCaptureHandlers = null;
 let startChatStreamFromMain = null;
 let conversationRuntime = null;
+let officeStateStore = null;
 let settingsStore = null;
 let windowModeManager = null;
 let trayManager = null;
@@ -79,6 +83,7 @@ let nanobotSkillsLibrary = null;
 let isQuitting = false;
 let chatBackendManager = null;
 let appUpdaterService = null;
+let disposeOfficeStateSubscription = null;
 const PINNED_NANOBOT_ARCHIVE_URL = 'https://codeload.github.com/HKUDS/nanobot/tar.gz/refs/tags/v0.1.4.post4';
 const legacyConversationMirrorEnabled = (() => {
   const value = process.env.OPENCLAW_ENABLE_LEGACY_STREAM_EVENTS;
@@ -226,6 +231,14 @@ function registerWindowControlIpc() {
       },
     };
   });
+}
+
+function sendOfficeStateChange(payload = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  mainWindow.webContents.send('office-state:changed', payload);
 }
 
 function getRendererDevUrl() {
@@ -481,6 +494,7 @@ async function bootstrap() {
     pythonEnvManager,
   });
   await voiceModelLibrary.init();
+  officeStateStore = createOfficeStateStore();
   nanobotRuntimeManager = new NanobotRuntimeManager(app, {
     pythonRuntimeManager,
     pythonEnvManager,
@@ -517,6 +531,10 @@ async function bootstrap() {
     settingsStore,
     getWindow: () => mainWindow,
     backendManager: chatBackendManager,
+  });
+  disposeOfficeStateHandlers = registerOfficeStateIpc({
+    ipcMain,
+    officeStateStore,
   });
   appUpdaterService = new AppUpdaterService({
     app,
@@ -691,6 +709,10 @@ async function bootstrap() {
       return chatStreamControl.abort({ streamId });
     },
     emitConversationEvent: (payload) => {
+      if (payload?.channel === 'office') {
+        officeStateStore?.applyConversationEvent?.(payload);
+      }
+
       if (!mainWindow || mainWindow.isDestroyed()) {
         return;
       }
@@ -758,6 +780,13 @@ async function bootstrap() {
   });
 
   await createMainWindow();
+  disposeOfficeStateSubscription =
+    officeStateStore?.subscribe?.((state, mutation) => {
+      sendOfficeStateChange({
+        state,
+        mutation,
+      });
+    }) || null;
   registerGlobalVoiceToggleShortcut();
   if (disposeVoiceSessionHandlers && typeof disposeVoiceSessionHandlers.warmupRuntime === 'function') {
     Promise.resolve(
@@ -806,6 +835,9 @@ app.on('before-quit', () => {
   if (disposeConversationHandlers) {
     disposeConversationHandlers();
   }
+  if (disposeOfficeStateHandlers) {
+    disposeOfficeStateHandlers();
+  }
   if (disposeChatStreamHandlers) {
     disposeChatStreamHandlers();
   }
@@ -835,6 +867,10 @@ app.on('before-quit', () => {
   if (disposeVoiceSessionHandlers) {
     disposeVoiceSessionHandlers();
   }
+  if (disposeOfficeStateSubscription) {
+    disposeOfficeStateSubscription();
+    disposeOfficeStateSubscription = null;
+  }
   if (chatBackendManager) {
     void chatBackendManager.dispose();
     chatBackendManager = null;
@@ -854,6 +890,9 @@ app.on('before-quit', () => {
   ipcMain.removeHandler('window:get-platform');
   ipcMain.removeHandler('window:control');
   ipcMain.removeHandler('window:get-cursor-context');
+  ipcMain.removeHandler('office-state:get');
+  ipcMain.removeHandler('office-state:upsert');
+  ipcMain.removeHandler('office-state:update');
   try {
     protocol.unhandle(MODEL_PROTOCOL);
   } catch {

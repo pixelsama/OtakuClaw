@@ -1,4 +1,42 @@
+import {
+  normalizeOfficeAgent,
+  normalizeOfficeState,
+  OFFICE_PRIMARY_AGENT_ID,
+} from '../components/office/officeSceneConfig.js';
+
 const SETTINGS_STORAGE_KEY = 'openclaw.settings';
+let webOfficeState = normalizeOfficeState();
+const webOfficeListeners = new Set();
+
+function emitWebOfficeStateChange(type = 'state-changed') {
+  const snapshot = normalizeOfficeState(webOfficeState);
+  for (const listener of [...webOfficeListeners]) {
+    try {
+      listener({
+        channel: 'office',
+        type,
+        payload: snapshot,
+      });
+    } catch (error) {
+      console.error('Office state listener failed:', error);
+    }
+  }
+}
+
+function updateWebOfficeState(updater) {
+  const nextState = normalizeOfficeState(
+    typeof updater === 'function' ? updater(webOfficeState) : updater,
+  );
+  const changed = JSON.stringify(nextState) !== JSON.stringify(webOfficeState);
+  webOfficeState = {
+    ...nextState,
+    revision: changed ? (nextState.revision || webOfficeState.revision || 0) + 1 : nextState.revision || 0,
+  };
+  if (changed) {
+    emitWebOfficeStateChange();
+  }
+  return normalizeOfficeState(webOfficeState);
+}
 
 function getDesktopApi() {
   if (typeof window === 'undefined') {
@@ -690,6 +728,82 @@ export const desktopBridge = {
         return () => {};
       }
       return api.conversation.onEvent(handler);
+    },
+  },
+  office: {
+    async getState() {
+      const api = getDesktopApi();
+      if (api?.office?.getState) {
+        const result = await api.office.getState();
+        return normalizeOfficeState(result?.state || result);
+      }
+      return normalizeOfficeState(webOfficeState);
+    },
+    async upsertAgent(agent = {}) {
+      const normalizedAgent = normalizeOfficeAgent(agent, OFFICE_PRIMARY_AGENT_ID);
+      const api = getDesktopApi();
+      if (api?.office?.upsert) {
+        const result = await api.office.upsert({
+          activeAgentId: normalizedAgent.agentId,
+          agent: normalizedAgent,
+        });
+        return normalizeOfficeState(result?.state || result);
+      }
+      return updateWebOfficeState((current) => {
+        const agents = Array.isArray(current?.agents) ? [...current.agents] : [];
+        const index = agents.findIndex((item) => item?.agentId === normalizedAgent.agentId || item?.id === normalizedAgent.agentId);
+        if (index === -1) {
+          agents.push(normalizedAgent);
+        } else {
+          agents[index] = {
+            ...agents[index],
+            ...normalizedAgent,
+          };
+        }
+        return {
+          ...current,
+          activeAgentId: normalizedAgent.agentId,
+          agents,
+        };
+      });
+    },
+    async updateState(patch = {}) {
+      const api = getDesktopApi();
+      if (api?.office?.update) {
+        const result = await api.office.update(patch);
+        return normalizeOfficeState(result?.state || result);
+      }
+      return updateWebOfficeState((current) => ({
+        ...current,
+        ...patch,
+      }));
+    },
+    onEvent(handler) {
+      const api = getDesktopApi();
+      if (api?.office?.onChanged) {
+        return api.office.onChanged((payload = {}) => {
+          if (typeof handler !== 'function') {
+            return;
+          }
+          handler({
+            channel: 'office',
+            type: payload?.mutation?.type || 'state-changed',
+            payload: normalizeOfficeState(payload?.state || payload),
+          });
+        });
+      }
+      if (typeof handler !== 'function') {
+        return () => {};
+      }
+      webOfficeListeners.add(handler);
+      handler({
+        channel: 'office',
+        type: 'snapshot',
+        payload: normalizeOfficeState(webOfficeState),
+      });
+      return () => {
+        webOfficeListeners.delete(handler);
+      };
     },
   },
   chat: {

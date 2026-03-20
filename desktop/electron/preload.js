@@ -112,6 +112,21 @@ const nanobotSkills = {
   },
 };
 
+const office = {
+  getState() {
+    return ipcRenderer.invoke('office-state:get');
+  },
+  upsert(request) {
+    return ipcRenderer.invoke('office-state:upsert', request);
+  },
+  update(request) {
+    return ipcRenderer.invoke('office-state:update', request);
+  },
+  onChanged(handler) {
+    return onChannel('office-state:changed', handler);
+  },
+};
+
 const windowMode = {
   setMode(mode) {
     return ipcRenderer.invoke('pet:set-mode', { mode });
@@ -277,6 +292,7 @@ contextBridge.exposeInMainWorld('desktop', {
   appUpdater,
   nanobotRuntime,
   nanobotSkills,
+  office,
   windowMode,
   windowControls,
   voice,

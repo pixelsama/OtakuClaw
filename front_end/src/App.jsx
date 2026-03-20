@@ -20,6 +20,12 @@ import { usePlatformInfo } from './hooks/window/usePlatformInfo.js';
 import { useVoiceMicToggle } from './hooks/voice/useVoiceMicToggle.js';
 import { subscribeTtsPlaybackLifecycle } from './hooks/voice/ttsPlaybackLifecycle.js';
 import { buildVoiceStreamRequest } from './hooks/voice/voiceStreamRequest.js';
+import {
+  derivePrimaryOfficeAgent,
+  normalizeOfficeState,
+  OFFICE_PRIMARY_AGENT_ID,
+  resolveOfficeSceneState,
+} from './components/office/officeSceneConfig.js';
 import { ModeProvider, MODE_PET, MODE_WINDOW, useModeContext } from './mode/ModeContext.jsx';
 import MainShell from './shells/MainShell.jsx';
 import PetShell from './shells/PetShell.jsx';
@@ -41,6 +47,7 @@ function AppContent({ desktopMode }) {
   const [currentModelPath, setCurrentModelPath] = useState(DEFAULT_MODEL);
   const [motions, setMotions] = useState([]);
   const [expressions, setExpressions] = useState([]);
+  const [officeStateSnapshot, setOfficeStateSnapshot] = useState(() => normalizeOfficeState());
   const [builtinTtsEnabled, setBuiltinTtsEnabled] = useState(false);
   const [firstRunOnboardingOpen, setFirstRunOnboardingOpen] = useState(false);
   const platform = usePlatformInfo({ desktopMode });
@@ -144,6 +151,15 @@ function AppContent({ desktopMode }) {
     ensureTask: ensureDownloadTask,
     handleProgress: handleDownloadProgress,
   } = useUnifiedDownloader();
+
+  const activeDownloadTasks = useMemo(
+    () =>
+      Object.values(taskMap).filter((task) => {
+        const phase = typeof task?.phase === 'string' ? task.phase.trim().toLowerCase() : 'idle';
+        return phase && !['idle', 'completed', 'failed'].includes(phase);
+      }),
+    [taskMap],
+  );
 
   const {
     chatBackendSettings,
@@ -559,6 +575,88 @@ function AppContent({ desktopMode }) {
     console.error('Model error in App:', error);
   }, []);
 
+  const latestFailedDownloadTask = useMemo(
+    () =>
+      Object.values(taskMap)
+        .filter((task) => {
+          const phase = typeof task?.phase === 'string' ? task.phase.trim().toLowerCase() : '';
+          return phase === 'failed';
+        })
+        .sort((left, right) => (right?.updatedAt || 0) - (left?.updatedAt || 0))[0] || null,
+    [taskMap],
+  );
+
+  const officeWorkspacePath = typeof chatBackendSettings?.nanobot?.workspace === 'string'
+    ? chatBackendSettings.nanobot.workspace.trim()
+    : '';
+  const officeErrorMessage = textComposerWithVoiceProps.externalError
+    || settingsError
+    || latestFailedDownloadTask?.logs?.[latestFailedDownloadTask.logs.length - 1]
+    || '';
+  const primaryOfficeAgent = useMemo(
+    () =>
+      derivePrimaryOfficeAgent({
+        agentId: OFFICE_PRIMARY_AGENT_ID,
+        displayName: 'OtakuClaw',
+        isStreaming,
+        activeDownloadTasks,
+        errorMessage: officeErrorMessage,
+        detail:
+          subtitleText
+          || activeTask?.currentFile
+          || activeTask?.title
+          || (showChatPanel ? 'Chat panel is open and waiting for the next prompt.' : ''),
+      }),
+    [activeDownloadTasks, activeTask?.currentFile, activeTask?.title, isStreaming, officeErrorMessage, showChatPanel, subtitleText],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const applyOfficeState = (nextState) => {
+      if (!cancelled) {
+        setOfficeStateSnapshot(normalizeOfficeState(nextState));
+      }
+    };
+
+    void desktopBridge.office.getState().then(applyOfficeState).catch(() => {});
+    const detach = desktopBridge.office.onEvent((event = {}) => {
+      applyOfficeState(event?.payload || {});
+    });
+
+    return () => {
+      cancelled = true;
+      detach?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    void desktopBridge.office.upsertAgent(primaryOfficeAgent).catch((error) => {
+      console.warn('Failed to sync office state:', error);
+    });
+  }, [primaryOfficeAgent]);
+
+  const officeScene = useMemo(() => {
+    const normalizedSnapshot = normalizeOfficeState(officeStateSnapshot);
+    const hasPrimaryAgent = normalizedSnapshot.agents.some((agent) => agent.agentId === OFFICE_PRIMARY_AGENT_ID);
+    const officeState =
+      hasPrimaryAgent
+        ? normalizedSnapshot
+        : normalizeOfficeState({
+            ...normalizedSnapshot,
+            activeAgentId: OFFICE_PRIMARY_AGENT_ID,
+            agents: [primaryOfficeAgent, ...normalizedSnapshot.agents],
+          });
+
+    return resolveOfficeSceneState({
+      officeState,
+      subtitle: desktopMode ? 'Live local office' : 'Browser preview',
+      caption:
+        officeWorkspacePath
+          ? `Workspace: ${officeWorkspacePath}`
+          : 'Single-agent today, multi-agent ready for later.',
+    });
+  }, [desktopMode, officeStateSnapshot, officeWorkspacePath, primaryOfficeAgent]);
+
   useStreamingSubtitleBridge({
     appendDelta,
     setSegmentText,
@@ -704,6 +802,7 @@ function AppContent({ desktopMode }) {
         <MainShell
           desktopMode={desktopMode}
           platform={platform}
+          isNarrowViewport={isNarrowViewport}
           live2dViewerRef={live2dViewerRef}
           currentModelPath={currentModelPath}
           motions={motions}
@@ -719,6 +818,7 @@ function AppContent({ desktopMode }) {
           onOpenChatPanel={openChatPanel}
           showVoicePermissionWarning={showVoicePermissionWarning}
           voicePermissionWarningText={voicePermissionWarningText}
+          officeScene={officeScene}
         />
       )}
 

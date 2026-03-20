@@ -5,6 +5,7 @@ import ChatIcon from '@mui/icons-material/Chat';
 import Live2DViewer from '../components/live2d/Live2DViewer.jsx';
 import SubtitleBar from '../components/subtitle/SubtitleBar.jsx';
 import WindowTitleBar from '../components/window/WindowTitleBar.jsx';
+import OfficeScene from '../components/office/OfficeScene.jsx';
 import { useI18n } from '../i18n/I18nContext.jsx';
 
 export default function MainShell({
@@ -24,6 +25,8 @@ export default function MainShell({
   onOpenChatPanel,
   showVoicePermissionWarning = false,
   voicePermissionWarningText = '',
+  officeScene = null,
+  isNarrowViewport = false,
 }) {
   const { t } = useI18n();
   const stageClassName = ['live2d-stage', 'window-mode', desktopMode ? `platform-${platform}` : '']
@@ -60,6 +63,14 @@ export default function MainShell({
           className="live2d-viewer"
         />
       </Box>
+
+      {officeScene ? (
+        <OfficeScene
+          scene={officeScene}
+          compact={isNarrowViewport}
+          className="office-scene-dock"
+        />
+      ) : null}
 
       <IconButton
         className="config-toggle"

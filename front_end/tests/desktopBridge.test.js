@@ -169,6 +169,81 @@ describe('desktopBridge conversation-only routing', () => {
   });
 });
 
+describe('desktopBridge office bridge', () => {
+  it('keeps a local office fallback store when preload office API is unavailable', async () => {
+    globalThis.window = {
+      desktop: {
+        isElectron: true,
+      },
+    };
+
+    const snapshots = [];
+    const off = desktopBridge.office.onEvent((event) => {
+      snapshots.push(event.payload);
+    });
+
+    const updated = await desktopBridge.office.upsertAgent({
+      agentId: 'main',
+      displayName: 'OtakuClaw',
+      businessState: 'writing',
+      detail: 'Streaming a reply.',
+    });
+
+    expect(updated.activeAgentId).toBe('main');
+    expect(updated.agents[0].businessState).toBe('writing');
+    expect(snapshots.at(-1)?.agents[0]?.businessState).toBe('writing');
+
+    off();
+  });
+
+  it('routes office.onEvent through preload office changed channel', () => {
+    const unsubscribe = vi.fn();
+    let listener = null;
+    globalThis.window = {
+      desktop: {
+        isElectron: true,
+        office: {
+          onChanged: vi.fn((handler) => {
+            listener = handler;
+            return unsubscribe;
+          }),
+        },
+      },
+    };
+
+    const officeHandler = vi.fn();
+    const off = desktopBridge.office.onEvent(officeHandler);
+
+    listener?.({
+      state: {
+        revision: 2,
+        activeAgentId: 'main',
+        agents: [{ agentId: 'main', businessState: 'syncing' }],
+      },
+      mutation: { type: 'update' },
+    });
+
+    expect(officeHandler).toHaveBeenCalledTimes(1);
+    expect(officeHandler).toHaveBeenCalledWith({
+      channel: 'office',
+      type: 'update',
+      payload: {
+        revision: 2,
+        activeAgentId: 'main',
+        agents: [
+          expect.objectContaining({
+            agentId: 'main',
+            businessState: 'syncing',
+          }),
+        ],
+      },
+    });
+
+    off();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('desktopBridge app updater bridge', () => {
   it('returns fallback state when app updater API is unavailable', async () => {
     globalThis.window = {
@@ -185,6 +260,7 @@ describe('desktopBridge app updater bridge', () => {
         available: false,
         downloaded: false,
         supported: false,
+        supportReason: 'desktop_app_updater_unavailable',
       },
     });
   });
