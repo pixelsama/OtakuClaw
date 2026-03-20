@@ -510,6 +510,32 @@
   transform: translateY(-1px);
 }
 
+.office-room__editor-furniture-main {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.office-room__editor-furniture-tag {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.office-room__editor-furniture-tag.is-always {
+  background: rgba(122, 208, 255, 0.14);
+  color: #a3deff;
+}
+
+.office-room__editor-furniture-tag.is-state {
+  background: rgba(255, 210, 122, 0.14);
+  color: #ffd27b;
+}
+
 .office-room__editor-furniture-meta {
   color: rgba(230, 235, 255, 0.72);
   font-size: 11px;

@@ -219,6 +219,30 @@ function normalizeStringList(values = []) {
     .filter(Boolean);
 }
 
+function formatStateLabel(state = '') {
+  const normalized = normalizeString(state, '').toLowerCase();
+  if (!normalized) {
+    return '';
+  }
+
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function buildFurnitureRuleLabel({
+  visibleWhenStates = [],
+  hiddenWhenStates = [],
+} = {}) {
+  if (visibleWhenStates.length === 1 && hiddenWhenStates.length === 0) {
+    return `${formatStateLabel(visibleWhenStates[0])}-only`;
+  }
+
+  if (visibleWhenStates.length > 0 || hiddenWhenStates.length > 0) {
+    return 'State furniture';
+  }
+
+  return 'Always';
+}
+
 function normalizeFurnitureItem(item = {}, activeStates = []) {
   const source = item && typeof item === 'object' ? item : {};
   const assetKey = normalizeString(source.assetKey, '');
@@ -345,6 +369,10 @@ export function resolveOfficeSceneEditorState({
         kind: normalized.kind,
         hidden: normalized.hidden,
         isVisible: normalized.isVisible,
+        ruleLabel: buildFurnitureRuleLabel({
+          visibleWhenStates: normalized.visibleWhenStates,
+          hiddenWhenStates: normalized.hiddenWhenStates,
+        }),
         left: normalized.left,
         top: normalized.top,
         width: normalized.width,

@@ -223,10 +223,14 @@ describe('resolveOfficeSceneEditorState', () => {
       label: 'Sofa',
       hidden: true,
       isVisible: false,
+      ruleLabel: 'Always',
       left: 48.5,
       top: 19.4,
       defaultLeft: 52.3,
       defaultTop: 20,
+    });
+    expect(editor.furniture.find((item) => item.id === 'bug')).toMatchObject({
+      ruleLabel: 'Error-only',
     });
   });
 });

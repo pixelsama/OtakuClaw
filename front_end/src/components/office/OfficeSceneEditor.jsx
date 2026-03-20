@@ -103,9 +103,18 @@ export default function OfficeSceneEditor({
                 setSelectedFurnitureId(item.id);
               }}
             >
-              <span>{item.label}</span>
+              <span className="office-room__editor-furniture-main">
+                <span>{item.label}</span>
+                <span className={[
+                  'office-room__editor-furniture-tag',
+                  item.ruleLabel === 'Always' ? 'is-always' : 'is-state',
+                ].join(' ')}
+                >
+                  {item.ruleLabel}
+                </span>
+              </span>
               <span className="office-room__editor-furniture-meta">
-                {item.hidden ? 'Hidden' : item.isVisible ? 'Visible' : 'State-based'}
+                {item.hidden ? 'Hidden' : item.isVisible ? 'Visible' : 'Waiting'}
               </span>
             </button>
           ))}
