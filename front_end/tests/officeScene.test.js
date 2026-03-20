@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   derivePrimaryOfficeAgent,
   normalizeOfficeState,
+  reduceOfficeActivityHint,
   resolveOfficeSceneState,
 } from '../src/components/office/officeSceneConfig.js';
 
@@ -29,6 +30,30 @@ describe('derivePrimaryOfficeAgent', () => {
     expect(agent.businessState).toBe('error');
     expect(agent.detail).toBe('Bridge failed');
   });
+
+  it('uses structured activity state ahead of generic streaming', () => {
+    const agent = derivePrimaryOfficeAgent({
+      isStreaming: true,
+      activityState: 'researching',
+      activityDetail: 'Searching for references.',
+      detail: 'The assistant is actively responding.',
+    });
+
+    expect(agent.businessState).toBe('researching');
+    expect(agent.detail).toBe('Searching for references.');
+  });
+
+  it('keeps syncing ahead of structured activity hints', () => {
+    const agent = derivePrimaryOfficeAgent({
+      isStreaming: true,
+      activityState: 'executing',
+      activityDetail: 'Running a local command.',
+      activeDownloadTasks: [{ title: 'Installing runtime' }],
+    });
+
+    expect(agent.businessState).toBe('syncing');
+    expect(agent.detail).toContain('Installing runtime');
+  });
 });
 
 describe('resolveOfficeSceneState', () => {
@@ -50,5 +75,52 @@ describe('resolveOfficeSceneState', () => {
     expect(scene.occupants.find((agent) => agent.agentId === 'main')?.areaId).toBe('desk');
     expect(scene.occupants.find((agent) => agent.agentId === 'voice')?.areaId).toBe('syncDock');
     expect(scene.occupants.find((agent) => agent.agentId === 'watcher')?.areaId).toBe('lounge');
+  });
+});
+
+describe('reduceOfficeActivityHint', () => {
+  it('tracks agent-state, transitions to writing on final text, and clears on done', () => {
+    const activity = reduceOfficeActivityHint(null, {
+      channel: 'chat',
+      type: 'agent-state',
+      streamId: 'stream-1',
+      payload: {
+        businessState: 'executing',
+        detail: 'Running a local command.',
+      },
+    });
+
+    expect(activity).toEqual({
+      streamId: 'stream-1',
+      businessState: 'executing',
+      detail: 'Running a local command.',
+      updatedAt: expect.any(String),
+    });
+
+    const writing = reduceOfficeActivityHint(activity, {
+      channel: 'chat',
+      type: 'text-delta',
+      streamId: 'stream-1',
+      payload: {
+        content: 'Result is ready.',
+        final: true,
+      },
+    });
+
+    expect(writing).toEqual({
+      streamId: 'stream-1',
+      businessState: 'writing',
+      detail: '',
+      updatedAt: expect.any(String),
+    });
+
+    expect(
+      reduceOfficeActivityHint(writing, {
+        channel: 'chat',
+        type: 'done',
+        streamId: 'stream-1',
+        payload: {},
+      }),
+    ).toBeNull();
   });
 });

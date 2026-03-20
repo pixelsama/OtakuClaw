@@ -73,6 +73,42 @@ function redactNanobotConfig(config = {}) {
 const TOOL_CALL_PREFIX_REGEX = /^\s*(?:tool\s+call:\s*)?/i;
 const TOOL_CALL_NAME_REGEX = /^(read_file|write_file|list_dir|edit_file|exec|spawn|web_search|web_fetch)\s*\(/i;
 const INTERNAL_PROGRESS_PREFIX_REGEX = /^thinking\s*\[/i;
+const TOOL_HINT_NAME_REGEX = /^\s*(?:tool\s+call:\s*)?([a-z0-9_-]+)\s*\(/i;
+
+const TOOL_ACTIVITY_MAP = {
+  read_file: {
+    businessState: 'researching',
+    detail: 'Reviewing local files.',
+  },
+  list_dir: {
+    businessState: 'researching',
+    detail: 'Inspecting the workspace.',
+  },
+  web_search: {
+    businessState: 'researching',
+    detail: 'Searching for references.',
+  },
+  web_fetch: {
+    businessState: 'researching',
+    detail: 'Reading a web page.',
+  },
+  write_file: {
+    businessState: 'executing',
+    detail: 'Updating project files.',
+  },
+  edit_file: {
+    businessState: 'executing',
+    detail: 'Editing project files.',
+  },
+  exec: {
+    businessState: 'executing',
+    detail: 'Running a local command.',
+  },
+  spawn: {
+    businessState: 'executing',
+    detail: 'Launching a local process.',
+  },
+};
 
 function sanitizeNanobotDisplayText(value) {
   if (typeof value !== 'string') {
@@ -129,6 +165,31 @@ function shouldForwardNanobotProgress(value) {
   }
 
   return true;
+}
+
+function deriveNanobotActivityFromToolHint(value) {
+  const normalized = normalizeString(value);
+  if (!normalized) {
+    return null;
+  }
+
+  const matched = normalized.match(TOOL_HINT_NAME_REGEX);
+  const toolName = normalizeString(matched?.[1]).toLowerCase();
+  if (!toolName) {
+    return null;
+  }
+
+  const mapped = TOOL_ACTIVITY_MAP[toolName];
+  if (!mapped) {
+    return null;
+  }
+
+  return {
+    toolName,
+    businessState: mapped.businessState,
+    detail: mapped.detail,
+    rawToolHint: normalized,
+  };
 }
 
 class NanobotBackendAdapter extends ChatBackendAdapter {
@@ -232,6 +293,22 @@ class NanobotBackendAdapter extends ChatBackendAdapter {
           payload,
         });
         if (event.type === 'tool-hint') {
+          const activity = deriveNanobotActivityFromToolHint(payload.content);
+          if (activity) {
+            const forwardedEvent = {
+              type: 'agent-state',
+              payload: {
+                ...activity,
+                source: payload.source || 'nanobot',
+              },
+            };
+            this.debug('tool-hint-forwarded', 'Forwarded Nanobot tool hint as structured activity.', {
+              activity: forwardedEvent.payload,
+            });
+            onEvent(forwardedEvent);
+            return;
+          }
+
           this.debug('tool-hint-hidden', 'Dropped Nanobot tool hint from user-facing stream.', {
             content: payload.content || '',
           });
@@ -333,4 +410,5 @@ module.exports = {
   sanitizeNanobotDisplayText,
   sliceIncrementalNanobotText,
   shouldForwardNanobotProgress,
+  deriveNanobotActivityFromToolHint,
 };

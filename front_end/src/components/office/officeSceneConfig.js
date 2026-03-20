@@ -169,17 +169,23 @@ export function derivePrimaryOfficeAgent({
   isStreaming = false,
   activeDownloadTasks = [],
   errorMessage = '',
+  activityState = '',
+  activityDetail = '',
   detail = '',
   updatedAt = '',
   businessStateOverride = '',
 } = {}) {
   const normalizedError = normalizeString(errorMessage, '');
   const tasks = Array.isArray(activeDownloadTasks) ? activeDownloadTasks : [];
+  const normalizedActivityState = normalizeString(activityState, '').toLowerCase();
+  const normalizedActivityDetail = normalizeString(activityDetail, '');
   const normalizedDetail = normalizeString(detail, '');
   const fallbackBusinessState = normalizedError
     ? 'error'
     : tasks.length > 0
       ? 'syncing'
+      : normalizedActivityState
+        ? normalizedActivityState
       : isStreaming
         ? 'writing'
         : 'idle';
@@ -188,6 +194,8 @@ export function derivePrimaryOfficeAgent({
     ? normalizedError
     : businessState === 'syncing'
       ? normalizeString(tasks[0]?.currentFile || tasks[0]?.title, 'Synchronizing local runtime assets.')
+      : normalizedActivityState && businessState === normalizedActivityState
+        ? normalizedActivityDetail || normalizedDetail
       : normalizedDetail || (businessState === 'writing' ? 'The assistant is actively responding.' : 'Ready for the next prompt.');
 
   return normalizeOfficeAgent({
@@ -199,6 +207,72 @@ export function derivePrimaryOfficeAgent({
     updatedAt: normalizeString(updatedAt, new Date().toISOString()),
     isPrimary: true,
   }, agentId);
+}
+
+export function reduceOfficeActivityHint(currentHint = null, event = {}) {
+  if (!event || typeof event !== 'object') {
+    return currentHint;
+  }
+
+  const channel = normalizeString(event.channel, '').toLowerCase();
+  if (channel !== 'chat') {
+    return currentHint;
+  }
+
+  const type = normalizeString(event.type, '').toLowerCase();
+  const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
+  const streamId = normalizeString(event.streamId, '');
+  const updatedAt = normalizeString(event.timestamp || payload.updatedAt, new Date().toISOString());
+
+  if (type === 'agent-state') {
+    const businessState = normalizeString(payload.businessState, '').toLowerCase();
+    if (!businessState) {
+      return currentHint;
+    }
+
+    return {
+      streamId,
+      businessState,
+      detail: normalizeString(payload.detail, ''),
+      updatedAt,
+    };
+  }
+
+  if (type === 'text-delta') {
+    if (!currentHint) {
+      return currentHint;
+    }
+
+    if (currentHint.streamId && streamId && currentHint.streamId !== streamId) {
+      return currentHint;
+    }
+
+    if (payload.final !== true) {
+      return currentHint;
+    }
+
+    return {
+      ...currentHint,
+      streamId: streamId || currentHint.streamId || '',
+      businessState: 'writing',
+      detail: '',
+      updatedAt,
+    };
+  }
+
+  if (type !== 'done' && type !== 'error') {
+    return currentHint;
+  }
+
+  if (!currentHint) {
+    return currentHint;
+  }
+
+  if (currentHint.streamId && streamId && currentHint.streamId !== streamId) {
+    return currentHint;
+  }
+
+  return null;
 }
 
 function resolveSceneSlot(area, index) {

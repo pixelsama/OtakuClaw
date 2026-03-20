@@ -236,3 +236,43 @@ test('chat stream emits nanobot debug logs when using nanobot backend', async ()
   assert.ok(debugLogs.some((entry) => entry.stage === 'text-delta-forward'));
   assert.ok(debugLogs.some((entry) => entry.stage === 'stream-done'));
 });
+
+test('chat stream forwards structured non-text backend activity events', async () => {
+  const ipcMain = createIpcMainMock();
+  const emitted = [];
+
+  registerChatStreamIpc({
+    ipcMain,
+    getSettings: () => ({ chatBackend: 'nanobot' }),
+    emitEvent: (event) => emitted.push(event),
+    startStream: async ({ onEvent }) => {
+      onEvent({
+        type: 'agent-state',
+        payload: {
+          businessState: 'researching',
+          detail: 'Inspecting the workspace.',
+          toolName: 'list_dir',
+        },
+      });
+      onEvent({ type: 'done', payload: { source: 'nanobot' } });
+    },
+  });
+
+  await ipcMain.invoke('chat:stream:start', {
+    sessionId: 'nanobot-session',
+    content: 'hello',
+    options: { source: 'voice-asr' },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(
+    emitted.map((event) => event.type),
+    ['agent-state', 'done'],
+  );
+  assert.equal(emitted[0].payload.businessState, 'researching');
+  assert.equal(emitted[0].payload.toolName, 'list_dir');
+  assert.equal(emitted[0].payload.inputSource, 'voice-asr');
+  assert.equal(emitted[0].payload.sessionId, 'nanobot-session');
+  assert.equal(emitted[0].payload.turnId, emitted[0].streamId);
+});

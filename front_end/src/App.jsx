@@ -24,6 +24,7 @@ import {
   derivePrimaryOfficeAgent,
   normalizeOfficeState,
   OFFICE_PRIMARY_AGENT_ID,
+  reduceOfficeActivityHint,
   resolveOfficeSceneState,
 } from './components/office/officeSceneConfig.js';
 import { ModeProvider, MODE_PET, MODE_WINDOW, useModeContext } from './mode/ModeContext.jsx';
@@ -48,6 +49,7 @@ function AppContent({ desktopMode }) {
   const [motions, setMotions] = useState([]);
   const [expressions, setExpressions] = useState([]);
   const [officeStateSnapshot, setOfficeStateSnapshot] = useState(() => normalizeOfficeState());
+  const [officeActivityHint, setOfficeActivityHint] = useState(null);
   const [builtinTtsEnabled, setBuiltinTtsEnabled] = useState(false);
   const [firstRunOnboardingOpen, setFirstRunOnboardingOpen] = useState(false);
   const platform = usePlatformInfo({ desktopMode });
@@ -601,13 +603,27 @@ function AppContent({ desktopMode }) {
         isStreaming,
         activeDownloadTasks,
         errorMessage: officeErrorMessage,
+        activityState: officeActivityHint?.businessState || '',
+        activityDetail: officeActivityHint?.detail || '',
+        updatedAt: officeActivityHint?.updatedAt || '',
         detail:
           subtitleText
           || activeTask?.currentFile
           || activeTask?.title
           || (showChatPanel ? 'Chat panel is open and waiting for the next prompt.' : ''),
       }),
-    [activeDownloadTasks, activeTask?.currentFile, activeTask?.title, isStreaming, officeErrorMessage, showChatPanel, subtitleText],
+    [
+      activeDownloadTasks,
+      activeTask?.currentFile,
+      activeTask?.title,
+      isStreaming,
+      officeActivityHint?.businessState,
+      officeActivityHint?.detail,
+      officeActivityHint?.updatedAt,
+      officeErrorMessage,
+      showChatPanel,
+      subtitleText,
+    ],
   );
 
   useEffect(() => {
@@ -628,6 +644,17 @@ function AppContent({ desktopMode }) {
       detach?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (!desktopMode) {
+      setOfficeActivityHint(null);
+      return () => {};
+    }
+
+    return desktopBridge.conversation.onEvent((event = {}) => {
+      setOfficeActivityHint((current) => reduceOfficeActivityHint(current, event));
+    });
+  }, [desktopMode]);
 
   useEffect(() => {
     void desktopBridge.office.upsertAgent(primaryOfficeAgent).catch((error) => {

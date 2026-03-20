@@ -172,6 +172,26 @@ function registerChatStreamIpc({
             return;
           }
 
+          if (event.type === 'agent-state') {
+            const payload = event.payload || {};
+            if (backend === 'nanobot') {
+              debug({
+                stage: 'agent-state-forward',
+                message: 'Forwarding structured agent state to renderer.',
+                details: {
+                  streamId,
+                  payload,
+                },
+              });
+            }
+            sendEvent(
+              streamId,
+              'agent-state',
+              buildTurnPayload(payload),
+            );
+            return;
+          }
+
           if (event.type === 'text-delta') {
             const payload = event.payload || {};
             if (backend === 'nanobot') {
@@ -205,6 +225,16 @@ function registerChatStreamIpc({
                 });
               }
             }
+            return;
+          }
+
+          const passthroughType = typeof event.type === 'string' ? event.type.trim() : '';
+          if (passthroughType) {
+            sendEvent(
+              streamId,
+              passthroughType,
+              buildTurnPayload(event.payload && typeof event.payload === 'object' ? event.payload : {}),
+            );
           }
         },
       });

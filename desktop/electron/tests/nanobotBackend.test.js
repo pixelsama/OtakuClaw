@@ -7,6 +7,7 @@ const {
   sanitizeNanobotDisplayText,
   sliceIncrementalNanobotText,
   shouldForwardNanobotProgress,
+  deriveNanobotActivityFromToolHint,
 } = require('../services/chat/backends/nanobotBackend');
 
 test('nanobot backend validates required settings', () => {
@@ -344,7 +345,7 @@ test('nanobot backend forwards progress before final reply and avoids duplicate 
   );
 });
 
-test('nanobot backend hides tool hints from user-facing stream', async () => {
+test('nanobot backend keeps tool hints out of user-facing text while exposing activity', async () => {
   const backend = new NanobotBackendAdapter({
     bridgeClient: {
       start: async (payload) => {
@@ -386,9 +387,63 @@ test('nanobot backend hides tool hints from user-facing stream', async () => {
     onEvent: (event) => events.push(event),
   });
 
-  assert.equal(events.length, 2);
-  assert.equal(events[0].type, 'text-delta');
-  assert.equal(events[0].payload.content, '我先看看你的资料。');
+  assert.equal(events.length, 3);
+  assert.equal(events[0].type, 'agent-state');
+  assert.equal(events[0].payload.businessState, 'researching');
+  assert.equal(events[1].type, 'text-delta');
+  assert.equal(events[1].payload.content, '我先看看你的资料。');
+});
+
+test('nanobot backend forwards recognized tool hints as agent-state activity', async () => {
+  const backend = new NanobotBackendAdapter({
+    bridgeClient: {
+      start: async (payload) => {
+        payload.onEvent({
+          type: 'tool-hint',
+          payload: {
+            content: 'read_file("MEMORY.md")',
+          },
+        });
+        payload.onEvent({
+          type: 'tool-hint',
+          payload: {
+            content: 'exec("pnpm test")',
+          },
+        });
+        payload.onEvent({
+          type: 'done',
+          payload: {},
+        });
+      },
+      testConnection: async () => ({ ok: true }),
+      dispose: async () => {},
+    },
+  });
+
+  const events = [];
+  await backend.startStream({
+    settings: {
+      nanobot: {
+        enabled: true,
+        provider: 'openrouter',
+        model: 'anthropic/claude-opus-4-5',
+        apiKey: 'sk-or-test',
+      },
+    },
+    sessionId: 's-tool-activity',
+    content: 'hello',
+    signal: new AbortController().signal,
+    onEvent: (event) => events.push(event),
+  });
+
+  assert.deepEqual(
+    events.map((event) => [event.type, event.payload.businessState || '', event.payload.toolName || '']),
+    [
+      ['agent-state', 'researching', 'read_file'],
+      ['agent-state', 'executing', 'exec'],
+      ['done', '', ''],
+    ],
+  );
 });
 
 test('sanitizeNanobotDisplayText keeps regular content and removes known tool-call lines', () => {
@@ -417,4 +472,20 @@ test('sliceIncrementalNanobotText removes overlapping prefix already visible to 
 test('shouldForwardNanobotProgress hides internal-looking progress blocks', () => {
   assert.equal(shouldForwardNanobotProgress('Thinking [abc]: inspect memory'), false);
   assert.equal(shouldForwardNanobotProgress('我来看看喵。'), true);
+});
+
+test('deriveNanobotActivityFromToolHint classifies research and execution tools', () => {
+  assert.deepEqual(deriveNanobotActivityFromToolHint('Tool call: web_search({"query":"OtakuClaw"})'), {
+    toolName: 'web_search',
+    businessState: 'researching',
+    detail: 'Searching for references.',
+    rawToolHint: 'Tool call: web_search({"query":"OtakuClaw"})',
+  });
+  assert.deepEqual(deriveNanobotActivityFromToolHint('spawn({"cmd":"pnpm test"})'), {
+    toolName: 'spawn',
+    businessState: 'executing',
+    detail: 'Launching a local process.',
+    rawToolHint: 'spawn({"cmd":"pnpm test"})',
+  });
+  assert.equal(deriveNanobotActivityFromToolHint('unknown_tool({"x":1})'), null);
 });
