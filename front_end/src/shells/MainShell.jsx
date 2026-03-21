@@ -150,8 +150,6 @@ export default function MainShell({
         <OfficeScene
           scene={officeScene}
           compact={isNarrowViewport}
-          variant="page"
-          className="office-scene-page"
           presentationMode="browse"
           onAgentClick={handleOpenImmersiveMode}
         />

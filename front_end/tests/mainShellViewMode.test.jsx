@@ -100,7 +100,7 @@ function renderMainShell(props = {}) {
 describe('MainShell window view mode', () => {
   it('renders the office page by default when an office scene is available', () => {
     const html = renderMainShell();
-    expect(html).toContain('office-scene-page');
+    expect(html).toContain('office-room--browse');
     expect(html).not.toContain('data-testid="live2d-viewer-mock"');
     expect(html).toContain('Decorate');
     expect(html).not.toContain('Pixel room editor');
@@ -109,7 +109,7 @@ describe('MainShell window view mode', () => {
 
   it('renders the office page when initialized in office mode', () => {
     const html = renderMainShell({ initialWindowViewMode: 'office' });
-    expect(html).toContain('office-scene-page');
+    expect(html).toContain('office-room--browse');
     expect(html).not.toContain('data-testid="live2d-viewer-mock"');
     expect(html).toContain('Decorate');
     expect(html).not.toContain('Pixel room editor');
@@ -119,13 +119,13 @@ describe('MainShell window view mode', () => {
     const html = renderMainShell({ initialWindowViewMode: 'office-edit' });
     expect(html).toContain('data-testid="room-studio-shell-mock"');
     expect(html).not.toContain('data-testid="live2d-viewer-mock"');
-    expect(html).not.toContain('office-scene-page');
+    expect(html).not.toContain('office-room--browse');
   });
 
   it('renders the immersive shell when initialized in immersive mode', () => {
     const html = renderMainShell({ initialWindowViewMode: 'immersive' });
     expect(html).toContain('data-testid="immersive-shell-mock"');
     expect(html).not.toContain('data-testid="live2d-viewer-mock"');
-    expect(html).not.toContain('office-scene-page');
+    expect(html).not.toContain('office-room--browse');
   });
 });

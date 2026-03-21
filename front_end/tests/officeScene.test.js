@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { resolveContainedStageSize } from '../src/components/office/OfficeScene.jsx';
 import {
   buildOfficeDisplayState,
   derivePrimaryOfficeAgent,
@@ -8,6 +9,21 @@ import {
   resolveOfficeSceneState,
 } from '../src/components/office/officeSceneConfig.js';
 import { resolveOfficeOccupantSprite } from '../src/components/office/officeSceneAssets.js';
+
+describe('resolveContainedStageSize', () => {
+  it('fits the 16:9 office scene inside wide windows without cropping', () => {
+    expect(resolveContainedStageSize({ containerWidth: 960, containerHeight: 648 })).toEqual({
+      width: 960,
+      height: 540,
+    });
+  });
+
+  it('fits the 16:9 office scene inside tall windows without cropping', () => {
+    const size = resolveContainedStageSize({ containerWidth: 720, containerHeight: 900 });
+    expect(size.width).toBe(720);
+    expect(size.height).toBe(405);
+  });
+});
 
 describe('derivePrimaryOfficeAgent', () => {
   it('maps streaming state to writing and download activity to syncing', () => {

@@ -5,6 +5,28 @@ import OfficeSceneEditor from './OfficeSceneEditor.jsx';
 import './OfficeScene.css';
 
 const OFFICE_PRESENTATION_MODES = new Set(['auto', 'browse', 'workspace']);
+const OFFICE_STAGE_ASPECT_RATIO = 16 / 9;
+
+export function resolveContainedStageSize({ containerWidth = 0, containerHeight = 0, aspectRatio = OFFICE_STAGE_ASPECT_RATIO } = {}) {
+  const safeContainerWidth = Number(containerWidth) || 0;
+  const safeContainerHeight = Number(containerHeight) || 0;
+  const safeAspectRatio = Number(aspectRatio) || OFFICE_STAGE_ASPECT_RATIO;
+  if (safeContainerWidth <= 0 || safeContainerHeight <= 0 || safeAspectRatio <= 0) {
+    return null;
+  }
+
+  let width = safeContainerWidth;
+  let height = width / safeAspectRatio;
+  if (height > safeContainerHeight) {
+    height = safeContainerHeight;
+    width = height * safeAspectRatio;
+  }
+
+  return {
+    width,
+    height,
+  };
+}
 
 function resolveBackgroundPosition(frameIndex = 0, cols = 1, rows = 1) {
   const safeCols = Math.max(1, Number(cols) || 1);
@@ -210,9 +232,11 @@ export default function OfficeScene({
   onAgentClick = null,
 }) {
   const stageRef = useRef(null);
+  const stageWrapRef = useRef(null);
   const dragStateRef = useRef(null);
   const [selectedFurnitureId, setSelectedFurnitureId] = useState(editor?.furniture?.[0]?.id || '');
   const [draggingFurnitureId, setDraggingFurnitureId] = useState('');
+  const [browseStageSize, setBrowseStageSize] = useState(null);
   const resolvedPresentationMode = OFFICE_PRESENTATION_MODES.has(presentationMode)
     ? presentationMode
     : 'auto';
@@ -224,7 +248,7 @@ export default function OfficeScene({
   const normalizedClassName = [
     'office-room',
     isBrowseMode ? 'office-room--browse' : 'office-room--workspace',
-    compact ? 'is-compact' : '',
+    compact && !isBrowseMode ? 'is-compact' : '',
     variant === 'page' ? 'office-room--page' : 'office-room--dock',
     className,
   ].filter(Boolean).join(' ');
@@ -246,6 +270,62 @@ export default function OfficeScene({
       setSelectedFurnitureId(editableFurniture[0].id);
     }
   }, [editableFurniture, selectedFurnitureId]);
+
+  useEffect(() => {
+    if (!isBrowseMode) {
+      setBrowseStageSize(null);
+      return () => {};
+    }
+
+    const stageWrapElement = stageWrapRef.current;
+    if (!stageWrapElement) {
+      return () => {};
+    }
+
+    let animationFrameId = 0;
+    const updateStageSize = () => {
+      const bounds = stageWrapElement.getBoundingClientRect();
+      const nextSize = resolveContainedStageSize({
+        containerWidth: bounds.width,
+        containerHeight: bounds.height,
+      });
+      setBrowseStageSize((current) => {
+        if (!nextSize) {
+          return null;
+        }
+        if (
+          current
+          && Math.abs(current.width - nextSize.width) < 0.5
+          && Math.abs(current.height - nextSize.height) < 0.5
+        ) {
+          return current;
+        }
+        return nextSize;
+      });
+    };
+    const scheduleStageSizeUpdate = () => {
+      globalThis.cancelAnimationFrame(animationFrameId);
+      animationFrameId = globalThis.requestAnimationFrame(updateStageSize);
+    };
+
+    scheduleStageSizeUpdate();
+
+    let resizeObserver = null;
+    if (typeof ResizeObserver === 'function') {
+      resizeObserver = new ResizeObserver(() => {
+        scheduleStageSizeUpdate();
+      });
+      resizeObserver.observe(stageWrapElement);
+    }
+
+    globalThis.addEventListener('resize', scheduleStageSizeUpdate);
+
+    return () => {
+      globalThis.cancelAnimationFrame(animationFrameId);
+      globalThis.removeEventListener('resize', scheduleStageSizeUpdate);
+      resizeObserver?.disconnect?.();
+    };
+  }, [isBrowseMode]);
 
   useEffect(() => {
     if (!draggingFurnitureId) {
@@ -318,9 +398,15 @@ export default function OfficeScene({
   }
 
   const { title, subtitle, caption, labels, config, occupants, areaSummaries, primaryAgent, agentCount } = scene;
+  const browseStageStyle = isBrowseMode && browseStageSize
+    ? {
+        width: `${browseStageSize.width}px`,
+        height: `${browseStageSize.height}px`,
+      }
+    : undefined;
   const stage = (
-    <div className="office-room__stage-wrap">
-      <div className="office-room__stage" ref={stageRef}>
+    <div className="office-room__stage-wrap" ref={stageWrapRef}>
+      <div className="office-room__stage" ref={stageRef} style={browseStageStyle}>
         <div
           className="office-room__scene-backdrop"
           style={{ backgroundImage: `url(${config.backdrop.assetUrl})` }}
