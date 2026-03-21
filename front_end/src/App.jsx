@@ -57,7 +57,7 @@ function AppContent({ desktopMode }) {
   const [officeSceneLayout, setOfficeSceneLayout] = useState(() => normalizeOfficeSceneLayout());
   const [officeActivityHint, setOfficeActivityHint] = useState(null);
   const [officePreviewMode, setOfficePreviewMode] = useState('live');
-  const [mainWindowViewMode, setMainWindowViewMode] = useState('avatar');
+  const [mainWindowViewMode, setMainWindowViewMode] = useState('office');
   const [immersiveContext, setImmersiveContext] = useState(null);
   const [valueStateSnapshot, setValueStateSnapshot] = useState(null);
   const [builtinTtsEnabled, setBuiltinTtsEnabled] = useState(false);
@@ -962,7 +962,7 @@ function AppContent({ desktopMode }) {
       }
 
       if (nextMode === MODE_PET) {
-        setMainWindowViewMode('avatar');
+        setMainWindowViewMode('office');
         setImmersiveContext(null);
       }
 

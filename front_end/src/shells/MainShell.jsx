@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Box, Button, IconButton } from '@mui/material';
+import { Box, IconButton } from '@mui/material';
 import TuneIcon from '@mui/icons-material/Tune';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import ChatIcon from '@mui/icons-material/Chat';
-import GridViewIcon from '@mui/icons-material/GridView';
-import ViewInArIcon from '@mui/icons-material/ViewInAr';
 import Live2DViewer from '../components/live2d/Live2DViewer.jsx';
 import SubtitleBar from '../components/subtitle/SubtitleBar.jsx';
 import WindowTitleBar from '../components/window/WindowTitleBar.jsx';
@@ -46,15 +44,12 @@ export default function MainShell({
   onExitImmersiveMode,
   onImmersiveAction,
   isNarrowViewport = false,
-  initialWindowViewMode = 'avatar',
+  initialWindowViewMode = 'office',
 }) {
   const { t } = useI18n();
   const hasOfficeScene = Boolean(officeScene);
   const resolvedInitialViewMode = hasOfficeScene
-    ? normalizeWindowViewMode(
-        initialWindowViewMode === 'office' ? 'office' : initialWindowViewMode,
-        'avatar',
-      )
+    ? normalizeWindowViewMode(initialWindowViewMode, 'office')
     : 'avatar';
   const isControlled = WINDOW_VIEW_MODES.has(normalizeWindowViewMode(windowViewMode, ''));
   const [internalWindowViewMode, setInternalWindowViewMode] = useState(resolvedInitialViewMode);
@@ -172,30 +167,6 @@ export default function MainShell({
       </IconButton>
 
       <Box className="window-bottom-controls">
-        {officeScene && !showImmersiveView ? (
-          <Box className="window-view-switcher" role="group" aria-label="Window view switcher">
-            <Button
-              className={`window-view-button ${effectiveWindowViewMode === 'avatar' ? 'is-active' : ''}`.trim()}
-              size="small"
-              startIcon={<ViewInArIcon />}
-              onClick={() => {
-                setWindowViewMode('avatar');
-              }}
-            >
-              Live2D
-            </Button>
-            <Button
-              className={`window-view-button ${effectiveWindowViewMode === 'office' ? 'is-active' : ''}`.trim()}
-              size="small"
-              startIcon={<GridViewIcon />}
-              onClick={() => {
-                setWindowViewMode('office');
-              }}
-            >
-              Pixel Room
-            </Button>
-          </Box>
-        ) : null}
         {desktopMode && (
           <IconButton
             className="mode-toggle"

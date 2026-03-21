@@ -619,39 +619,6 @@ html[data-browser-engine="chromium"] .live2d-stage.pet-mode .pet-workspace-glass
   -webkit-app-region: no-drag;
 }
 
-.window-view-switcher {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px;
-  border-radius: 18px;
-  border: 1px solid var(--floating-button-border);
-  background: var(--floating-button-bg);
-  box-shadow: var(--floating-button-shadow);
-  backdrop-filter: blur(10px) saturate(130%);
-  -webkit-backdrop-filter: blur(10px) saturate(130%);
-}
-
-.window-view-button {
-  min-width: 0 !important;
-  border-radius: 12px !important;
-  color: rgba(15, 48, 93, 0.82) !important;
-  font-size: 12px !important;
-  font-weight: 700 !important;
-  letter-spacing: 0.03em !important;
-  text-transform: none !important;
-  padding: 8px 12px !important;
-}
-
-.window-view-button.is-active {
-  background: rgba(255, 255, 255, 0.9) !important;
-  color: #133d71 !important;
-}
-
-.window-view-button:not(.is-active) {
-  background: transparent !important;
-}
-
 .window-voice-warning {
   position: absolute;
   left: 24px;
@@ -686,8 +653,7 @@ html[data-browser-engine="chromium"] .live2d-stage.pet-mode .pet-workspace-glass
 .text-toggle,
 .mode-toggle,
 .pet-mode-toggle,
-.edge-composer-toggle,
-.window-view-switcher {
+.edge-composer-toggle {
   border: 1px solid var(--floating-button-border) !important;
   box-shadow: var(--floating-button-shadow) !important;
   backdrop-filter: blur(10px) saturate(130%);
@@ -703,8 +669,7 @@ html[data-browser-engine="chromium"] .live2d-stage.pet-mode .pet-workspace-glass
 .text-toggle:hover,
 .mode-toggle:hover,
 .pet-mode-toggle:hover,
-.edge-composer-toggle:hover,
-.window-view-switcher:hover {
+.edge-composer-toggle:hover {
   background: var(--floating-button-hover-bg) !important;
   border-color: var(--floating-button-border-hover) !important;
   box-shadow: var(--floating-button-shadow-hover) !important;
@@ -715,8 +680,7 @@ html[data-browser-engine="chromium"] .live2d-stage.pet-mode .pet-workspace-glass
 .text-toggle:active,
 .mode-toggle:active,
 .pet-mode-toggle:active,
-.edge-composer-toggle:active,
-.window-view-switcher:active {
+.edge-composer-toggle:active {
   background: var(--floating-button-active-bg) !important;
   box-shadow: var(--floating-button-shadow-active) !important;
   transform: translateY(0);

@@ -93,16 +93,11 @@ function renderMainShell(props = {}) {
 }
 
 describe('MainShell window view mode', () => {
-  it('shows the view switcher when an office scene is available', () => {
+  it('renders the office page by default when an office scene is available', () => {
     const html = renderMainShell();
-    expect(html).toContain('Live2D');
-    expect(html).toContain('Pixel Room');
-  });
-
-  it('renders the live2d view by default', () => {
-    const html = renderMainShell();
-    expect(html).toContain('data-testid="live2d-viewer-mock"');
-    expect(html).not.toContain('office-scene-page');
+    expect(html).toContain('office-scene-page');
+    expect(html).not.toContain('data-testid="live2d-viewer-mock"');
+    expect(html).not.toContain('Window view switcher');
   });
 
   it('renders the office page when initialized in office mode', () => {
