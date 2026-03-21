@@ -9,6 +9,7 @@ import postersAsset from '../../assets/office/star-office/posters-spritesheet.we
 import serverRoomAsset from '../../assets/office/star-office/serverroom-spritesheet.webp';
 import flowersAsset from '../../assets/office/star-office/flowers-bloom-v2.webp';
 import syncAnimationAsset from '../../assets/office/star-office/sync-animation-v3-grid.webp';
+import memoBoardAsset from '../../assets/office/star-office/memo-bg.webp';
 import starIdleAsset from '../../assets/office/star-office/star-idle-v5.png';
 import starWorkingAsset from '../../assets/office/star-office/star-working-spritesheet-grid.webp';
 import errorBugAsset from '../../assets/office/star-office/error-bug-spritesheet-grid.webp';
@@ -36,6 +37,7 @@ export const OFFICE_SCENE_ASSET_REGISTRY = {
   serverRoom: { key: 'serverRoom', url: serverRoomAsset, cols: 40, rows: 1 },
   flowers: { key: 'flowers', url: flowersAsset, cols: 4, rows: 4 },
   syncAnimation: { key: 'syncAnimation', url: syncAnimationAsset, cols: 7, rows: 7 },
+  memoBoard: { key: 'memoBoard', url: memoBoardAsset, cols: 1, rows: 1 },
   sofaShadow: { key: 'sofaShadow', url: sofaShadowAsset, cols: 1, rows: 1 },
   sofa: { key: 'sofa', url: sofaAsset, cols: 1, rows: 1 },
   cats: { key: 'cats', url: catsAsset, cols: 4, rows: 4 },

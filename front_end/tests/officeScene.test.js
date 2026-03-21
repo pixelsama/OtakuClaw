@@ -106,6 +106,12 @@ describe('resolveOfficeSceneState', () => {
       frameIndex: 6,
       isVisible: true,
     });
+    expect(scene.config.furniture.find((item) => item.id === 'memoBoard')).toMatchObject({
+      assetKey: 'memoBoard',
+      assetUrl: expect.any(String),
+      aspectRatio: '4 / 3',
+      isVisible: true,
+    });
     expect(scene.config.furniture.find((item) => item.id === 'coffee')).toMatchObject({
       layers: [
         { id: 'coffee-shadow', assetKey: 'coffeeMachineShadow' },
@@ -156,7 +162,7 @@ describe('resolveOfficeSceneState', () => {
     expect(scene.config.themeLabel).toBe('Star Office Classic');
     expect(scene.config.furniture.map((item) => item.id)).toContain('coffee');
     expect(scene.config.furniture.map((item) => item.id)).toEqual(
-      expect.arrayContaining(['poster', 'plantLeft', 'plantCenter', 'serverroom', 'flowers', 'cat', 'plantBedroom']),
+      expect.arrayContaining(['poster', 'memoBoard', 'plantLeft', 'plantCenter', 'serverroom', 'flowers', 'cat', 'plantBedroom']),
     );
     expect(scene.config.furniture.find((item) => item.id === 'sofa')).toMatchObject({
       layers: [
@@ -341,6 +347,12 @@ describe('resolveOfficeSceneEditorState', () => {
       defaultEnabled: false,
       ruleLabel: 'State furniture',
     });
+    expect(editor.catalog.find((item) => item.id === 'guestStandee1')).toMatchObject({
+      category: 'companions',
+      enabled: false,
+      defaultEnabled: false,
+      ruleLabel: 'Always',
+    });
     expect(editor.catalogCategories.map((item) => item.id)).toEqual(
       expect.arrayContaining(['all', 'workstation', 'status', 'plants', 'companions']),
     );
@@ -385,6 +397,35 @@ describe('resolveOfficeSceneEditorState', () => {
     expect(scene.config.furniture.find((item) => item.id === 'serverroom')).toBeTruthy();
     expect(scene.config.furniture.find((item) => item.id === 'syncBeacon')).toMatchObject({
       isVisible: true,
+    });
+    expect(scene.config.furniture.find((item) => item.id === 'guestStandee2')).toBeUndefined();
+  });
+
+  it('allows extra companion standees to be added from the catalog', () => {
+    const scene = resolveOfficeSceneState({
+      officeState: normalizeOfficeState({
+        revision: 1,
+        activeAgentId: 'main',
+        agents: [
+          { agentId: 'main', displayName: 'Main', businessState: 'idle', detail: 'Standing by.' },
+        ],
+      }),
+      sceneConfig: {
+        themeId: 'star-office-minimal',
+        enabledFurnitureIds: ['guestStandee2'],
+      },
+    });
+
+    expect(scene.config.furniture.find((item) => item.id === 'guestStandee2')).toMatchObject({
+      assetKey: 'guestRole2',
+      isVisible: true,
+      layers: [
+        {
+          id: 'guestStandee2',
+          assetKey: 'guestRole2',
+          animation: { frames: [0, 1], fps: 3 },
+        },
+      ],
     });
   });
 });
