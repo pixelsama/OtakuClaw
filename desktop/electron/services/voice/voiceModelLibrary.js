@@ -1212,7 +1212,11 @@ class VoiceModelLibrary {
     await this.mutateState(() => {
       this.state.bundles = this.state.bundles.filter((item) => item.id !== bundleRecord.id);
       this.state.bundles.unshift(bundleRecord);
-      this.applyInstalledBundleSelection(bundleRecord, { installAsr: hasAsr, installTts: hasTts, forceActivate: true });
+      this.applyInstalledBundleSelection(bundleRecord, {
+        installAsr: shouldInstallAsr,
+        installTts: shouldInstallTts,
+        forceActivate: true,
+      });
     });
 
     emitProgress({

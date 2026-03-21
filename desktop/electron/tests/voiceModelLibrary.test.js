@@ -1,12 +1,20 @@
 const assert = require('node:assert/strict');
+const { execFile } = require('node:child_process');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { promisify } = require('node:util');
 
 const { VoiceModelLibrary } = require('../services/voice/voiceModelLibrary');
 
-async function createLibraryForTest({ pythonRuntimeManager = null, pythonEnvManager = null } = {}) {
+const execFileAsync = promisify(execFile);
+
+async function createLibraryForTest({
+  downloadFileImpl = null,
+  pythonRuntimeManager = null,
+  pythonEnvManager = null,
+} = {}) {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-model-library-test-'));
   const app = {
     getPath() {
@@ -14,7 +22,7 @@ async function createLibraryForTest({ pythonRuntimeManager = null, pythonEnvMana
     },
   };
 
-  const downloadFileImpl = async ({ url, destinationPath, onProgress }) => {
+  const defaultDownloadFileImpl = async ({ url, destinationPath, onProgress }) => {
     const payload = Buffer.from(`download:${url}`, 'utf-8');
     onProgress?.({
       downloadedBytes: Math.floor(payload.length / 2),
@@ -29,7 +37,7 @@ async function createLibraryForTest({ pythonRuntimeManager = null, pythonEnvMana
   };
 
   const library = new VoiceModelLibrary(app, {
-    downloadFileImpl,
+    downloadFileImpl: downloadFileImpl || defaultDownloadFileImpl,
     pythonRuntimeManager,
     pythonEnvManager,
   });
@@ -414,6 +422,39 @@ test('installCatalogBundle rejects unknown catalog id', async () => {
       return true;
     },
   );
+});
+
+test('installCatalogBundle installs non-python catalog and updates selection state', async () => {
+  const { library } = await createLibraryForTest({
+    downloadFileImpl: async ({ destinationPath, onProgress }) => {
+      const stagingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-catalog-archive-test-'));
+      const extractedDir = 'sherpa-onnx-streaming-zipformer-ctc-zh-int8-2025-06-30';
+      try {
+        const extractedRoot = path.join(stagingDir, extractedDir);
+        await fs.mkdir(extractedRoot, { recursive: true });
+        await fs.writeFile(path.join(extractedRoot, 'model.int8.onnx'), 'model');
+        await fs.writeFile(path.join(extractedRoot, 'tokens.txt'), 'tokens');
+
+        await fs.mkdir(path.dirname(destinationPath), { recursive: true });
+        onProgress?.({ downloadedBytes: 1, totalBytes: 2 });
+        await execFileAsync('tar', ['-cf', destinationPath, '-C', stagingDir, extractedDir]);
+        const archiveStat = await fs.stat(destinationPath);
+        onProgress?.({ downloadedBytes: archiveStat.size, totalBytes: archiveStat.size });
+      } finally {
+        await fs.rm(stagingDir, { recursive: true, force: true });
+      }
+    },
+  });
+
+  const result = await library.installCatalogBundle({
+    catalogId: 'builtin-asr-zh-int8-zipformer-v1',
+    installAsr: true,
+    installTts: false,
+  });
+
+  assert.equal(result.bundle.catalogId, 'builtin-asr-zh-int8-zipformer-v1');
+  assert.equal(result.selectedAsrBundleId, result.bundle.id);
+  assert.equal(result.selectedTtsBundleId, '');
 });
 
 test('installCatalogBundle stores python env id for built-in edge tts', async () => {
