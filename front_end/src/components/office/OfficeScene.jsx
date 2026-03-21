@@ -4,6 +4,8 @@ import { calculateDraggedFurniturePosition } from './officeSceneDrag.js';
 import OfficeSceneEditor from './OfficeSceneEditor.jsx';
 import './OfficeScene.css';
 
+const OFFICE_PRESENTATION_MODES = new Set(['auto', 'browse', 'workspace']);
+
 function resolveBackgroundPosition(frameIndex = 0, cols = 1, rows = 1) {
   const safeCols = Math.max(1, Number(cols) || 1);
   const safeRows = Math.max(1, Number(rows) || 1);
@@ -203,6 +205,7 @@ export default function OfficeScene({
   compact = false,
   className = '',
   variant = 'dock',
+  presentationMode = 'auto',
   editor = null,
   onAgentClick = null,
 }) {
@@ -210,8 +213,17 @@ export default function OfficeScene({
   const dragStateRef = useRef(null);
   const [selectedFurnitureId, setSelectedFurnitureId] = useState(editor?.furniture?.[0]?.id || '');
   const [draggingFurnitureId, setDraggingFurnitureId] = useState('');
+  const resolvedPresentationMode = OFFICE_PRESENTATION_MODES.has(presentationMode)
+    ? presentationMode
+    : 'auto';
+  const effectivePresentationMode = resolvedPresentationMode === 'auto'
+    ? (editor ? 'workspace' : 'browse')
+    : resolvedPresentationMode;
+  const isBrowseMode = effectivePresentationMode === 'browse';
+  const isWorkspaceMode = effectivePresentationMode === 'workspace';
   const normalizedClassName = [
     'office-room',
+    isBrowseMode ? 'office-room--browse' : 'office-room--workspace',
     compact ? 'is-compact' : '',
     variant === 'page' ? 'office-room--page' : 'office-room--dock',
     className,
@@ -305,6 +317,75 @@ export default function OfficeScene({
   }
 
   const { title, subtitle, caption, labels, config, occupants, areaSummaries, primaryAgent, agentCount } = scene;
+  const stage = (
+    <div className="office-room__stage-wrap">
+      <div className="office-room__stage" ref={stageRef}>
+        <div
+          className="office-room__scene-backdrop"
+          style={{ backgroundImage: `url(${config.backdrop.assetUrl})` }}
+          aria-hidden="true"
+        />
+        <div className="office-room__scene-vignette" aria-hidden="true" />
+        {config.furniture.filter((item) => item.isVisible !== false).flatMap((item) => (
+          (item.layers || []).map((layer) => (
+            <OfficeDecorLayer
+              key={`${item.id}:${layer.id}`}
+              furniture={item}
+              layer={layer}
+              isInteractive={Boolean(editor?.onFurniturePositionChange)}
+              isSelected={selectedFurniture?.id === item.id}
+              isDragging={draggingFurnitureId === item.id}
+              onPointerDown={(event) => {
+                handleDecorPointerDown(event, item);
+              }}
+              onSelect={() => {
+                setSelectedFurnitureId(item.id);
+              }}
+            />
+          ))
+        ))}
+        {Object.values(config.areas).map((area) => {
+          const areaSummary = areaSummaries.find((item) => item.id === area.id);
+          return (
+            <OfficeAreaLabel
+              key={area.id}
+              area={area}
+              count={areaSummary?.occupantCount || 0}
+            />
+          );
+        })}
+        {occupants.map((occupant) => (
+          <OfficeOccupant
+            key={occupant.agentId}
+            occupant={occupant}
+            onClick={
+              typeof onAgentClick === 'function'
+                ? (event) => {
+                    event?.preventDefault?.();
+                    onAgentClick({
+                      agent: occupant,
+                      agentId: occupant.agentId,
+                      areaId: occupant.areaId,
+                      slot: occupant.slot,
+                      scene,
+                    });
+                  }
+                : null
+            }
+          />
+        ))}
+      </div>
+      {isWorkspaceMode ? <div className="office-room__plaque">{primaryAgent?.detail || caption || labels.multiAgentReady}</div> : null}
+    </div>
+  );
+
+  if (isBrowseMode) {
+    return (
+      <section className={normalizedClassName} aria-label={title}>
+        {stage}
+      </section>
+    );
+  }
 
   return (
     <section className={normalizedClassName} aria-label={title}>
@@ -321,67 +402,9 @@ export default function OfficeScene({
         </div>
 
         <div className={`office-room__content ${editor ? 'has-editor' : ''}`.trim()}>
-          <div className="office-room__stage-wrap">
-            <div className="office-room__stage" ref={stageRef}>
-              <div
-                className="office-room__scene-backdrop"
-                style={{ backgroundImage: `url(${config.backdrop.assetUrl})` }}
-                aria-hidden="true"
-              />
-              <div className="office-room__scene-vignette" aria-hidden="true" />
-              {config.furniture.filter((item) => item.isVisible !== false).flatMap((item) => (
-                (item.layers || []).map((layer) => (
-                  <OfficeDecorLayer
-                    key={`${item.id}:${layer.id}`}
-                    furniture={item}
-                    layer={layer}
-                    isInteractive={Boolean(editor?.onFurniturePositionChange)}
-                    isSelected={selectedFurniture?.id === item.id}
-                    isDragging={draggingFurnitureId === item.id}
-                    onPointerDown={(event) => {
-                      handleDecorPointerDown(event, item);
-                    }}
-                    onSelect={() => {
-                      setSelectedFurnitureId(item.id);
-                    }}
-                  />
-                ))
-              ))}
-              {Object.values(config.areas).map((area) => {
-                const areaSummary = areaSummaries.find((item) => item.id === area.id);
-                return (
-                  <OfficeAreaLabel
-                    key={area.id}
-                    area={area}
-                    count={areaSummary?.occupantCount || 0}
-                  />
-                );
-              })}
-              {occupants.map((occupant) => (
-                <OfficeOccupant
-                  key={occupant.agentId}
-                  occupant={occupant}
-                  onClick={
-                    typeof onAgentClick === 'function'
-                      ? (event) => {
-                          event?.preventDefault?.();
-                          onAgentClick({
-                            agent: occupant,
-                            agentId: occupant.agentId,
-                            areaId: occupant.areaId,
-                            slot: occupant.slot,
-                            scene,
-                          });
-                        }
-                      : null
-                  }
-                />
-              ))}
-            </div>
-            <div className="office-room__plaque">{primaryAgent?.detail || caption || labels.multiAgentReady}</div>
-          </div>
+          {stage}
 
-          {editor ? (
+          {editor && isWorkspaceMode ? (
             <OfficeSceneEditor
               {...editor}
               selectedFurnitureId={selectedFurniture?.id || ''}

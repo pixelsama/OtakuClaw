@@ -1,0 +1,131 @@
+.room-studio-shell {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 16px;
+  padding: 18px;
+  color: #f5f1df;
+  background:
+    radial-gradient(circle at top left, rgba(120, 176, 255, 0.16), transparent 34%),
+    radial-gradient(circle at 84% 12%, rgba(255, 205, 119, 0.16), transparent 28%),
+    linear-gradient(180deg, rgba(7, 10, 28, 0.98), rgba(11, 14, 38, 0.98));
+}
+
+.room-studio-shell__backdrop {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(136, 149, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(136, 149, 255, 0.08) 1px, transparent 1px);
+  background-size: 36px 36px;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.room-studio-shell__bar,
+.room-studio-shell__body {
+  position: relative;
+  z-index: 1;
+}
+
+.room-studio-shell__bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.room-studio-shell__headline {
+  min-width: 0;
+}
+
+.room-studio-shell__eyebrow {
+  color: rgba(225, 232, 255, 0.7);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.room-studio-shell__title {
+  margin: 6px 0 0;
+  font-size: clamp(24px, 3vw, 40px);
+  line-height: 1;
+  font-family: 'Trebuchet MS', 'Avenir Next', sans-serif;
+  color: #fff7d4;
+}
+
+.room-studio-shell__subtitle {
+  margin: 8px 0 0;
+  color: rgba(220, 227, 255, 0.76);
+  font-size: 13px;
+}
+
+.room-studio-shell__back-button {
+  align-self: center;
+  flex-shrink: 0;
+}
+
+.room-studio-shell__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.95fr);
+  gap: 16px;
+  min-height: 0;
+}
+
+.room-studio-shell__scene-pane,
+.room-studio-shell__editor-pane {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.room-studio-shell__scene-pane {
+  overflow: hidden;
+  border-radius: 30px;
+  border: 1px solid rgba(123, 141, 239, 0.2);
+  background: rgba(14, 18, 48, 0.72);
+  box-shadow: 0 24px 60px rgba(8, 10, 28, 0.44);
+}
+
+.room-studio-shell__scene {
+  inset: 0;
+}
+
+.room-studio-shell__editor-pane {
+  display: flex;
+  min-height: 0;
+  overflow: auto;
+  padding: 2px 2px 2px 0;
+}
+
+.room-studio-shell__editor-pane > .office-room__editor {
+  width: 100%;
+}
+
+@media (max-width: 1100px) {
+  .room-studio-shell__body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .room-studio-shell__editor-pane {
+    padding: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .room-studio-shell {
+    padding: 14px;
+    gap: 12px;
+  }
+
+  .room-studio-shell__bar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .room-studio-shell__back-button {
+    align-self: flex-start;
+  }
+}
