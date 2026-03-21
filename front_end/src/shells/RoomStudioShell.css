@@ -1,131 +1,340 @@
 .room-studio-shell {
   position: absolute;
-  inset: 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 16px;
-  padding: 18px;
-  color: #f5f1df;
-  background:
-    radial-gradient(circle at top left, rgba(120, 176, 255, 0.16), transparent 34%),
-    radial-gradient(circle at 84% 12%, rgba(255, 205, 119, 0.16), transparent 28%),
-    linear-gradient(180deg, rgba(7, 10, 28, 0.98), rgba(11, 14, 38, 0.98));
+  inset: 44px 24px 24px;
+  z-index: 6;
+  color: #f6f1de;
+  overflow: hidden;
 }
 
 .room-studio-shell__backdrop {
   position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(rgba(136, 149, 255, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(136, 149, 255, 0.08) 1px, transparent 1px);
-  background-size: 36px 36px;
-  opacity: 0.35;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255, 211, 132, 0.18), transparent 24%),
+    radial-gradient(circle at 82% 16%, rgba(118, 183, 255, 0.18), transparent 26%),
+    linear-gradient(180deg, rgba(8, 14, 34, 0.96), rgba(15, 22, 55, 0.98));
+  transform: scale(1.03);
+}
+
+.room-studio-shell__frame {
+  position: relative;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 14px;
+  padding: 20px;
+  border-radius: 32px;
+  border: 1px solid rgba(164, 183, 255, 0.22);
+  background:
+    linear-gradient(180deg, rgba(7, 11, 26, 0.28), rgba(7, 11, 26, 0.64)),
+    radial-gradient(circle at top right, rgba(255, 200, 120, 0.16), transparent 32%);
+  box-shadow:
+    0 34px 72px rgba(4, 8, 24, 0.48),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+}
+
+.room-studio-shell__frame::before,
+.room-studio-shell__frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
   pointer-events: none;
 }
 
-.room-studio-shell__bar,
-.room-studio-shell__body {
+.room-studio-shell__frame::before {
+  background-image:
+    linear-gradient(rgba(138, 157, 236, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(138, 157, 236, 0.08) 1px, transparent 1px);
+  background-size: 42px 42px;
+  opacity: 0.28;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.92), transparent 92%);
+}
+
+.room-studio-shell__frame::after {
+  background:
+    radial-gradient(circle at 18% 16%, rgba(255, 232, 174, 0.16), transparent 30%),
+    radial-gradient(circle at 82% 18%, rgba(98, 183, 255, 0.14), transparent 28%);
+  opacity: 0.95;
+}
+
+.room-studio-shell__header,
+.room-studio-shell__toolbar,
+.room-studio-shell__workspace,
+.room-studio-shell__footer {
   position: relative;
   z-index: 1;
 }
 
-.room-studio-shell__bar {
+.room-studio-shell__header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
-  gap: 16px;
+  gap: 20px;
+  align-items: flex-start;
 }
 
-.room-studio-shell__headline {
+.room-studio-shell__title-group {
   min-width: 0;
 }
 
-.room-studio-shell__eyebrow {
-  color: rgba(225, 232, 255, 0.7);
+.room-studio-shell__eyebrow,
+.room-studio-shell__subtitle,
+.room-studio-shell__toolbar-label,
+.room-studio-shell__footer-note {
   font-size: 11px;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
+  color: rgba(226, 232, 255, 0.72);
 }
 
 .room-studio-shell__title {
-  margin: 6px 0 0;
-  font-size: clamp(24px, 3vw, 40px);
-  line-height: 1;
+  margin: 4px 0 0;
+  font-size: clamp(30px, 3vw, 44px);
+  line-height: 0.96;
   font-family: 'Trebuchet MS', 'Avenir Next', sans-serif;
-  color: #fff7d4;
+  color: #fff8d5;
 }
 
 .room-studio-shell__subtitle {
-  margin: 8px 0 0;
-  color: rgba(220, 227, 255, 0.76);
-  font-size: 13px;
+  margin: 10px 0 0;
+  max-width: 72ch;
+}
+
+.room-studio-shell__meta {
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  gap: 8px;
+  justify-items: end;
+  align-items: center;
+}
+
+.room-studio-shell__meta-chip {
+  background: rgba(10, 15, 34, 0.72) !important;
+  color: rgba(242, 246, 255, 0.92) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
 }
 
 .room-studio-shell__back-button {
-  align-self: center;
-  flex-shrink: 0;
+  grid-column: 1 / -1;
+  justify-self: end;
+  min-width: 0 !important;
+  padding: 10px 16px !important;
+  border-radius: 14px !important;
+  text-transform: none !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em !important;
+  color: #12223e !important;
+  background: linear-gradient(135deg, rgba(255, 221, 138, 0.98), rgba(255, 196, 91, 0.92)) !important;
+  box-shadow: 0 18px 28px rgba(43, 55, 22, 0.18) !important;
 }
 
-.room-studio-shell__body {
-  display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.95fr);
-  gap: 16px;
-  min-height: 0;
-}
-
-.room-studio-shell__scene-pane,
-.room-studio-shell__editor-pane {
-  position: relative;
-  min-width: 0;
-  min-height: 0;
-}
-
-.room-studio-shell__scene-pane {
-  overflow: hidden;
-  border-radius: 30px;
-  border: 1px solid rgba(123, 141, 239, 0.2);
-  background: rgba(14, 18, 48, 0.72);
-  box-shadow: 0 24px 60px rgba(8, 10, 28, 0.44);
-}
-
-.room-studio-shell__scene {
-  inset: 0;
-}
-
-.room-studio-shell__editor-pane {
+.room-studio-shell__toolbar {
   display: flex;
-  min-height: 0;
-  overflow: auto;
-  padding: 2px 2px 2px 0;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-end;
 }
 
-.room-studio-shell__editor-pane > .office-room__editor {
+.room-studio-shell__toolbar-copy {
+  max-width: 66ch;
+}
+
+.room-studio-shell__toolbar-label {
+  margin: 0 !important;
+  color: rgba(217, 226, 255, 0.68) !important;
+}
+
+.room-studio-shell__toolbar-title {
+  margin: 0 !important;
+  color: #fff7d0 !important;
+  font-family: 'Trebuchet MS', 'Avenir Next', sans-serif !important;
+}
+
+.room-studio-shell__toolbar-text {
+  color: rgba(229, 235, 255, 0.8) !important;
+}
+
+.room-studio-shell__toolbar-pill-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.room-studio-shell__toolbar-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(180, 197, 255, 0.18);
+  background: rgba(11, 16, 38, 0.58);
+  color: rgba(241, 244, 255, 0.88);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.room-studio-shell__workspace {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 28px;
+  border: 1px solid rgba(160, 179, 255, 0.14);
+  background:
+    linear-gradient(180deg, rgba(8, 12, 28, 0.28), rgba(6, 10, 22, 0.46)),
+    rgba(8, 10, 24, 0.34);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 18px 40px rgba(4, 7, 20, 0.28);
+}
+
+.room-studio-shell__workspace .office-room.office-room--page {
+  position: relative;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  left: auto;
+  top: auto;
+  right: auto;
+  bottom: auto;
+}
+
+.room-studio-shell__workspace .office-room__chrome {
+  height: 100%;
+  border-radius: 28px;
+}
+
+.room-studio-shell__workspace .office-room__content {
+  min-height: 0;
+}
+
+.room-studio-shell__workspace .office-room__editor {
+  max-height: calc(100vh - 240px);
+}
+
+.room-studio-shell__empty-state {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 14px;
+  padding: 24px;
+  text-align: center;
+}
+
+.room-studio-shell__empty-icon {
+  font-size: 42px !important;
+  color: rgba(255, 213, 132, 0.9);
+}
+
+.room-studio-shell__empty-title {
+  margin: 0 !important;
+  color: #fff6d8 !important;
+  font-family: 'Trebuchet MS', 'Avenir Next', sans-serif !important;
+}
+
+.room-studio-shell__empty-text {
+  max-width: 54ch;
+  margin: 0 !important;
+  color: rgba(226, 232, 255, 0.76) !important;
+}
+
+.room-studio-shell__footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+}
+
+.room-studio-shell__footer-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 72ch;
+}
+
+.room-studio-shell__footer-button {
+  min-width: 0 !important;
+  padding: 10px 16px !important;
+  border-radius: 14px !important;
+  text-transform: none !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em !important;
+  color: rgba(240, 246, 255, 0.94) !important;
+  border-color: rgba(162, 185, 255, 0.34) !important;
+  background: rgba(8, 14, 36, 0.28) !important;
+}
+
+.room-studio-shell.is-compact .room-studio-shell__frame {
+  padding: 16px;
+  gap: 12px;
+}
+
+.room-studio-shell.is-compact .room-studio-shell__header {
+  flex-direction: column;
+}
+
+.room-studio-shell.is-compact .room-studio-shell__meta {
+  justify-items: start;
+}
+
+.room-studio-shell.is-compact .room-studio-shell__toolbar {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.room-studio-shell.is-compact .room-studio-shell__toolbar-pill-group {
+  justify-content: flex-start;
+}
+
+.room-studio-shell.is-compact .room-studio-shell__footer {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.room-studio-shell.is-compact .room-studio-shell__footer-button {
   width: 100%;
 }
 
-@media (max-width: 1100px) {
-  .room-studio-shell__body {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 1fr) auto;
+@media (max-width: 1180px) {
+  .room-studio-shell__frame {
+    padding: 16px;
+    gap: 12px;
   }
 
-  .room-studio-shell__editor-pane {
-    padding: 0;
+  .room-studio-shell__header,
+  .room-studio-shell__toolbar,
+  .room-studio-shell__footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .room-studio-shell__meta {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+
+  .room-studio-shell__back-button {
+    justify-self: start;
+  }
+
+  .room-studio-shell__toolbar-pill-group {
+    justify-content: flex-start;
   }
 }
 
 @media (max-width: 900px) {
   .room-studio-shell {
-    padding: 14px;
-    gap: 12px;
+    inset: 16px 12px 12px;
   }
 
-  .room-studio-shell__bar {
-    align-items: flex-start;
-    flex-direction: column;
+  .room-studio-shell__frame {
+    border-radius: 24px;
   }
 
-  .room-studio-shell__back-button {
-    align-self: flex-start;
+  .room-studio-shell__workspace {
+    border-radius: 22px;
   }
 }
