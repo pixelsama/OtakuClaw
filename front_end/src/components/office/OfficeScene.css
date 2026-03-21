@@ -259,6 +259,11 @@
   height: 29px;
 }
 
+.office-room__agent-sprite--guest-animated {
+  width: 66px;
+  height: 66px;
+}
+
 .state-researching .office-room__agent-sprite,
 .state-executing .office-room__agent-sprite {
   filter: drop-shadow(0 10px 16px rgba(9, 11, 32, 0.22)) saturate(1.06);
@@ -635,6 +640,11 @@
   .office-room__agent-sprite--alert {
     width: 64px;
     height: 64px;
+  }
+
+  .office-room__agent-sprite--guest-animated {
+    width: 60px;
+    height: 60px;
   }
 
   .office-room__content.has-editor {

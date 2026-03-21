@@ -13,6 +13,12 @@ import starIdleAsset from '../../assets/office/star-office/star-idle-v5.png';
 import starWorkingAsset from '../../assets/office/star-office/star-working-spritesheet-grid.webp';
 import errorBugAsset from '../../assets/office/star-office/error-bug-spritesheet-grid.webp';
 import catsAsset from '../../assets/office/star-office/cats-spritesheet.webp';
+import guestAnim1Asset from '../../assets/office/star-office/guest_anim_1.webp';
+import guestAnim2Asset from '../../assets/office/star-office/guest_anim_2.webp';
+import guestAnim3Asset from '../../assets/office/star-office/guest_anim_3.webp';
+import guestAnim4Asset from '../../assets/office/star-office/guest_anim_4.webp';
+import guestAnim5Asset from '../../assets/office/star-office/guest_anim_5.webp';
+import guestAnim6Asset from '../../assets/office/star-office/guest_anim_6.webp';
 import guestRole1Asset from '../../assets/office/star-office/guest_role_1.png';
 import guestRole2Asset from '../../assets/office/star-office/guest_role_2.png';
 import guestRole3Asset from '../../assets/office/star-office/guest_role_3.png';
@@ -36,6 +42,12 @@ export const OFFICE_SCENE_ASSET_REGISTRY = {
   errorBug: { key: 'errorBug', url: errorBugAsset, cols: 10, rows: 11 },
   starIdle: { key: 'starIdle', url: starIdleAsset, cols: 8, rows: 6 },
   starWorking: { key: 'starWorking', url: starWorkingAsset, cols: 8, rows: 5 },
+  guestAnim1: { key: 'guestAnim1', url: guestAnim1Asset, cols: 4, rows: 2 },
+  guestAnim2: { key: 'guestAnim2', url: guestAnim2Asset, cols: 4, rows: 2 },
+  guestAnim3: { key: 'guestAnim3', url: guestAnim3Asset, cols: 4, rows: 2 },
+  guestAnim4: { key: 'guestAnim4', url: guestAnim4Asset, cols: 4, rows: 2 },
+  guestAnim5: { key: 'guestAnim5', url: guestAnim5Asset, cols: 4, rows: 2 },
+  guestAnim6: { key: 'guestAnim6', url: guestAnim6Asset, cols: 4, rows: 2 },
   guestRole1: { key: 'guestRole1', url: guestRole1Asset, cols: 2, rows: 1 },
   guestRole2: { key: 'guestRole2', url: guestRole2Asset, cols: 2, rows: 1 },
   guestRole3: { key: 'guestRole3', url: guestRole3Asset, cols: 2, rows: 1 },
@@ -44,20 +56,47 @@ export const OFFICE_SCENE_ASSET_REGISTRY = {
   guestRole6: { key: 'guestRole6', url: guestRole6Asset, cols: 2, rows: 1 },
 };
 
+const GUEST_ANIM_KEYS = ['guestAnim1', 'guestAnim2', 'guestAnim3', 'guestAnim4', 'guestAnim5', 'guestAnim6'];
 const GUEST_ROLE_KEYS = ['guestRole1', 'guestRole2', 'guestRole3', 'guestRole4', 'guestRole5', 'guestRole6'];
+const GUEST_ANIMATION = Object.freeze({
+  fromFrame: 0,
+  toFrame: 7,
+  fps: 8,
+});
 
 export function resolveOfficeSceneAsset(assetKey) {
   if (!assetKey || !OFFICE_SCENE_ASSET_REGISTRY[assetKey]) {
     return null;
   }
 
-  return { ...OFFICE_SCENE_ASSET_REGISTRY[assetKey] };
+  const asset = OFFICE_SCENE_ASSET_REGISTRY[assetKey];
+  return {
+    ...asset,
+    assetUrl: asset.url,
+    asset: asset.url,
+  };
+}
+
+function pickHashedAssetKey(keys = [], agentId) {
+  if (!Array.isArray(keys) || keys.length === 0) {
+    return '';
+  }
+
+  const value = String(agentId || 'guest');
+  const hash = [...value].reduce((accumulator, character) => accumulator + character.charCodeAt(0), 0);
+  return keys[hash % keys.length];
+}
+
+function pickGuestAnimAssetKey(agentId) {
+  return pickHashedAssetKey(GUEST_ANIM_KEYS, agentId);
 }
 
 function pickGuestRoleAssetKey(agentId) {
-  const value = String(agentId || 'guest');
-  const hash = [...value].reduce((accumulator, character) => accumulator + character.charCodeAt(0), 0);
-  return GUEST_ROLE_KEYS[hash % GUEST_ROLE_KEYS.length];
+  return pickHashedAssetKey(GUEST_ROLE_KEYS, agentId);
+}
+
+function resolveGuestFallbackSprite(agentId) {
+  return resolveOfficeSceneAsset(pickGuestRoleAssetKey(agentId)) || resolveOfficeSceneAsset('starIdle');
 }
 
 export function resolveOfficeOccupantSprite(occupant) {
@@ -86,8 +125,17 @@ export function resolveOfficeOccupantSprite(occupant) {
     }
   }
 
+  const guestAnimated = resolveOfficeSceneAsset(pickGuestAnimAssetKey(occupant?.agentId));
+  if (guestAnimated) {
+    return {
+      ...guestAnimated,
+      variant: 'guest-animated',
+      animation: GUEST_ANIMATION,
+    };
+  }
+
   return {
-    ...resolveOfficeSceneAsset(pickGuestRoleAssetKey(occupant?.agentId)),
+    ...resolveGuestFallbackSprite(occupant?.agentId),
     variant: 'guest',
   };
 }

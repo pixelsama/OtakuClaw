@@ -42,6 +42,10 @@ function resolveAnimationFrames(animation = null) {
   return frames;
 }
 
+function resolveSpriteAssetUrl(sprite = {}) {
+  return sprite.assetUrl || sprite.asset || sprite.url || '';
+}
+
 function OfficeDecorLayer({ furniture, layer, isInteractive = false, isSelected = false, isDragging = false, onPointerDown, onSelect }) {
   const animationFrames = useMemo(() => resolveAnimationFrames(layer.animation), [layer.animation]);
   const [displayFrameIndex, setDisplayFrameIndex] = useState(layer.frameIndex || 0);
@@ -114,6 +118,33 @@ function OfficeAreaLabel({ area, count }) {
 
 function OfficeOccupant({ occupant }) {
   const sprite = resolveOfficeOccupantSprite(occupant);
+  const animationFrames = useMemo(() => resolveAnimationFrames(sprite.animation), [sprite.animation]);
+  const [displayFrameIndex, setDisplayFrameIndex] = useState(sprite.frameIndex || 0);
+
+  useEffect(() => {
+    if (!animationFrames.length) {
+      setDisplayFrameIndex(sprite.frameIndex || 0);
+      return () => {};
+    }
+
+    let currentFramePointer = 0;
+    const fps = Number(sprite.animation?.fps);
+    const frameDurationMs = Math.max(50, Math.round(1000 / (Number.isFinite(fps) && fps > 0 ? fps : 8)));
+    setDisplayFrameIndex(animationFrames[0]);
+    const timer = globalThis.setInterval(() => {
+      currentFramePointer = (currentFramePointer + 1) % animationFrames.length;
+      setDisplayFrameIndex(animationFrames[currentFramePointer]);
+    }, frameDurationMs);
+
+    return () => {
+      globalThis.clearInterval(timer);
+    };
+  }, [animationFrames, sprite.animation?.fps, sprite.frameIndex]);
+
+  const backgroundPosition = useMemo(
+    () => resolveBackgroundPosition(displayFrameIndex, sprite.cols, sprite.rows),
+    [displayFrameIndex, sprite.cols, sprite.rows],
+  );
 
   return (
     <div
@@ -134,7 +165,8 @@ function OfficeOccupant({ occupant }) {
           `mood-${occupant.mood}`,
         ].filter(Boolean).join(' ')}
         style={{
-          backgroundImage: `url(${sprite.asset})`,
+          backgroundImage: `url(${resolveSpriteAssetUrl(sprite)})`,
+          backgroundPosition: `${backgroundPosition.x}% ${backgroundPosition.y}%`,
           '--office-cols': sprite.cols,
           '--office-rows': sprite.rows,
         }}

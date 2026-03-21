@@ -7,6 +7,7 @@ import {
   resolveOfficeSceneEditorState,
   resolveOfficeSceneState,
 } from '../src/components/office/officeSceneConfig.js';
+import { resolveOfficeOccupantSprite } from '../src/components/office/officeSceneAssets.js';
 
 describe('derivePrimaryOfficeAgent', () => {
   it('maps streaming state to writing and download activity to syncing', () => {
@@ -262,6 +263,34 @@ describe('resolveOfficeSceneState', () => {
       hidden: true,
       isVisible: false,
     });
+  });
+});
+
+describe('resolveOfficeOccupantSprite', () => {
+  it('prefers animated guest art for non-primary occupants and keeps static fallback available', () => {
+    const guestSprite = resolveOfficeOccupantSprite({
+      agentId: 'guest-7',
+      isPrimary: false,
+    });
+
+    expect(guestSprite).toMatchObject({
+      variant: 'guest-animated',
+      cols: 4,
+      rows: 2,
+      animation: { fromFrame: 0, toFrame: 7, fps: 8 },
+    });
+    expect(guestSprite.assetUrl).toContain('guest_anim_');
+  });
+
+  it('keeps the primary occupant on the working/idle art path', () => {
+    const primarySprite = resolveOfficeOccupantSprite({
+      agentId: 'main',
+      isPrimary: true,
+      businessState: 'idle',
+    });
+
+    expect(primarySprite.variant).toBe('idle');
+    expect(primarySprite.assetUrl).toBeTruthy();
   });
 });
 
