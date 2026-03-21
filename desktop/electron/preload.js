@@ -139,6 +139,33 @@ const office = {
   },
 };
 
+const valueState = {
+  getState(request) {
+    return ipcRenderer.invoke('value-state:get', request);
+  },
+  setState(request) {
+    return ipcRenderer.invoke('value-state:update', request);
+  },
+  upsert(request) {
+    return ipcRenderer.invoke('value-state:upsert', request);
+  },
+  propose(request) {
+    return ipcRenderer.invoke('value-state:propose', request);
+  },
+  update(request) {
+    return ipcRenderer.invoke('value-state:update', request);
+  },
+  applyInteraction(request) {
+    return ipcRenderer.invoke('value-state:apply-interaction', request);
+  },
+  onEvent(handler) {
+    return onChannel('value-state:changed', handler);
+  },
+  onChanged(handler) {
+    return onChannel('value-state:changed', handler);
+  },
+};
+
 const windowMode = {
   setMode(mode) {
     return ipcRenderer.invoke('pet:set-mode', { mode });
@@ -305,6 +332,7 @@ contextBridge.exposeInMainWorld('desktop', {
   nanobotRuntime,
   nanobotSkills,
   office,
+  valueState,
   windowMode,
   windowControls,
   voice,

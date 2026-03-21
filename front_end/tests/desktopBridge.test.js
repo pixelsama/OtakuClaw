@@ -84,11 +84,12 @@ describe('desktopBridge conversation-only routing', () => {
     });
 
     expect(chatHandler).toHaveBeenCalledTimes(1);
-    expect(chatHandler).toHaveBeenCalledWith({
+    expect(chatHandler).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'chat',
       streamId: 'stream-1',
       type: 'text-delta',
       payload: { content: 'hello' },
-    });
+    }));
     off();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
@@ -165,6 +166,111 @@ describe('desktopBridge conversation-only routing', () => {
     });
 
     off();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves conversation metadata and fans out stat updates to value state listeners', async () => {
+    const unsubscribe = vi.fn();
+    let listener = null;
+    globalThis.window = {
+      desktop: {
+        isElectron: true,
+        conversation: {
+          onEvent: vi.fn((handler) => {
+            listener = handler;
+            return unsubscribe;
+          }),
+        },
+      },
+    };
+
+    await desktopBridge.valueState.setState({
+      revision: 0,
+      updatedAt: '',
+      agentId: '',
+      routeKey: '',
+      sessionId: '',
+      stats: {},
+      lastEvent: null,
+    });
+
+    const valueEvents = [];
+    const offValue = desktopBridge.valueState.onEvent((event) => {
+      valueEvents.push(event);
+    });
+    valueEvents.length = 0;
+
+    const conversationEvents = [];
+    const offConversation = desktopBridge.conversation.onEvent((event) => {
+      conversationEvents.push(event);
+    });
+
+    listener?.({
+      channel: 'system',
+      type: 'stat-updated',
+      agentId: 'main',
+      backend: 'nanobot',
+      routeKey: 'main:nanobot:default',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      timestamp: '2026-03-21T00:00:00.000Z',
+      payload: {
+        stats: {
+          mood: 12,
+          affinity: 330,
+        },
+      },
+    });
+
+    expect(conversationEvents).toHaveLength(1);
+    expect(conversationEvents[0]).toEqual(expect.objectContaining({
+      channel: 'system',
+      type: 'stat-updated',
+      agentId: 'main',
+      backend: 'nanobot',
+      routeKey: 'main:nanobot:default',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+    }));
+
+    expect(valueEvents).toHaveLength(1);
+    expect(valueEvents[0]).toEqual(expect.objectContaining({
+      channel: 'value',
+      type: 'state-changed',
+      payload: expect.objectContaining({
+        revision: 1,
+        agentId: 'main',
+        routeKey: 'main:nanobot:default',
+        sessionId: 'session-1',
+        stats: {
+          mood: 12,
+          affinity: 330,
+        },
+        lastEvent: expect.objectContaining({
+          channel: 'value',
+          type: 'stat-updated',
+        }),
+      }),
+    }));
+
+    const valueState = await desktopBridge.valueState.getState();
+    expect(valueState.stats).toEqual({
+      mood: 12,
+      affinity: 330,
+    });
+
+    await desktopBridge.valueState.setState({
+      revision: 0,
+      updatedAt: '',
+      agentId: '',
+      routeKey: '',
+      sessionId: '',
+      stats: {},
+      lastEvent: null,
+    });
+
+    offConversation();
+    offValue();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 });
@@ -336,10 +442,10 @@ describe('desktopBridge office bridge', () => {
     });
 
     expect(officeHandler).toHaveBeenCalledTimes(1);
-    expect(officeHandler).toHaveBeenCalledWith({
+    expect(officeHandler).toHaveBeenCalledWith(expect.objectContaining({
       channel: 'office',
       type: 'update',
-      payload: {
+      payload: expect.objectContaining({
         revision: 2,
         activeAgentId: 'main',
         agents: [
@@ -348,8 +454,8 @@ describe('desktopBridge office bridge', () => {
             businessState: 'syncing',
           }),
         ],
-      },
-    });
+      }),
+    }));
 
     off();
     expect(unsubscribe).toHaveBeenCalledTimes(1);

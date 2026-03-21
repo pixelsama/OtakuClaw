@@ -13,6 +13,19 @@ function coerceBackendName(value) {
   return normalized;
 }
 
+function resolveProfileBackend(profile = {}) {
+  if (!profile || typeof profile !== 'object') {
+    return '';
+  }
+
+  return coerceBackendName(
+    profile.backend
+      || profile.chatBackend
+      || profile.engine
+      || profile.provider,
+  );
+}
+
 function createUnsupportedBackendError(backend) {
   const error = new Error(`Unsupported chat backend: ${backend || 'unknown'}`);
   error.code = 'chat_backend_unsupported';
@@ -40,7 +53,31 @@ class ChatBackendManager {
     this.backends.set(name, backend);
   }
 
-  resolveBackendName({ settings = {}, requestBackend } = {}) {
+  resolveBackendName({
+    settings = {},
+    requestBackend,
+    requestProfile,
+    requestProfileId = '',
+    agentProfile,
+  } = {}) {
+    const fromExplicitProfile =
+      resolveProfileBackend(requestProfile)
+      || resolveProfileBackend(agentProfile);
+    if (fromExplicitProfile) {
+      return this.requireBackend(fromExplicitProfile);
+    }
+
+    const settingsProfiles =
+      settings && typeof settings.agentProfiles === 'object' && !Array.isArray(settings.agentProfiles)
+        ? settings.agentProfiles
+        : {};
+    const settingsProfile =
+      (requestProfileId && settingsProfiles[requestProfileId]) || {};
+    const fromSettingsProfile = resolveProfileBackend(settingsProfile);
+    if (fromSettingsProfile) {
+      return this.requireBackend(fromSettingsProfile);
+    }
+
     const fromRequest = coerceBackendName(requestBackend);
     if (fromRequest) {
       return this.requireBackend(fromRequest);

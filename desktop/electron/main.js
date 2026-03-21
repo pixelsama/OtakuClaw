@@ -15,6 +15,7 @@ const {
 const { registerChatStreamIpc } = require('./ipc/chatStream');
 const { registerConversationIpc } = require('./ipc/conversation');
 const { registerOfficeStateIpc } = require('./ipc/officeState');
+const { registerValueStateIpc } = require('./ipc/valueState');
 const { registerLive2DModelsIpc } = require('./ipc/live2dModels');
 const { registerAppUpdaterIpc } = require('./ipc/appUpdater');
 const { registerNanobotSkillsIpc } = require('./ipc/nanobotSkills');
@@ -33,6 +34,8 @@ const { createOfficePresenceProducer } = require('./services/officePresenceProdu
 const { PythonEnvManager } = require('./services/python/pythonEnvManager');
 const { PythonRuntimeManager } = require('./services/python/pythonRuntimeManager');
 const { createOfficeStateStore } = require('./services/officeStateStore');
+const { createValueStateStore } = require('./services/valueState/valueStateStore');
+const { createValueProposalService } = require('./services/valueState/valueProposalService');
 const { SettingsStore } = require('./services/settingsStore');
 const { AppUpdaterService } = require('./services/appUpdaterService');
 const { ScreenshotCaptureService } = require('./services/screenshotCaptureService');
@@ -59,6 +62,7 @@ let mainWindow = null;
 let disposeChatStreamHandlers = null;
 let disposeConversationHandlers = null;
 let disposeOfficeStateHandlers = null;
+let disposeValueStateHandlers = null;
 let disposeModeHandlers = null;
 let disposeLive2DModelsHandlers = null;
 let disposeAppUpdaterHandlers = null;
@@ -71,6 +75,8 @@ let startChatStreamFromMain = null;
 let conversationRuntime = null;
 let officeStateStore = null;
 let officePresenceProducer = null;
+let valueStateStore = null;
+let valueProposalService = null;
 let settingsStore = null;
 let windowModeManager = null;
 let trayManager = null;
@@ -86,6 +92,7 @@ let isQuitting = false;
 let chatBackendManager = null;
 let appUpdaterService = null;
 let disposeOfficeStateSubscription = null;
+let disposeValueStateSubscription = null;
 const PINNED_NANOBOT_ARCHIVE_URL = 'https://codeload.github.com/HKUDS/nanobot/tar.gz/refs/tags/v0.1.4.post4';
 const legacyConversationMirrorEnabled = (() => {
   const value = process.env.OPENCLAW_ENABLE_LEGACY_STREAM_EVENTS;
@@ -241,6 +248,120 @@ function sendOfficeStateChange(payload = {}) {
   }
 
   mainWindow.webContents.send('office-state:changed', payload);
+}
+
+function sendValueStateChange(payload = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  mainWindow.webContents.send('value-state:changed', payload);
+}
+
+function normalizeMainText(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeMainAgentId(value) {
+  return normalizeMainText(value) || 'main';
+}
+
+function normalizeMainBackendName(value) {
+  const normalized = normalizeMainText(value).toLowerCase();
+  if (!normalized) {
+    return 'nanobot';
+  }
+
+  if (normalized === 'openclaw') {
+    return 'nanobot';
+  }
+
+  return normalized;
+}
+
+function buildOfficeConversationUpdate(event = {}) {
+  if (!event || typeof event !== 'object' || event.channel !== 'chat') {
+    return null;
+  }
+
+  const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
+  const eventType = normalizeMainText(event.type).toLowerCase();
+  const agentId = normalizeMainAgentId(event.agentId || payload.agentId);
+  const backend = normalizeMainBackendName(event.backend || payload.backend);
+  const routeKey = normalizeMainText(event.routeKey || payload.routeKey);
+  const sessionId = normalizeMainText(event.sessionId || payload.sessionId);
+  const sessionNamespace = normalizeMainText(event.sessionNamespace || payload.sessionNamespace || sessionId);
+  const profileId = normalizeMainText(event.profileId || payload.profileId);
+  const turnId = normalizeMainText(event.turnId || payload.turnId || event.streamId || payload.streamId);
+  const activeState =
+    normalizeMainText(payload.businessState || payload.state || payload.activity || payload.status)
+    || (eventType === 'error' ? 'error' : eventType === 'done' ? 'idle' : eventType === 'stream-start' ? 'writing' : '');
+  const detail =
+    normalizeMainText(payload.detail || payload.message || payload.text || payload.content)
+    || (eventType === 'error' ? 'stream error' : eventType === 'done' ? 'stream complete' : '');
+
+  if (!agentId) {
+    return null;
+  }
+
+  if (!['stream-start', 'agent-state', 'done', 'error', 'text-delta'].includes(eventType)) {
+    return null;
+  }
+
+  return {
+    channel: 'office',
+    type: 'upsert',
+    payload: {
+      activeAgentId: agentId,
+      agent: {
+        id: agentId,
+        agentId,
+        backend,
+        routeKey,
+        sessionId,
+        sessionNamespace,
+        profileId,
+        turnId,
+        businessState: activeState || 'writing',
+        detail,
+        updatedAt: event.timestamp || new Date().toISOString(),
+      },
+    },
+  };
+}
+
+function buildValueProposalUpdate(event = {}) {
+  if (!event || typeof event !== 'object' || event.channel !== 'chat') {
+    return null;
+  }
+
+  const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
+  const statUpdates =
+    Array.isArray(payload.statUpdates)
+      ? payload.statUpdates
+      : Array.isArray(payload.stat_updates)
+        ? payload.stat_updates
+        : Array.isArray(payload.proposal?.statUpdates)
+          ? payload.proposal.statUpdates
+          : Array.isArray(payload.proposal?.stat_updates)
+            ? payload.proposal.stat_updates
+            : [];
+
+  if (!statUpdates.length) {
+    return null;
+  }
+
+  return {
+    agentId: normalizeMainAgentId(event.agentId || payload.agentId),
+    characterId: normalizeMainText(event.characterId || payload.characterId || payload.avatarId) || 'default-character',
+    routeKey: normalizeMainText(event.routeKey || payload.routeKey),
+    sessionId: normalizeMainText(event.sessionId || payload.sessionId),
+    sessionNamespace: normalizeMainText(event.sessionNamespace || payload.sessionNamespace),
+    profileId: normalizeMainText(event.profileId || payload.profileId),
+    turnId: normalizeMainText(event.turnId || payload.turnId || event.streamId || payload.streamId),
+    source: normalizeMainText(event.source || payload.source || 'conversation'),
+    statUpdates,
+  };
 }
 
 function getRendererDevUrl() {
@@ -497,6 +618,13 @@ async function bootstrap() {
   });
   await voiceModelLibrary.init();
   officeStateStore = createOfficeStateStore();
+  valueStateStore = createValueStateStore({
+    app,
+  });
+  await valueStateStore.init();
+  valueProposalService = createValueProposalService({
+    valueStateStore,
+  });
   officePresenceProducer = createOfficePresenceProducer({
     officeStateStore,
   });
@@ -541,6 +669,11 @@ async function bootstrap() {
     ipcMain,
     officeStateStore,
     officePresenceProducer,
+  });
+  disposeValueStateHandlers = registerValueStateIpc({
+    ipcMain,
+    valueStateStore,
+    valueProposalService,
   });
   appUpdaterService = new AppUpdaterService({
     app,
@@ -715,15 +848,50 @@ async function bootstrap() {
       return chatStreamControl.abort({ streamId });
     },
     emitConversationEvent: (payload) => {
-      if (payload?.channel === 'office') {
-        officePresenceProducer?.applyConversationEvent?.(payload);
+      const conversationEvent = payload && typeof payload === 'object' ? payload : {};
+      if (conversationEvent.channel === 'chat') {
+        const officeEvent = buildOfficeConversationUpdate(conversationEvent);
+        if (officeEvent) {
+          officeStateStore?.applyConversationEvent?.(officeEvent);
+        }
+
+        const valueProposal = buildValueProposalUpdate(conversationEvent);
+        if (valueProposal) {
+          void valueProposalService?.applyProposal?.(valueProposal).then((result) => {
+            if (!result?.ok || !result?.changed || !mainWindow || mainWindow.isDestroyed()) {
+              return;
+            }
+
+            mainWindow.webContents.send('conversation:event', {
+              channel: 'system',
+              type: 'stat-updated',
+              timestamp: new Date().toISOString(),
+              agentId: valueProposal.agentId,
+              routeKey: valueProposal.routeKey,
+              sessionId: valueProposal.sessionId,
+              turnId: valueProposal.turnId,
+              payload: {
+                agentId: valueProposal.agentId,
+                routeKey: valueProposal.routeKey,
+                sessionId: valueProposal.sessionId,
+                turnId: valueProposal.turnId,
+                stats: result?.state?.stats || {},
+                statUpdates: valueProposal.statUpdates || [],
+              },
+            });
+          }).catch((error) => {
+            console.warn('Failed to apply value proposal from chat event:', error);
+          });
+        }
+      } else if (conversationEvent.channel === 'office') {
+        officePresenceProducer?.applyConversationEvent?.(conversationEvent);
       }
 
       if (!mainWindow || mainWindow.isDestroyed()) {
         return;
       }
 
-      mainWindow.webContents.send('conversation:event', payload);
+      mainWindow.webContents.send('conversation:event', conversationEvent);
     },
   });
   disposeConversationHandlers = registerConversationIpc({
@@ -793,6 +961,21 @@ async function bootstrap() {
         mutation,
       });
     }) || null;
+  disposeValueStateSubscription =
+    valueStateStore?.subscribe?.((state, mutation) => {
+      sendValueStateChange({
+        channel: 'value',
+        type: mutation?.type || 'state-changed',
+        timestamp: mutation?.event?.timestamp || state?.updatedAt || new Date().toISOString(),
+        agentId: state?.agentId || mutation?.agentId || '',
+        routeKey: state?.routeKey || mutation?.event?.routeKey || '',
+        sessionId: state?.sessionId || mutation?.event?.sessionId || '',
+        payload: {
+          ...(state || {}),
+          lastEvent: mutation?.event || state?.lastEvent || null,
+        },
+      });
+    }) || null;
   registerGlobalVoiceToggleShortcut();
   if (disposeVoiceSessionHandlers && typeof disposeVoiceSessionHandlers.warmupRuntime === 'function') {
     Promise.resolve(
@@ -844,6 +1027,9 @@ app.on('before-quit', () => {
   if (disposeOfficeStateHandlers) {
     disposeOfficeStateHandlers();
   }
+  if (disposeValueStateHandlers) {
+    disposeValueStateHandlers();
+  }
   if (disposeChatStreamHandlers) {
     disposeChatStreamHandlers();
   }
@@ -877,9 +1063,19 @@ app.on('before-quit', () => {
     disposeOfficeStateSubscription();
     disposeOfficeStateSubscription = null;
   }
+  if (disposeValueStateSubscription) {
+    disposeValueStateSubscription();
+    disposeValueStateSubscription = null;
+  }
   if (officePresenceProducer) {
     officePresenceProducer.dispose();
     officePresenceProducer = null;
+  }
+  if (valueStateStore) {
+    valueStateStore = null;
+  }
+  if (valueProposalService) {
+    valueProposalService = null;
   }
   if (chatBackendManager) {
     void chatBackendManager.dispose();
@@ -903,6 +1099,15 @@ app.on('before-quit', () => {
   ipcMain.removeHandler('office-state:get');
   ipcMain.removeHandler('office-state:upsert');
   ipcMain.removeHandler('office-state:update');
+  ipcMain.removeHandler('office-state:presence');
+  ipcMain.removeHandler('office-state:heartbeat');
+  ipcMain.removeHandler('office-state:remove');
+  ipcMain.removeHandler('office-state:set-active');
+  ipcMain.removeHandler('value-state:get');
+  ipcMain.removeHandler('value-state:upsert');
+  ipcMain.removeHandler('value-state:propose');
+  ipcMain.removeHandler('value-state:update');
+  ipcMain.removeHandler('value-state:apply-interaction');
   try {
     protocol.unhandle(MODEL_PROTOCOL);
   } catch {

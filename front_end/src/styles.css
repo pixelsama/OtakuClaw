@@ -582,6 +582,17 @@ html[data-browser-engine="chromium"] .live2d-stage.pet-mode .pet-workspace-glass
     radial-gradient(circle at top center, rgba(255, 248, 235, 0.94), rgba(230, 239, 251, 0.98) 54%, rgba(212, 221, 236, 1) 100%);
 }
 
+.live2d-stage.window-mode.window-view-immersive {
+  background:
+    radial-gradient(circle at top center, rgba(108, 158, 255, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(6, 11, 28, 0.98), rgba(13, 20, 44, 0.98));
+}
+
+.live2d-stage.window-mode.window-view-immersive .config-toggle,
+.live2d-stage.window-mode.window-view-immersive .window-bottom-controls {
+  filter: drop-shadow(0 14px 28px rgba(3, 8, 23, 0.35));
+}
+
 .live2d-canvas {
   width: 100%;
   height: 100%;

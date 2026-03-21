@@ -486,8 +486,27 @@ function normalizeString(value, fallback = '') {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
 }
 
+function normalizeOptionalNumber(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeOptionalObject(value) {
+  return isObject(value) ? { ...value } : null;
 }
 
 function normalizeLabels(labels = {}) {
@@ -942,6 +961,10 @@ export function normalizeOfficeAgent(agent = {}, fallbackId = OFFICE_PRIMARY_AGE
     role: normalizeString(source.role, agentId === OFFICE_PRIMARY_AGENT_ID ? 'primary' : 'support'),
     updatedAt: normalizeString(source.updatedAt, ''),
     isPrimary: source.isPrimary !== false && agentId === normalizeString(source.activeAgentId || agentId, agentId),
+    mood: normalizeOptionalNumber(source.mood),
+    affinity: normalizeOptionalNumber(source.affinity),
+    stats: normalizeOptionalObject(source.stats),
+    valueState: normalizeOptionalObject(source.valueState),
   };
 }
 
@@ -972,6 +995,10 @@ export function normalizeOfficeState(state = {}) {
           role: 'primary',
           updatedAt: '',
           isPrimary: true,
+          mood: null,
+          affinity: null,
+          stats: null,
+          valueState: null,
         },
       ];
 

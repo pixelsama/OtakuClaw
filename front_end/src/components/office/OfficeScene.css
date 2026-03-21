@@ -215,10 +215,25 @@
   transform: translate(-50%, -50%);
   transition: left 260ms ease, top 260ms ease, transform 180ms ease;
   z-index: 18;
+  outline: none;
 }
 
 .office-room__occupant.is-primary {
   z-index: 22;
+}
+
+.office-room__occupant.is-clickable {
+  cursor: pointer;
+}
+
+.office-room__occupant.is-clickable:hover,
+.office-room__occupant.is-clickable:focus-visible {
+  transform: translate(-50%, -50%) scale(1.02);
+}
+
+.office-room__occupant.is-clickable:hover .office-room__agent-name,
+.office-room__occupant.is-clickable:focus-visible .office-room__agent-name {
+  color: #fff8bf;
 }
 
 .office-room__agent-shadow {

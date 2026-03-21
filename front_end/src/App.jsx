@@ -57,6 +57,9 @@ function AppContent({ desktopMode }) {
   const [officeSceneLayout, setOfficeSceneLayout] = useState(() => normalizeOfficeSceneLayout());
   const [officeActivityHint, setOfficeActivityHint] = useState(null);
   const [officePreviewMode, setOfficePreviewMode] = useState('live');
+  const [mainWindowViewMode, setMainWindowViewMode] = useState('avatar');
+  const [immersiveContext, setImmersiveContext] = useState(null);
+  const [valueStateSnapshot, setValueStateSnapshot] = useState(null);
   const [builtinTtsEnabled, setBuiltinTtsEnabled] = useState(false);
   const [firstRunOnboardingOpen, setFirstRunOnboardingOpen] = useState(false);
   const [officeLayoutLoaded, setOfficeLayoutLoaded] = useState(!desktopMode);
@@ -736,6 +739,44 @@ function AppContent({ desktopMode }) {
   }, [desktopMode]);
 
   useEffect(() => {
+    let cancelled = false;
+    const trackedAgentId =
+      typeof immersiveContext?.agentId === 'string' && immersiveContext.agentId.trim()
+        ? immersiveContext.agentId.trim()
+        : OFFICE_PRIMARY_AGENT_ID;
+
+    const applyValueState = (nextState) => {
+      if (!cancelled) {
+        setValueStateSnapshot(nextState || null);
+      }
+    };
+
+    void desktopBridge.valueState.getState({
+      agentId: trackedAgentId,
+    }).then((result = {}) => {
+      applyValueState(result?.state || result || null);
+    }).catch(() => {});
+
+    const detach = desktopBridge.valueState.onEvent((event = {}) => {
+      const nextState = event?.payload || event || null;
+      const eventAgentId =
+        typeof nextState?.agentId === 'string' && nextState.agentId.trim()
+          ? nextState.agentId.trim()
+          : OFFICE_PRIMARY_AGENT_ID;
+      if (eventAgentId !== trackedAgentId) {
+        return;
+      }
+
+      applyValueState(nextState);
+    });
+
+    return () => {
+      cancelled = true;
+      detach?.();
+    };
+  }, [immersiveContext?.agentId]);
+
+  useEffect(() => {
     void desktopBridge.office.publishPresence({
       source: 'renderer-primary',
       activeAgentId: OFFICE_PRIMARY_AGENT_ID,
@@ -920,10 +961,87 @@ function AppContent({ desktopMode }) {
         return;
       }
 
+      if (nextMode === MODE_PET) {
+        setMainWindowViewMode('avatar');
+        setImmersiveContext(null);
+      }
+
       await setMode(nextMode);
     },
     [desktopMode, setMode],
   );
+
+  const handleWindowViewModeChange = useCallback((nextMode) => {
+    setMainWindowViewMode(nextMode);
+    if (nextMode === 'avatar') {
+      setImmersiveContext(null);
+    }
+  }, []);
+
+  const handleOpenImmersiveMode = useCallback((payload = {}) => {
+    const agent = payload.agent && typeof payload.agent === 'object' ? payload.agent : null;
+    const sourceAreaId = typeof payload.areaId === 'string' ? payload.areaId.trim() : '';
+    const scene = payload.scene && typeof payload.scene === 'object' ? payload.scene : null;
+    const sourceArea = sourceAreaId && scene?.config?.areas?.[sourceAreaId]
+      ? scene.config.areas[sourceAreaId]
+      : null;
+
+    setImmersiveContext({
+      agentId: typeof payload.agentId === 'string' && payload.agentId.trim()
+        ? payload.agentId.trim()
+        : agent?.agentId || OFFICE_PRIMARY_AGENT_ID,
+      agent,
+      sourceAreaId,
+      sourceAreaLabel:
+        typeof sourceArea?.label === 'string' && sourceArea.label.trim()
+          ? sourceArea.label.trim()
+          : sourceAreaId,
+      sourceAreaDetail:
+        typeof agent?.detail === 'string' && agent.detail.trim()
+          ? agent.detail.trim()
+          : typeof scene?.caption === 'string'
+            ? scene.caption.trim()
+            : '',
+      sceneTitle: typeof scene?.title === 'string' ? scene.title.trim() : '',
+    });
+    setMainWindowViewMode('immersive');
+    void desktopBridge.office.setActiveAgent(agent?.agentId || payload.agentId || OFFICE_PRIMARY_AGENT_ID).catch(() => {});
+  }, []);
+
+  const handleExitImmersiveMode = useCallback(() => {
+    setMainWindowViewMode('office');
+  }, []);
+
+  const handleImmersiveAction = useCallback((actionType, context) => {
+    if (actionType === 'conversation') {
+      openChatPanel();
+      return;
+    }
+
+    if (actionType === 'feed' || actionType === 'interaction') {
+      const agentId =
+        typeof context?.agent?.agentId === 'string' && context.agent.agentId.trim()
+          ? context.agent.agentId.trim()
+          : immersiveContext?.agentId || OFFICE_PRIMARY_AGENT_ID;
+      void desktopBridge.valueState.applyInteraction({
+        actionType,
+        agentId,
+        characterId: agentId,
+        routeKey:
+          typeof context?.immersiveContext?.routeKey === 'string'
+            ? context.immersiveContext.routeKey
+            : '',
+        sessionId:
+          typeof context?.immersiveContext?.sessionId === 'string'
+            ? context.immersiveContext.sessionId
+            : '',
+      }).then((nextState) => {
+        setValueStateSnapshot(nextState || null);
+      }).catch((error) => {
+        console.warn('Immersive value interaction failed:', error);
+      });
+    }
+  }, [immersiveContext?.agentId, openChatPanel]);
 
   const updatePetHover = useCallback(
     (componentId, isHovering) => {
@@ -1057,6 +1175,13 @@ function AppContent({ desktopMode }) {
           voicePermissionWarningText={voicePermissionWarningText}
           officeScene={officeScene}
           officeEditor={officeEditor}
+          windowViewMode={mainWindowViewMode}
+          onWindowViewModeChange={handleWindowViewModeChange}
+          immersiveContext={immersiveContext}
+          valueSnapshot={valueStateSnapshot}
+          onOpenImmersiveMode={handleOpenImmersiveMode}
+          onExitImmersiveMode={handleExitImmersiveMode}
+          onImmersiveAction={handleImmersiveAction}
         />
       )}
 

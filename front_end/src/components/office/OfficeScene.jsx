@@ -116,7 +116,7 @@ function OfficeAreaLabel({ area, count }) {
   );
 }
 
-function OfficeOccupant({ occupant }) {
+function OfficeOccupant({ occupant, onClick }) {
   const sprite = resolveOfficeOccupantSprite(occupant);
   const animationFrames = useMemo(() => resolveAnimationFrames(sprite.animation), [sprite.animation]);
   const [displayFrameIndex, setDisplayFrameIndex] = useState(sprite.frameIndex || 0);
@@ -146,6 +146,17 @@ function OfficeOccupant({ occupant }) {
     [displayFrameIndex, sprite.cols, sprite.rows],
   );
 
+  const handleKeyDown = (event) => {
+    if (typeof onClick !== 'function') {
+      return;
+    }
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onClick(event);
+    }
+  };
+
   return (
     <div
       className={[
@@ -153,9 +164,17 @@ function OfficeOccupant({ occupant }) {
         `palette-${occupant.palette}`,
         occupant.isPrimary ? 'is-primary' : '',
         `state-${occupant.businessState}`,
+        typeof onClick === 'function' ? 'is-clickable' : '',
       ].filter(Boolean).join(' ')}
       style={{ left: `${occupant.slot.x}%`, top: `${occupant.slot.y}%` }}
       title={`${occupant.displayName}: ${occupant.businessState}`}
+      role={typeof onClick === 'function' ? 'button' : undefined}
+      tabIndex={typeof onClick === 'function' ? 0 : undefined}
+      aria-label={typeof onClick === 'function'
+        ? `${occupant.displayName} ${occupant.businessState}`
+        : undefined}
+      onClick={onClick}
+      onKeyDown={handleKeyDown}
     >
       <div className="office-room__agent-shadow" aria-hidden="true" />
       <div
@@ -185,6 +204,7 @@ export default function OfficeScene({
   className = '',
   variant = 'dock',
   editor = null,
+  onAgentClick = null,
 }) {
   const stageRef = useRef(null);
   const dragStateRef = useRef(null);
@@ -338,7 +358,24 @@ export default function OfficeScene({
                 );
               })}
               {occupants.map((occupant) => (
-                <OfficeOccupant key={occupant.agentId} occupant={occupant} />
+                <OfficeOccupant
+                  key={occupant.agentId}
+                  occupant={occupant}
+                  onClick={
+                    typeof onAgentClick === 'function'
+                      ? (event) => {
+                          event?.preventDefault?.();
+                          onAgentClick({
+                            agent: occupant,
+                            agentId: occupant.agentId,
+                            areaId: occupant.areaId,
+                            slot: occupant.slot,
+                            scene,
+                          });
+                        }
+                      : null
+                  }
+                />
               ))}
             </div>
             <div className="office-room__plaque">{primaryAgent?.detail || caption || labels.multiAgentReady}</div>

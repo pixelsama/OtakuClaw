@@ -318,9 +318,25 @@ function registerChatStreamIpc({
       state,
     );
 
+    const fallbackBackend = typeof request.backend === 'string' && request.backend.trim()
+      ? request.backend.trim()
+      : '';
+    const settingsBackend =
+      (() => {
+        try {
+          return backendManager.resolveBackendName({
+            settings: getSettings(),
+            requestBackend: fallbackBackend,
+          });
+        } catch {
+          return '';
+        }
+      })();
+
     return {
       ok: true,
       streamId,
+      backend: fallbackBackend || settingsBackend || 'nanobot',
     };
   };
 
@@ -330,7 +346,10 @@ function registerChatStreamIpc({
       throw new Error('content is required');
     }
 
-    return { streamId: result.streamId };
+    return {
+      streamId: result.streamId,
+      backend: result.backend || '',
+    };
   });
 
   ipcMain.handle('chat:stream:abort', async (_event, request = {}) => {

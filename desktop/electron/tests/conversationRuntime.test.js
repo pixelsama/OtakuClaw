@@ -130,3 +130,63 @@ test('conversation runtime mirrors chat and voice events to conversation:event e
   assert.equal(emitted[1].segmentId, 'turn-1:0');
   assert.ok(typeof emitted[1].timestamp === 'string' && emitted[1].timestamp);
 });
+
+test('conversation runtime isolates streams by routeKey and enriches chat envelopes', async () => {
+  const emitted = [];
+  const aborted = [];
+  const startedRequests = [];
+  let streamSeq = 0;
+  const runtime = createConversationRuntime({
+    startChatStream: async (request = {}) => {
+      streamSeq += 1;
+      startedRequests.push(request);
+      return {
+        ok: true,
+        streamId: `stream-${streamSeq}`,
+        backend: request.backend,
+      };
+    },
+    abortChatStream: async ({ streamId }) => {
+      aborted.push(streamId);
+      return { ok: true };
+    },
+    emitConversationEvent: (payload) => emitted.push(payload),
+  });
+
+  const first = await runtime.submitUserText({
+    sessionId: 'shared-session',
+    agentId: 'agent-a',
+    backend: 'nanobot',
+    content: 'hello',
+  });
+  const second = await runtime.submitUserText({
+    sessionId: 'shared-session',
+    agentId: 'agent-b',
+    backend: 'nanobot',
+    content: 'world',
+  });
+
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  assert.equal(aborted.length, 0);
+  assert.equal(startedRequests.length, 2);
+  assert.notEqual(startedRequests[0].routeKey, startedRequests[1].routeKey);
+
+  runtime.onChatStreamEvent({
+    streamId: first.streamId,
+    type: 'text-delta',
+    payload: {
+      content: 'hello',
+    },
+  });
+
+  const textDeltaEvent = emitted.find((event) => event.type === 'text-delta');
+  assert.equal(textDeltaEvent.channel, 'chat');
+  assert.equal(textDeltaEvent.agentId, 'agent-a');
+  assert.equal(textDeltaEvent.backend, 'nanobot');
+  assert.equal(textDeltaEvent.routeKey, startedRequests[0].routeKey);
+  assert.equal(textDeltaEvent.payload.routeKey, startedRequests[0].routeKey);
+  assert.equal(textDeltaEvent.payload.turnId, first.streamId);
+
+  await runtime.dispose();
+});

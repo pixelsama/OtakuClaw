@@ -59,6 +59,40 @@ describe('derivePrimaryOfficeAgent', () => {
   });
 });
 
+describe('normalizeOfficeState', () => {
+  it('preserves optional mood and affinity fields for future value overlays', () => {
+    const state = normalizeOfficeState({
+      revision: 1,
+      activeAgentId: 'main',
+      agents: [
+        {
+          agentId: 'main',
+          displayName: 'Main',
+          businessState: 'idle',
+          detail: 'Standing by.',
+          mood: 12,
+          affinity: '330',
+          stats: {
+            trust: 8,
+          },
+          valueState: {
+            revision: 3,
+          },
+        },
+      ],
+    });
+
+    expect(state.agents[0].mood).toBe(12);
+    expect(state.agents[0].affinity).toBe(330);
+    expect(state.agents[0].stats).toEqual({
+      trust: 8,
+    });
+    expect(state.agents[0].valueState).toEqual({
+      revision: 3,
+    });
+  });
+});
+
 describe('resolveOfficeSceneState', () => {
   it('positions multiple agents into configured room areas', () => {
     const scene = resolveOfficeSceneState({

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Box, Button, IconButton } from '@mui/material';
 import TuneIcon from '@mui/icons-material/Tune';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
@@ -9,7 +9,15 @@ import Live2DViewer from '../components/live2d/Live2DViewer.jsx';
 import SubtitleBar from '../components/subtitle/SubtitleBar.jsx';
 import WindowTitleBar from '../components/window/WindowTitleBar.jsx';
 import OfficeScene from '../components/office/OfficeScene.jsx';
+import ImmersiveLive2DShell from './ImmersiveLive2DShell.jsx';
 import { useI18n } from '../i18n/I18nContext.jsx';
+
+const WINDOW_VIEW_MODES = new Set(['avatar', 'office', 'immersive']);
+
+function normalizeWindowViewMode(value, fallback = 'avatar') {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return WINDOW_VIEW_MODES.has(normalized) ? normalized : fallback;
+}
 
 export default function MainShell({
   desktopMode,
@@ -30,18 +38,67 @@ export default function MainShell({
   voicePermissionWarningText = '',
   officeScene = null,
   officeEditor = null,
+  immersiveContext = null,
+  valueSnapshot = null,
+  windowViewMode = '',
+  onWindowViewModeChange,
+  onOpenImmersiveMode,
+  onExitImmersiveMode,
+  onImmersiveAction,
   isNarrowViewport = false,
   initialWindowViewMode = 'avatar',
 }) {
   const { t } = useI18n();
   const hasOfficeScene = Boolean(officeScene);
-  const [windowViewMode, setWindowViewMode] = useState(
-    initialWindowViewMode === 'office' && hasOfficeScene ? 'office' : 'avatar',
-  );
-  const showOfficeView = hasOfficeScene && windowViewMode === 'office';
-  const stageClassName = ['live2d-stage', 'window-mode', `window-view-${showOfficeView ? 'office' : 'avatar'}`, desktopMode ? `platform-${platform}` : '']
+  const resolvedInitialViewMode = hasOfficeScene
+    ? normalizeWindowViewMode(
+        initialWindowViewMode === 'office' ? 'office' : initialWindowViewMode,
+        'avatar',
+      )
+    : 'avatar';
+  const isControlled = WINDOW_VIEW_MODES.has(normalizeWindowViewMode(windowViewMode, ''));
+  const [internalWindowViewMode, setInternalWindowViewMode] = useState(resolvedInitialViewMode);
+  const resolvedWindowViewMode = isControlled
+    ? normalizeWindowViewMode(windowViewMode, resolvedInitialViewMode)
+    : internalWindowViewMode;
+  const effectiveWindowViewMode = hasOfficeScene ? resolvedWindowViewMode : 'avatar';
+  const showOfficeView = hasOfficeScene && effectiveWindowViewMode === 'office';
+  const showImmersiveView = hasOfficeScene && effectiveWindowViewMode === 'immersive';
+  const stageClassName = ['live2d-stage', 'window-mode', `window-view-${showImmersiveView ? 'immersive' : showOfficeView ? 'office' : 'avatar'}`, desktopMode ? `platform-${platform}` : '']
     .filter(Boolean)
     .join(' ');
+
+  useEffect(() => {
+    if (isControlled) {
+      return;
+    }
+
+    setInternalWindowViewMode((current) => {
+      if (current === resolvedInitialViewMode) {
+        return current;
+      }
+
+      return resolvedInitialViewMode;
+    });
+  }, [isControlled, resolvedInitialViewMode]);
+
+  const setWindowViewMode = (nextMode) => {
+    const normalized = normalizeWindowViewMode(nextMode, resolvedWindowViewMode);
+    if (!isControlled) {
+      setInternalWindowViewMode(normalized);
+    }
+    onWindowViewModeChange?.(normalized);
+  };
+
+  const handleOpenImmersiveMode = (payload) => {
+    onOpenImmersiveMode?.(payload);
+    setWindowViewMode('immersive');
+  };
+
+  const handleExitImmersiveMode = () => {
+    onExitImmersiveMode?.();
+    setWindowViewMode('office');
+  };
 
   return (
     <Box className={stageClassName}>
@@ -60,7 +117,7 @@ export default function MainShell({
         />
       )}
 
-      {!showOfficeView ? (
+      {!showOfficeView && !showImmersiveView ? (
         <Box className="live2d-hitbox">
           <Live2DViewer
             ref={live2dViewerRef}
@@ -83,6 +140,25 @@ export default function MainShell({
           variant="page"
           className="office-scene-page"
           editor={officeEditor}
+          onAgentClick={handleOpenImmersiveMode}
+        />
+      ) : null}
+
+      {showImmersiveView ? (
+        <ImmersiveLive2DShell
+          desktopMode={desktopMode}
+          platform={platform}
+          live2dViewerRef={live2dViewerRef}
+          currentModelPath={currentModelPath}
+          motions={motions}
+          expressions={expressions}
+          onModelLoaded={onModelLoaded}
+          onModelError={onModelError}
+          immersiveContext={immersiveContext}
+          valueSnapshot={valueSnapshot}
+          onOpenChatPanel={onOpenChatPanel}
+          onBackToRoom={handleExitImmersiveMode}
+          onActionRequested={onImmersiveAction}
         />
       ) : null}
 
@@ -96,10 +172,10 @@ export default function MainShell({
       </IconButton>
 
       <Box className="window-bottom-controls">
-        {officeScene ? (
+        {officeScene && !showImmersiveView ? (
           <Box className="window-view-switcher" role="group" aria-label="Window view switcher">
             <Button
-              className={`window-view-button ${windowViewMode === 'avatar' ? 'is-active' : ''}`.trim()}
+              className={`window-view-button ${effectiveWindowViewMode === 'avatar' ? 'is-active' : ''}`.trim()}
               size="small"
               startIcon={<ViewInArIcon />}
               onClick={() => {
@@ -109,7 +185,7 @@ export default function MainShell({
               Live2D
             </Button>
             <Button
-              className={`window-view-button ${windowViewMode === 'office' ? 'is-active' : ''}`.trim()}
+              className={`window-view-button ${effectiveWindowViewMode === 'office' ? 'is-active' : ''}`.trim()}
               size="small"
               startIcon={<GridViewIcon />}
               onClick={() => {

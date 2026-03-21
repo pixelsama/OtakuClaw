@@ -18,6 +18,10 @@ vi.mock('../src/components/window/WindowTitleBar.jsx', () => ({
   default: () => React.createElement('div', { 'data-testid': 'window-title-bar-mock' }),
 }));
 
+vi.mock('../src/shells/ImmersiveLive2DShell.jsx', () => ({
+  default: () => React.createElement('div', { 'data-testid': 'immersive-shell-mock' }),
+}));
+
 vi.mock('../src/i18n/I18nContext.jsx', () => ({
   useI18n: () => ({ t: (key) => key }),
 }));
@@ -108,5 +112,12 @@ describe('MainShell window view mode', () => {
     expect(html).toContain('Pixel room editor');
     expect(html).toContain('Star Office Classic');
     expect(html).toContain('Error Preview');
+  });
+
+  it('renders the immersive shell when initialized in immersive mode', () => {
+    const html = renderMainShell({ initialWindowViewMode: 'immersive' });
+    expect(html).toContain('data-testid="immersive-shell-mock"');
+    expect(html).not.toContain('data-testid="live2d-viewer-mock"');
+    expect(html).not.toContain('office-scene-page');
   });
 });

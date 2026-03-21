@@ -91,3 +91,41 @@ test('backend manager includes nanobot backend by default', () => {
   const manager = new ChatBackendManager();
   assert.equal(manager.resolveBackendName({ settings: { chatBackend: 'nanobot' } }), 'nanobot');
 });
+
+test('backend manager resolves backend from agent profile before global settings', () => {
+  const manager = new ChatBackendManager({
+    backends: [createBackend('openclaw'), createBackend('nanobot')],
+  });
+
+  assert.equal(
+    manager.resolveBackendName({
+      settings: {
+        chatBackend: 'nanobot',
+        agentProfiles: {
+          agentA: {
+            backend: 'openclaw',
+          },
+        },
+      },
+      requestProfileId: 'agentA',
+    }),
+    'nanobot',
+  );
+
+  assert.equal(
+    manager.resolveBackendName({
+      settings: {
+        chatBackend: 'nanobot',
+        agentProfiles: {
+          agentA: {
+            backend: 'openclaw',
+          },
+        },
+      },
+      requestProfile: {
+        backend: 'openclaw',
+      },
+    }),
+    'nanobot',
+  );
+});

@@ -7,6 +7,88 @@ import {
 const SETTINGS_STORAGE_KEY = 'openclaw.settings';
 let webOfficeState = normalizeOfficeState();
 const webOfficeListeners = new Set();
+let webValueState = {
+  revision: 0,
+  updatedAt: '',
+  agentId: '',
+  routeKey: '',
+  sessionId: '',
+  stats: {},
+  lastEvent: null,
+};
+const webValueListeners = new Set();
+
+function normalizeText(value, fallback = '') {
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+}
+
+function normalizePlainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? { ...value } : {};
+}
+
+function normalizeConversationEnvelopeEvent(event = {}) {
+  if (!event || typeof event !== 'object') {
+    return null;
+  }
+
+  const channel = normalizeText(event.channel, '');
+  const type = normalizeText(event.type, '');
+  if (!channel || !type) {
+    return null;
+  }
+
+  const payload = event.payload && typeof event.payload === 'object'
+    ? { ...event.payload }
+    : normalizePlainObject(event.data);
+  return {
+    ...event,
+    channel,
+    type,
+    streamId: normalizeText(event.streamId, ''),
+    agentId: normalizeText(event.agentId, ''),
+    backend: normalizeText(event.backend, ''),
+    routeKey: normalizeText(event.routeKey, ''),
+    sessionId: normalizeText(event.sessionId, ''),
+    turnId: normalizeText(event.turnId, ''),
+    timestamp: normalizeText(event.timestamp, ''),
+    payload,
+  };
+}
+
+function normalizeValueEventEnvelope(event = {}) {
+  const normalizedSource = normalizeConversationEnvelopeEvent({
+    ...normalizePlainObject(event),
+    channel: 'value',
+    type: normalizeText(event?.type, 'state-changed'),
+    payload: normalizePlainObject(event?.payload || event?.data || event),
+  });
+
+  const payload = normalizePlainObject(normalizedSource?.payload);
+  const stats = normalizePlainObject(payload.stats || event?.stats);
+
+  return {
+    ...normalizedSource,
+    channel: 'value',
+    type: normalizedSource?.type || 'state-changed',
+    payload: {
+      ...payload,
+      stats,
+    },
+  };
+}
+
+function normalizeValueState(state = {}) {
+  const source = normalizePlainObject(state);
+  return {
+    revision: Number.isFinite(source.revision) ? source.revision : 0,
+    updatedAt: normalizeText(source.updatedAt, ''),
+    agentId: normalizeText(source.agentId, ''),
+    routeKey: normalizeText(source.routeKey, ''),
+    sessionId: normalizeText(source.sessionId, ''),
+    stats: normalizePlainObject(source.stats),
+    lastEvent: source.lastEvent ? normalizeValueEventEnvelope(source.lastEvent) : null,
+  };
+}
 
 function emitWebOfficeStateChange(type = 'state-changed') {
   const snapshot = normalizeOfficeState(webOfficeState);
@@ -36,6 +118,45 @@ function updateWebOfficeState(updater) {
     emitWebOfficeStateChange();
   }
   return normalizeOfficeState(webOfficeState);
+}
+
+function emitWebValueStateChange(type = 'state-changed') {
+  const snapshot = normalizeValueState(webValueState);
+  for (const listener of [...webValueListeners]) {
+    try {
+      listener({
+        channel: 'value',
+        type,
+        payload: snapshot,
+      });
+    } catch (error) {
+      console.error('Value state listener failed:', error);
+    }
+  }
+}
+
+function updateWebValueState(nextEvent = {}) {
+  const normalizedEvent = normalizeValueEventEnvelope(nextEvent);
+  if (!normalizedEvent) {
+    return normalizeValueState(webValueState);
+  }
+
+  const nextState = {
+    revision: (webValueState.revision || 0) + 1,
+    updatedAt: normalizedEvent.timestamp || new Date().toISOString(),
+    agentId: normalizedEvent.agentId || normalizeText(normalizedEvent.payload?.agentId, ''),
+    routeKey: normalizedEvent.routeKey || normalizeText(normalizedEvent.payload?.routeKey, ''),
+    sessionId: normalizedEvent.sessionId || normalizeText(normalizedEvent.payload?.sessionId, ''),
+    stats: normalizePlainObject(normalizedEvent.payload?.stats),
+    lastEvent: normalizedEvent,
+  };
+
+  const changed = JSON.stringify(nextState) !== JSON.stringify(webValueState);
+  webValueState = nextState;
+  if (changed) {
+    emitWebValueStateChange('state-changed');
+  }
+  return normalizeValueState(webValueState);
 }
 
 function normalizeOfficeAgentId(value) {
@@ -897,7 +1018,13 @@ export const desktopBridge = {
       if (!api?.conversation?.onEvent || typeof handler !== 'function') {
         return () => {};
       }
-      return api.conversation.onEvent(handler);
+      return api.conversation.onEvent((event = {}) => {
+        const normalized = normalizeConversationEnvelopeEvent(event);
+        if (normalized && normalized.channel === 'system' && normalized.type === 'stat-updated') {
+          updateWebValueState(normalized);
+        }
+        handler(normalized || event);
+      });
     },
   },
   office: {
@@ -1048,6 +1175,11 @@ export const desktopBridge = {
             channel: 'office',
             type: payload?.mutation?.type || 'state-changed',
             payload: normalizeOfficeState(payload?.state || payload),
+            mutation: payload?.mutation || null,
+            timestamp: normalizeText(payload?.timestamp, ''),
+            agentId: normalizeText(payload?.agentId, ''),
+            backend: normalizeText(payload?.backend, ''),
+            routeKey: normalizeText(payload?.routeKey, ''),
           });
         });
       }
@@ -1095,12 +1227,83 @@ export const desktopBridge = {
         return () => {};
       }
       return subscribeConversationChannel(api, 'chat', (event = {}) => {
+        const normalized = normalizeConversationEnvelopeEvent(event) || {};
         handler({
-          streamId: event.streamId || '',
-          type: event.type || '',
-          payload: event.payload && typeof event.payload === 'object' ? event.payload : {},
+          ...normalized,
+          payload: normalized.payload && typeof normalized.payload === 'object' ? normalized.payload : {},
         });
       });
+    },
+  },
+  valueState: {
+    async getState(request = {}) {
+      const api = getDesktopApi();
+      if (api?.valueState?.getState) {
+        const result = await api.valueState.getState(request);
+        return normalizeValueState(result?.state || result);
+      }
+      return normalizeValueState(webValueState);
+    },
+    async setState(nextState = {}) {
+      const api = getDesktopApi();
+      if (api?.valueState?.setState) {
+        const result = await api.valueState.setState(nextState);
+        return normalizeValueState(result?.state || result);
+      }
+      if (api?.valueState?.update) {
+        const result = await api.valueState.update(nextState);
+        return normalizeValueState(result?.state || result);
+      }
+
+      webValueState = normalizeValueState({
+        ...webValueState,
+        ...nextState,
+      });
+      emitWebValueStateChange('state-changed');
+      return normalizeValueState(webValueState);
+    },
+    onEvent(handler) {
+      const api = getDesktopApi();
+      if (api?.valueState?.onEvent) {
+        return api.valueState.onEvent((event = {}) => {
+          if (typeof handler !== 'function') {
+            return;
+          }
+          handler(normalizeValueEventEnvelope(event) || event);
+        });
+      }
+      if (typeof handler !== 'function') {
+        return () => {};
+      }
+      webValueListeners.add(handler);
+      handler({
+        channel: 'value',
+        type: 'snapshot',
+        payload: normalizeValueState(webValueState),
+      });
+      return () => {
+        webValueListeners.delete(handler);
+      };
+    },
+    async applyInteraction(request = {}) {
+      const api = getDesktopApi();
+      if (api?.valueState?.applyInteraction) {
+        const result = await api.valueState.applyInteraction(request);
+        return normalizeValueState(result?.state || result);
+      }
+
+      return updateWebValueState({
+        type: 'stat-updated',
+        payload: {
+          agentId: normalizeText(request.agentId, ''),
+          routeKey: normalizeText(request.routeKey, ''),
+          sessionId: normalizeText(request.sessionId, ''),
+          stats: normalizePlainObject(request.stats),
+        },
+      });
+    },
+    recordEvent(event = {}) {
+      return updateWebValueState(event);
     },
   },
   settings: {
