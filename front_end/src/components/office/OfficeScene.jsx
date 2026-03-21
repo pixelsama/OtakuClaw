@@ -4,7 +4,73 @@ import { calculateDraggedFurniturePosition } from './officeSceneDrag.js';
 import OfficeSceneEditor from './OfficeSceneEditor.jsx';
 import './OfficeScene.css';
 
+function resolveBackgroundPosition(frameIndex = 0, cols = 1, rows = 1) {
+  const safeCols = Math.max(1, Number(cols) || 1);
+  const safeRows = Math.max(1, Number(rows) || 1);
+  const safeFrameCount = safeCols * safeRows;
+  const normalizedFrameIndex = Math.max(0, Math.min(safeFrameCount - 1, Math.round(Number(frameIndex) || 0)));
+  const frameColumn = normalizedFrameIndex % safeCols;
+  const frameRow = Math.floor(normalizedFrameIndex / safeCols);
+  return {
+    x: safeCols === 1 ? 0 : (frameColumn / (safeCols - 1)) * 100,
+    y: safeRows === 1 ? 0 : (frameRow / (safeRows - 1)) * 100,
+  };
+}
+
+function resolveAnimationFrames(animation = null) {
+  if (!animation || typeof animation !== 'object') {
+    return [];
+  }
+
+  if (Array.isArray(animation.frames) && animation.frames.length > 0) {
+    return animation.frames
+      .map((frame) => Math.round(Number(frame)))
+      .filter((frame) => Number.isFinite(frame));
+  }
+
+  const fromFrame = Math.round(Number(animation.fromFrame));
+  const toFrame = Math.round(Number(animation.toFrame));
+  if (!Number.isFinite(fromFrame) || !Number.isFinite(toFrame)) {
+    return [];
+  }
+
+  const step = fromFrame <= toFrame ? 1 : -1;
+  const frames = [];
+  for (let frame = fromFrame; step > 0 ? frame <= toFrame : frame >= toFrame; frame += step) {
+    frames.push(frame);
+  }
+  return frames;
+}
+
 function OfficeDecorLayer({ furniture, layer, isInteractive = false, isSelected = false, isDragging = false, onPointerDown, onSelect }) {
+  const animationFrames = useMemo(() => resolveAnimationFrames(layer.animation), [layer.animation]);
+  const [displayFrameIndex, setDisplayFrameIndex] = useState(layer.frameIndex || 0);
+
+  useEffect(() => {
+    if (!animationFrames.length) {
+      setDisplayFrameIndex(layer.frameIndex || 0);
+      return () => {};
+    }
+
+    let currentFramePointer = 0;
+    const fps = Number(layer.animation?.fps);
+    const frameDurationMs = Math.max(50, Math.round(1000 / (Number.isFinite(fps) && fps > 0 ? fps : 12)));
+    setDisplayFrameIndex(animationFrames[0]);
+    const timer = globalThis.setInterval(() => {
+      currentFramePointer = (currentFramePointer + 1) % animationFrames.length;
+      setDisplayFrameIndex(animationFrames[currentFramePointer]);
+    }, frameDurationMs);
+
+    return () => {
+      globalThis.clearInterval(timer);
+    };
+  }, [animationFrames, layer.animation?.fps, layer.frameIndex]);
+
+  const backgroundPosition = useMemo(
+    () => resolveBackgroundPosition(displayFrameIndex, layer.cols, layer.rows),
+    [displayFrameIndex, layer.cols, layer.rows],
+  );
+
   return (
     <div
       className={[
@@ -22,7 +88,7 @@ function OfficeDecorLayer({ furniture, layer, isInteractive = false, isSelected 
         zIndex: layer.zIndex,
         opacity: layer.opacity,
         backgroundImage: `url(${layer.assetUrl})`,
-        backgroundPosition: `${layer.backgroundPositionX || 0}% ${layer.backgroundPositionY || 0}%`,
+        backgroundPosition: `${backgroundPosition.x}% ${backgroundPosition.y}%`,
         '--office-cols': layer.cols,
         '--office-rows': layer.rows,
       }}

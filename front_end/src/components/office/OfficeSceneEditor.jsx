@@ -1,3 +1,5 @@
+import { useEffect, useMemo, useState } from 'react';
+
 function clampPercent(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -36,6 +38,8 @@ export default function OfficeSceneEditor({
   themeId = '',
   themeOptions = [],
   furniture = [],
+  catalog = [],
+  catalogCategories = [],
   selectedFurnitureId = '',
   onSelectFurniture,
   previewMode = 'live',
@@ -44,7 +48,9 @@ export default function OfficeSceneEditor({
   onFurnitureHiddenChange,
   onFurniturePositionChange,
   onFurnitureReset,
+  onFurnitureEnabledChange,
 }) {
+  const [catalogCategoryId, setCatalogCategoryId] = useState('all');
   const selectedFurniture = furniture.find((item) => item.id === selectedFurnitureId) || furniture[0] || null;
   const selectedFurnitureAutoStates = selectedFurniture
     ? [
@@ -53,6 +59,21 @@ export default function OfficeSceneEditor({
       ]
         .filter((value, index, values) => value && values.indexOf(value) === index)
     : [];
+  const availableCatalogCategories = useMemo(
+    () => (catalogCategories.length > 0 ? catalogCategories : [{ id: 'all', label: 'All' }]),
+    [catalogCategories],
+  );
+  const filteredCatalog = useMemo(
+    () => catalog.filter((item) => catalogCategoryId === 'all' || item.category === catalogCategoryId),
+    [catalog, catalogCategoryId],
+  );
+
+  useEffect(() => {
+    if (availableCatalogCategories.some((item) => item.id === catalogCategoryId)) {
+      return;
+    }
+    setCatalogCategoryId(availableCatalogCategories[0]?.id || 'all');
+  }, [availableCatalogCategories, catalogCategoryId]);
 
   return (
     <aside className="office-room__editor" aria-label="Pixel room editor">
@@ -130,6 +151,64 @@ export default function OfficeSceneEditor({
               </span>
               <span className="office-room__editor-furniture-meta">
                 {item.hidden ? 'Hidden' : item.isVisible ? 'Visible' : 'Waiting'}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="office-room__editor-section">
+        <div className="office-room__editor-row">
+          <div>
+            <div className="office-room__editor-label">Library</div>
+            <div className="office-room__editor-help">Add or remove scene objects by category.</div>
+          </div>
+        </div>
+        <div className="office-room__editor-pill-group" role="group" aria-label="Pixel room furniture categories">
+          {availableCatalogCategories.map((category) => (
+            <button
+              key={category.id}
+              type="button"
+              className={`office-room__editor-pill ${catalogCategoryId === category.id ? 'is-active' : ''}`.trim()}
+              onClick={() => {
+                setCatalogCategoryId(category.id);
+              }}
+            >
+              {category.label}
+            </button>
+          ))}
+        </div>
+        <div className="office-room__editor-library-list" role="list">
+          {filteredCatalog.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={[
+                'office-room__editor-library-item',
+                item.enabled ? 'is-enabled' : '',
+              ].filter(Boolean).join(' ')}
+              onClick={() => {
+                onFurnitureEnabledChange?.(item.id, !item.enabled);
+                if (!item.enabled) {
+                  onSelectFurniture?.(item.id);
+                }
+              }}
+            >
+              <span className="office-room__editor-furniture-main">
+                <span>{item.label}</span>
+                <span className="office-room__editor-library-badges">
+                  <span className="office-room__editor-furniture-tag is-category">{item.categoryLabel}</span>
+                  <span className={[
+                    'office-room__editor-furniture-tag',
+                    item.ruleLabel === 'Always' ? 'is-always' : 'is-state',
+                  ].join(' ')}
+                  >
+                    {item.ruleLabel}
+                  </span>
+                </span>
+              </span>
+              <span className="office-room__editor-furniture-meta">
+                {item.enabled ? (item.defaultEnabled ? 'Default' : 'Added') : 'Available'}
               </span>
             </button>
           ))}

@@ -460,7 +460,16 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 236px;
+  max-height: 196px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.office-room__editor-library-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 220px;
   overflow: auto;
   padding-right: 4px;
 }
@@ -494,6 +503,7 @@
 }
 
 .office-room__editor-furniture-item,
+.office-room__editor-library-item,
 .office-room__editor-reset {
   border: 1px solid rgba(162, 178, 255, 0.2);
   background: rgba(245, 247, 255, 0.08);
@@ -501,7 +511,8 @@
   font: inherit;
 }
 
-.office-room__editor-furniture-item {
+.office-room__editor-furniture-item,
+.office-room__editor-library-item {
   display: flex;
   justify-content: space-between;
   gap: 10px;
@@ -514,7 +525,9 @@
 }
 
 .office-room__editor-furniture-item:hover,
-.office-room__editor-furniture-item.is-selected {
+.office-room__editor-furniture-item.is-selected,
+.office-room__editor-library-item:hover,
+.office-room__editor-library-item.is-enabled {
   border-color: rgba(255, 223, 133, 0.38);
   background: rgba(255, 224, 138, 0.12);
 }
@@ -526,6 +539,12 @@
 .office-room__editor-furniture-main {
   display: inline-flex;
   flex-direction: column;
+  gap: 6px;
+}
+
+.office-room__editor-library-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -547,6 +566,11 @@
 .office-room__editor-furniture-tag.is-state {
   background: rgba(255, 210, 122, 0.14);
   color: #ffd27b;
+}
+
+.office-room__editor-furniture-tag.is-category {
+  background: rgba(128, 176, 255, 0.16);
+  color: #c8ddff;
 }
 
 .office-room__editor-furniture-meta {

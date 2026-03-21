@@ -150,9 +150,10 @@
   - furniture system now has a minimal data-driven/editor-backed layer:
     - theme switching
     - furniture show/hide
+    - library/category browsing for scene objects
     - drag/slider placement with persisted overrides
-    - state-driven visibility and sprite variants for selected objects
-  - current placeable `Star-Office-UI` objects include desk, coffee bar, sofa, poster, plants, flowers, server room, cat, and bug alert
+    - state-driven visibility, sprite variants, and basic spritesheet animation for selected objects
+  - current placeable `Star-Office-UI` objects include desk, coffee bar, sofa, poster, plants, flowers, server room, sync beacon, cat, and bug alert
 - If this project moves toward commercial distribution, replace all migrated `Star-Office-UI` art assets before release.
 
 ## Voice Runtime Notes (Current State)

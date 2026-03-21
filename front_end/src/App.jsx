@@ -28,6 +28,7 @@ import {
   normalizeOfficeState,
   OFFICE_PRIMARY_AGENT_ID,
   reduceOfficeActivityHint,
+  resolveOfficeRoomTheme,
   resolveOfficeSceneEditorState,
   resolveOfficeSceneState,
 } from './components/office/officeSceneConfig.js';
@@ -816,6 +817,34 @@ function AppContent({ desktopMode }) {
     });
   }, [updateOfficeSceneLayout]);
 
+  const handleOfficeFurnitureEnabledChange = useCallback((furnitureId, enabled) => {
+    updateOfficeSceneLayout((currentLayout) => {
+      const theme = resolveOfficeRoomTheme(currentLayout.themeId);
+      const defaultFurnitureIds = new Set(theme.furnitureIds || []);
+      const nextEnabledFurnitureIds = new Set(currentLayout.enabledFurnitureIds || []);
+      const nextDisabledFurnitureIds = new Set(currentLayout.disabledFurnitureIds || []);
+
+      if (defaultFurnitureIds.has(furnitureId)) {
+        if (enabled) {
+          nextDisabledFurnitureIds.delete(furnitureId);
+        } else {
+          nextDisabledFurnitureIds.add(furnitureId);
+        }
+        nextEnabledFurnitureIds.delete(furnitureId);
+      } else if (enabled) {
+        nextEnabledFurnitureIds.add(furnitureId);
+      } else {
+        nextEnabledFurnitureIds.delete(furnitureId);
+      }
+
+      return {
+        ...currentLayout,
+        enabledFurnitureIds: [...nextEnabledFurnitureIds],
+        disabledFurnitureIds: [...nextDisabledFurnitureIds],
+      };
+    });
+  }, [updateOfficeSceneLayout]);
+
   const officeDisplayState = useMemo(() => buildOfficeDisplayState({
     officeState: officeStateSnapshot,
     primaryAgent: primaryOfficeAgent,
@@ -848,8 +877,10 @@ function AppContent({ desktopMode }) {
       onFurnitureHiddenChange: handleOfficeFurnitureHiddenChange,
       onFurniturePositionChange: handleOfficeFurniturePositionChange,
       onFurnitureReset: handleOfficeFurnitureReset,
+      onFurnitureEnabledChange: handleOfficeFurnitureEnabledChange,
     };
   }, [
+    handleOfficeFurnitureEnabledChange,
     handleOfficeFurnitureHiddenChange,
     handleOfficeFurniturePositionChange,
     handleOfficeFurnitureReset,

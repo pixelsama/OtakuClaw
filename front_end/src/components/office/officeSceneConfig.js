@@ -2,6 +2,14 @@ import { resolveOfficeSceneAsset } from './officeSceneAssets.js';
 
 export const OFFICE_PRIMARY_AGENT_ID = 'main';
 export const DEFAULT_OFFICE_THEME_ID = 'star-office-classic';
+const OFFICE_FURNITURE_CATEGORY_LABELS = {
+  workstation: 'Workstations',
+  seating: 'Seating',
+  wall: 'Wall Decor',
+  plants: 'Plants',
+  companions: 'Companions',
+  status: 'Status FX',
+};
 
 const DEFAULT_LABELS = {
   title: 'Pixel Room',
@@ -21,6 +29,7 @@ export const OFFICE_FURNITURE_CATALOG = {
     id: 'desk',
     label: 'Desk',
     kind: 'furniture',
+    category: 'workstation',
     assetKey: 'desk',
     left: 6.3,
     top: 43.1,
@@ -32,17 +41,42 @@ export const OFFICE_FURNITURE_CATALOG = {
     id: 'coffee',
     label: 'Coffee Bar',
     kind: 'furniture',
+    category: 'workstation',
     assetKey: 'coffeeMachine',
     left: 40.7,
     top: 42.3,
     width: 18,
     aspectRatio: '1 / 1',
     zIndex: 9,
+    layers: [
+      {
+        id: 'coffee-shadow',
+        kind: 'shadow',
+        category: 'workstation',
+        assetKey: 'coffeeMachineShadow',
+        aspectRatio: '1 / 1',
+        zIndex: 8,
+      },
+      {
+        id: 'coffee-machine',
+        kind: 'furniture',
+        category: 'workstation',
+        assetKey: 'coffeeMachine',
+        aspectRatio: '1 / 1',
+        zIndex: 9,
+        animation: {
+          fromFrame: 0,
+          toFrame: 94,
+          fps: 12.5,
+        },
+      },
+    ],
   },
   sofa: {
     id: 'sofa',
     label: 'Sofa',
     kind: 'furniture',
+    category: 'seating',
     assetKey: 'sofa',
     left: 52.3,
     top: 20,
@@ -71,6 +105,7 @@ export const OFFICE_FURNITURE_CATALOG = {
     id: 'bug',
     label: 'Bug Alert',
     kind: 'status',
+    category: 'status',
     assetKey: 'errorBug',
     left: 71.8,
     top: 18.2,
@@ -83,6 +118,7 @@ export const OFFICE_FURNITURE_CATALOG = {
     id: 'poster',
     label: 'Friends Poster',
     kind: 'decor',
+    category: 'wall',
     assetKey: 'posters',
     left: 13.4,
     top: 1.2,
@@ -95,6 +131,7 @@ export const OFFICE_FURNITURE_CATALOG = {
     id: 'plantLeft',
     label: 'Lounge Plant',
     kind: 'decor',
+    category: 'plants',
     assetKey: 'plants',
     left: 11.7,
     top: 14.6,
@@ -107,6 +144,7 @@ export const OFFICE_FURNITURE_CATALOG = {
     id: 'plantCenter',
     label: 'Divider Plant',
     kind: 'decor',
+    category: 'plants',
     assetKey: 'plants',
     left: 37.9,
     top: 13.6,
@@ -119,6 +157,7 @@ export const OFFICE_FURNITURE_CATALOG = {
     id: 'plantBedroom',
     label: 'Bedroom Plant',
     kind: 'decor',
+    category: 'plants',
     assetKey: 'plants',
     left: 70.1,
     top: 57.8,
@@ -131,6 +170,7 @@ export const OFFICE_FURNITURE_CATALOG = {
     id: 'flowers',
     label: 'Desk Flowers',
     kind: 'decor',
+    category: 'plants',
     assetKey: 'flowers',
     left: 20.2,
     top: 47.1,
@@ -148,6 +188,7 @@ export const OFFICE_FURNITURE_CATALOG = {
     id: 'cat',
     label: 'Cat Cushion',
     kind: 'decor',
+    category: 'companions',
     assetKey: 'cats',
     left: 1.1,
     top: 66.2,
@@ -168,6 +209,7 @@ export const OFFICE_FURNITURE_CATALOG = {
     id: 'serverroom',
     label: 'Server Room',
     kind: 'status',
+    category: 'status',
     assetKey: 'serverRoom',
     left: 72.7,
     top: 2.3,
@@ -193,6 +235,25 @@ export const OFFICE_FURNITURE_CATALOG = {
       },
     },
   },
+  syncBeacon: {
+    id: 'syncBeacon',
+    label: 'Sync Beacon',
+    kind: 'status',
+    category: 'status',
+    assetKey: 'syncAnimation',
+    left: 80.4,
+    top: 64.4,
+    width: 20,
+    aspectRatio: '1 / 1',
+    zIndex: 4,
+    frameIndex: 0,
+    visibleWhenStates: ['syncing'],
+    animation: {
+      fromFrame: 1,
+      toFrame: 47,
+      fps: 12,
+    },
+  },
 };
 
 export const OFFICE_ROOM_THEMES = {
@@ -212,6 +273,7 @@ export const OFFICE_ROOM_THEMES = {
       'coffee',
       'sofa',
       'bug',
+      'syncBeacon',
       'cat',
       'plantBedroom',
     ],
@@ -285,6 +347,8 @@ export const DEFAULT_OFFICE_SCENE_CONFIG = {
     },
   },
   furnitureOverrides: {},
+  enabledFurnitureIds: [],
+  disabledFurnitureIds: [],
   stateMap: {
     idle: { areaId: 'lounge', mood: 'resting', palette: 'idle' },
     writing: { areaId: 'desk', mood: 'typing', palette: 'focus' },
@@ -348,6 +412,17 @@ function normalizeStringList(values = []) {
   return values
     .map((value) => normalizeString(value, '').toLowerCase())
     .filter(Boolean);
+}
+
+function normalizeUniqueStringList(values = []) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  return values
+    .map((value) => normalizeString(value, ''))
+    .filter(Boolean)
+    .filter((value, index, items) => items.indexOf(value) === index);
 }
 
 function formatStateLabel(state = '') {
@@ -515,6 +590,7 @@ function normalizeFurnitureLayers(item = {}, activeStates = []) {
     : [{
         id: itemId,
         kind: normalizeString(source.kind, 'furniture'),
+        category: normalizeString(source.category, 'misc'),
         assetKey: source.assetKey,
         cols: source.cols,
         rows: source.rows,
@@ -522,6 +598,8 @@ function normalizeFurnitureLayers(item = {}, activeStates = []) {
         aspectRatio: itemAspectRatio,
         zIndex: itemZIndex,
         opacity: itemOpacity,
+        frameIndex: source.frameIndex,
+        animation: source.animation,
       }];
 
   return sourceLayers
@@ -592,6 +670,8 @@ export function normalizeOfficeSceneLayout(layout = {}) {
   return {
     themeId: normalizeThemeId(source.themeId),
     furnitureOverrides: normalizeFurnitureOverrides(source.furnitureOverrides),
+    enabledFurnitureIds: normalizeUniqueStringList(source.enabledFurnitureIds),
+    disabledFurnitureIds: normalizeUniqueStringList(source.disabledFurnitureIds),
   };
 }
 
@@ -610,6 +690,8 @@ function resolveThemeFurniture({
   themeId = DEFAULT_OFFICE_THEME_ID,
   furniture = null,
   furnitureOverrides = {},
+  enabledFurnitureIds = [],
+  disabledFurnitureIds = [],
   activeStates = [],
 } = {}) {
   if (Array.isArray(furniture) && furniture.length > 0) {
@@ -618,7 +700,14 @@ function resolveThemeFurniture({
 
   const theme = resolveOfficeRoomTheme(themeId);
   const overrides = normalizeFurnitureOverrides(furnitureOverrides);
-  const items = (theme.furnitureIds || [])
+  const defaultFurnitureIds = normalizeUniqueStringList(theme.furnitureIds || []);
+  const enabledIds = normalizeUniqueStringList(enabledFurnitureIds);
+  const disabledIds = new Set(normalizeUniqueStringList(disabledFurnitureIds));
+  const resolvedFurnitureIds = [
+    ...defaultFurnitureIds.filter((id) => !disabledIds.has(id)),
+    ...enabledIds.filter((id) => !defaultFurnitureIds.includes(id)),
+  ];
+  const items = resolvedFurnitureIds
     .map((catalogId) => {
       const item = OFFICE_FURNITURE_CATALOG[catalogId];
       if (!item) {
@@ -643,49 +732,76 @@ export function resolveOfficeSceneEditorState({
   const normalizedState = normalizeOfficeState(officeState);
   const activeStates = normalizedState.agents.map((agent) => normalizeString(agent.businessState, 'idle').toLowerCase());
   const theme = resolveOfficeRoomTheme(normalizedLayout.themeId);
-  const furniture = (theme.furnitureIds || [])
-    .map((furnitureId) => {
-      const baseItem = getOfficeFurnitureCatalogItem(furnitureId);
-      if (!baseItem) {
-        return null;
-      }
-
-      const override = normalizedLayout.furnitureOverrides[furnitureId] || {};
-      const normalized = normalizeFurnitureItem({
-        ...baseItem,
-        ...override,
-      }, activeStates);
-
-      return {
-        id: normalized.id,
-        label: normalized.label,
-        kind: normalized.kind,
-        hidden: normalized.hidden,
-        isVisible: normalized.isVisible,
-        ruleLabel: buildFurnitureRuleLabel({
-          visibleWhenStates: normalized.visibleWhenStates,
-          hiddenWhenStates: normalized.hiddenWhenStates,
-          variantStates: normalized.variantStates,
-        }),
-        left: normalized.left,
-        top: normalized.top,
-        width: normalized.width,
-        zIndex: normalized.zIndex,
+  const defaultFurnitureIds = normalizeUniqueStringList(theme.furnitureIds || []);
+  const resolvedFurniture = resolveThemeFurniture({
+    themeId: normalizedLayout.themeId,
+    furnitureOverrides: normalizedLayout.furnitureOverrides,
+    enabledFurnitureIds: normalizedLayout.enabledFurnitureIds,
+    disabledFurnitureIds: normalizedLayout.disabledFurnitureIds,
+    activeStates,
+  });
+  const furniture = resolvedFurniture.map((normalized) => {
+    const baseItem = getOfficeFurnitureCatalogItem(normalized.id);
+    return {
+      id: normalized.id,
+      label: normalized.label,
+      kind: normalized.kind,
+      category: normalizeString(baseItem?.category, 'misc'),
+      hidden: normalized.hidden,
+      isVisible: normalized.isVisible,
+      isInRoom: true,
+      ruleLabel: buildFurnitureRuleLabel({
         visibleWhenStates: normalized.visibleWhenStates,
         hiddenWhenStates: normalized.hiddenWhenStates,
         variantStates: normalized.variantStates,
-        activeVariantState: normalized.activeVariantState,
-        defaultLeft: Number.isFinite(baseItem.left) ? baseItem.left : normalized.left,
-        defaultTop: Number.isFinite(baseItem.top) ? baseItem.top : normalized.top,
+      }),
+      left: normalized.left,
+      top: normalized.top,
+      width: normalized.width,
+      zIndex: normalized.zIndex,
+      visibleWhenStates: normalized.visibleWhenStates,
+      hiddenWhenStates: normalized.hiddenWhenStates,
+      variantStates: normalized.variantStates,
+      activeVariantState: normalized.activeVariantState,
+      defaultLeft: Number.isFinite(baseItem?.left) ? baseItem.left : normalized.left,
+      defaultTop: Number.isFinite(baseItem?.top) ? baseItem.top : normalized.top,
+    };
+  });
+  const catalog = Object.values(OFFICE_FURNITURE_CATALOG)
+    .map((item) => {
+      const normalizedId = normalizeString(item.id, '');
+      const defaultEnabled = defaultFurnitureIds.includes(normalizedId);
+      const enabled = furniture.some((furnitureItem) => furnitureItem.id === normalizedId);
+      return {
+        id: normalizedId,
+        label: normalizeString(item.label, normalizedId),
+        category: normalizeString(item.category, 'misc'),
+        categoryLabel: OFFICE_FURNITURE_CATEGORY_LABELS[normalizeString(item.category, 'misc')] || 'Misc',
+        enabled,
+        defaultEnabled,
+        ruleLabel: buildFurnitureRuleLabel({
+          visibleWhenStates: normalizeStringList(item.visibleWhenStates),
+          hiddenWhenStates: normalizeStringList(item.hiddenWhenStates),
+          variantStates: Object.keys(normalizeStateVariants(item.stateVariants)),
+        }),
       };
     })
-    .filter(Boolean);
+    .sort((left, right) => left.label.localeCompare(right.label));
+  const catalogCategories = [
+    { id: 'all', label: 'All' },
+    ...normalizeUniqueStringList(catalog.map((item) => item.category)).map((categoryId) => ({
+      id: categoryId,
+      label: OFFICE_FURNITURE_CATEGORY_LABELS[categoryId] || formatStateLabel(categoryId),
+    })),
+  ];
 
   return {
     themeId: theme.id,
     themeLabel: theme.label,
     themeOptions: listOfficeRoomThemes(),
     furniture,
+    catalog,
+    catalogCategories,
   };
 }
 
@@ -956,6 +1072,8 @@ export function resolveOfficeSceneState({
       themeId: sceneConfig?.themeId || DEFAULT_OFFICE_SCENE_CONFIG.themeId,
       furniture: sceneConfig?.furniture,
       furnitureOverrides: sceneConfig?.furnitureOverrides || DEFAULT_OFFICE_SCENE_CONFIG.furnitureOverrides,
+      enabledFurnitureIds: sceneConfig?.enabledFurnitureIds || DEFAULT_OFFICE_SCENE_CONFIG.enabledFurnitureIds,
+      disabledFurnitureIds: sceneConfig?.disabledFurnitureIds || DEFAULT_OFFICE_SCENE_CONFIG.disabledFurnitureIds,
       activeStates,
     }),
     stateMap: normalizeStateMap(sceneConfig?.stateMap),

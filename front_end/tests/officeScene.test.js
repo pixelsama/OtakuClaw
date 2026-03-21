@@ -105,6 +105,12 @@ describe('resolveOfficeSceneState', () => {
       frameIndex: 6,
       isVisible: true,
     });
+    expect(scene.config.furniture.find((item) => item.id === 'coffee')).toMatchObject({
+      layers: [
+        { id: 'coffee-shadow', assetKey: 'coffeeMachineShadow' },
+        { id: 'coffee-machine', assetKey: 'coffeeMachine', animation: { fromFrame: 0, toFrame: 94, fps: 12.5 } },
+      ],
+    });
   });
 
   it('supports conditional furniture visibility from business states', () => {
@@ -130,6 +136,8 @@ describe('resolveOfficeSceneState', () => {
 
     expect(idleScene.config.furniture.find((item) => item.id === 'bug')?.isVisible).toBe(false);
     expect(errorScene.config.furniture.find((item) => item.id === 'bug')?.isVisible).toBe(true);
+    expect(idleScene.config.furniture.find((item) => item.id === 'syncBeacon')?.isVisible).toBe(false);
+    expect(errorScene.config.furniture.find((item) => item.id === 'syncBeacon')?.isVisible).toBe(false);
   });
 
   it('expands the default theme from the furniture catalog', () => {
@@ -211,6 +219,16 @@ describe('resolveOfficeSceneState', () => {
       activeVariantState: 'syncing',
       frameIndex: 18,
     });
+    expect(syncingScene.config.furniture.find((item) => item.id === 'syncBeacon')).toMatchObject({
+      isVisible: true,
+      layers: [
+        {
+          id: 'syncBeacon',
+          assetKey: 'syncAnimation',
+          animation: { fromFrame: 1, toFrame: 47, fps: 12 },
+        },
+      ],
+    });
     expect(syncingScene.config.furniture.find((item) => item.id === 'cat')).toMatchObject({
       activeVariantState: 'syncing',
       frameIndex: 8,
@@ -288,6 +306,15 @@ describe('resolveOfficeSceneEditorState', () => {
     expect(editor.furniture.find((item) => item.id === 'cat')).toMatchObject({
       ruleLabel: 'State furniture',
     });
+    expect(editor.catalog.find((item) => item.id === 'serverroom')).toMatchObject({
+      category: 'status',
+      enabled: false,
+      defaultEnabled: false,
+      ruleLabel: 'State furniture',
+    });
+    expect(editor.catalogCategories.map((item) => item.id)).toEqual(
+      expect.arrayContaining(['all', 'workstation', 'status', 'plants', 'companions']),
+    );
   });
 
   it('marks state-variant furniture in the classic theme editor list', () => {
@@ -306,6 +333,29 @@ describe('resolveOfficeSceneEditorState', () => {
 
     expect(editor.furniture.find((item) => item.id === 'serverroom')).toMatchObject({
       ruleLabel: 'State furniture',
+    });
+  });
+
+  it('allows themes to remove default furniture and add extra catalog objects', () => {
+    const scene = resolveOfficeSceneState({
+      officeState: normalizeOfficeState({
+        revision: 1,
+        activeAgentId: 'main',
+        agents: [
+          { agentId: 'main', displayName: 'Main', businessState: 'syncing', detail: 'Syncing assets.' },
+        ],
+      }),
+      sceneConfig: {
+        themeId: 'star-office-minimal',
+        enabledFurnitureIds: ['serverroom', 'syncBeacon'],
+        disabledFurnitureIds: ['desk'],
+      },
+    });
+
+    expect(scene.config.furniture.find((item) => item.id === 'desk')).toBeUndefined();
+    expect(scene.config.furniture.find((item) => item.id === 'serverroom')).toBeTruthy();
+    expect(scene.config.furniture.find((item) => item.id === 'syncBeacon')).toMatchObject({
+      isVisible: true,
     });
   });
 });
