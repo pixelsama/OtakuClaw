@@ -38,6 +38,100 @@ function updateWebOfficeState(updater) {
   return normalizeOfficeState(webOfficeState);
 }
 
+function normalizeOfficeAgentId(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function mergeWebOfficeAgents(currentState, incomingAgents, options = {}) {
+  const normalizedState = normalizeOfficeState(currentState);
+  const currentAgents = Array.isArray(normalizedState.agents) ? [...normalizedState.agents] : [];
+  let agents = currentAgents;
+  let changed = false;
+
+  for (const item of Array.isArray(incomingAgents) ? incomingAgents : []) {
+    const normalizedAgent = normalizeOfficeAgent(item, normalizedState.activeAgentId || OFFICE_PRIMARY_AGENT_ID);
+    if (!normalizedAgent?.agentId) {
+      continue;
+    }
+
+    const index = agents.findIndex((candidate) => candidate?.agentId === normalizedAgent.agentId || candidate?.id === normalizedAgent.agentId);
+    if (index === -1) {
+      agents = [...agents, normalizedAgent];
+      changed = true;
+      continue;
+    }
+
+    const nextAgent = {
+      ...agents[index],
+      ...normalizedAgent,
+      agentId: normalizedAgent.agentId,
+      id: normalizedAgent.agentId,
+    };
+    if (JSON.stringify(agents[index]) === JSON.stringify(nextAgent)) {
+      continue;
+    }
+
+    agents = [...agents];
+    agents[index] = nextAgent;
+    changed = true;
+  }
+
+  const hasExplicitActiveAgentId =
+    Object.prototype.hasOwnProperty.call(options, 'activeAgentId')
+    || Object.prototype.hasOwnProperty.call(options, 'preserveActive') && options.preserveActive === false;
+  const explicitActiveAgentId = Object.prototype.hasOwnProperty.call(options, 'activeAgentId')
+    ? normalizeOfficeAgentId(options.activeAgentId)
+    : '';
+  const nextActiveAgentId = hasExplicitActiveAgentId
+    ? explicitActiveAgentId
+    : normalizeOfficeAgentId(normalizedState.activeAgentId) || (
+        options.activateIfUnset === false
+          ? ''
+          : normalizeOfficeAgentId(agents[0]?.agentId || agents[0]?.id)
+      );
+
+  if (nextActiveAgentId !== normalizeOfficeAgentId(normalizedState.activeAgentId)) {
+    changed = true;
+  }
+
+  if (!changed) {
+    return normalizedState;
+  }
+
+  return normalizeOfficeState({
+    ...normalizedState,
+    activeAgentId: nextActiveAgentId,
+    agents,
+  });
+}
+
+function removeWebOfficeAgent(currentState, agentId, options = {}) {
+  const normalizedState = normalizeOfficeState(currentState);
+  const removalId = normalizeOfficeAgentId(agentId);
+  if (!removalId) {
+    return normalizedState;
+  }
+
+  const remainingAgents = (Array.isArray(normalizedState.agents) ? normalizedState.agents : []).filter(
+    (agent) => normalizeOfficeAgentId(agent?.agentId || agent?.id) !== removalId,
+  );
+  if (remainingAgents.length === (normalizedState.agents || []).length) {
+    return normalizedState;
+  }
+
+  const nextActiveAgentId = Object.prototype.hasOwnProperty.call(options, 'activeAgentId')
+    ? normalizeOfficeAgentId(options.activeAgentId)
+    : normalizeOfficeAgentId(normalizedState.activeAgentId) === removalId
+      ? normalizeOfficeAgentId(remainingAgents[0]?.agentId || remainingAgents[0]?.id)
+      : normalizeOfficeAgentId(normalizedState.activeAgentId);
+
+  return normalizeOfficeState({
+    ...normalizedState,
+    activeAgentId: nextActiveAgentId,
+    agents: remainingAgents,
+  });
+}
+
 function getDesktopApi() {
   if (typeof window === 'undefined') {
     return null;
@@ -790,31 +884,48 @@ export const desktopBridge = {
       }
       return normalizeOfficeState(webOfficeState);
     },
-    async upsertAgent(agent = {}) {
-      const normalizedAgent = normalizeOfficeAgent(agent, OFFICE_PRIMARY_AGENT_ID);
+    async upsertAgent(agent = {}, options = {}) {
+      return this.upsertAgents([agent], options);
+    },
+    async upsertAgents(agents = [], options = {}) {
+      const normalizedAgents = Array.isArray(agents)
+        ? agents.map((item, index) => normalizeOfficeAgent(item, index === 0 ? OFFICE_PRIMARY_AGENT_ID : `agent-${index + 1}`))
+        : [];
       const api = getDesktopApi();
       if (api?.office?.upsert) {
-        const result = await api.office.upsert({
-          activeAgentId: normalizedAgent.agentId,
-          agent: normalizedAgent,
+        const request = {
+          agents: normalizedAgents,
+        };
+        if (Object.prototype.hasOwnProperty.call(options, 'activeAgentId')) {
+          request.activeAgentId = normalizeOfficeAgentId(options.activeAgentId);
+        }
+        if (Object.prototype.hasOwnProperty.call(options, 'activateIfUnset')) {
+          request.activateIfUnset = Boolean(options.activateIfUnset);
+        }
+        const result = await api.office.upsert(request);
+        return normalizeOfficeState(result?.state || result);
+      }
+      return updateWebOfficeState((current) =>
+        mergeWebOfficeAgents(current, normalizedAgents, options));
+    },
+    async setActiveAgent(agentId = '', options = {}) {
+      const normalizedAgentId = normalizeOfficeAgentId(agentId);
+      const api = getDesktopApi();
+      if (api?.office?.update) {
+        const result = await api.office.update({
+          activeAgentId: normalizedAgentId,
+          ...(Object.prototype.hasOwnProperty.call(options, 'revision') ? { revision: options.revision } : {}),
         });
         return normalizeOfficeState(result?.state || result);
       }
       return updateWebOfficeState((current) => {
-        const agents = Array.isArray(current?.agents) ? [...current.agents] : [];
-        const index = agents.findIndex((item) => item?.agentId === normalizedAgent.agentId || item?.id === normalizedAgent.agentId);
-        if (index === -1) {
-          agents.push(normalizedAgent);
-        } else {
-          agents[index] = {
-            ...agents[index],
-            ...normalizedAgent,
-          };
+        const nextState = normalizeOfficeState(current);
+        if (normalizeOfficeAgentId(nextState.activeAgentId) === normalizedAgentId) {
+          return nextState;
         }
         return {
-          ...current,
-          activeAgentId: normalizedAgent.agentId,
-          agents,
+          ...nextState,
+          activeAgentId: normalizedAgentId,
         };
       });
     },
@@ -828,6 +939,19 @@ export const desktopBridge = {
         ...current,
         ...patch,
       }));
+    },
+    async removeAgent(agentId = '', options = {}) {
+      const normalizedAgentId = normalizeOfficeAgentId(agentId);
+      const api = getDesktopApi();
+      if (api?.office?.update) {
+        const result = await api.office.update({
+          removeAgentId: normalizedAgentId,
+          ...(Object.prototype.hasOwnProperty.call(options, 'activeAgentId') ? { activeAgentId: normalizeOfficeAgentId(options.activeAgentId) } : {}),
+          ...(Object.prototype.hasOwnProperty.call(options, 'revision') ? { revision: options.revision } : {}),
+        });
+        return normalizeOfficeState(result?.state || result);
+      }
+      return updateWebOfficeState((current) => removeWebOfficeAgent(current, normalizedAgentId, options));
     },
     onEvent(handler) {
       const api = getDesktopApi();

@@ -63,6 +63,70 @@ test('office state store upserts agents, updates active agent, and bumps revisio
   assert.equal(snapshots[2].mutation.type, 'update');
 });
 
+test('office state store upsertAgents preserves active agent and can promote explicitly', () => {
+  const store = createOfficeStateStore({
+    initialState: {
+      revision: 8,
+      activeAgentId: 'agent-2',
+      agents: [
+        {
+          id: 'agent-2',
+          name: 'Support',
+          role: 'support',
+        },
+      ],
+    },
+  });
+
+  const result = store.upsertAgents([
+    {
+      id: 'agent-1',
+      name: 'Claw',
+      role: 'lead',
+    },
+  ]);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.changed, true);
+  assert.equal(result.state.revision, 9);
+  assert.equal(result.state.activeAgentId, 'agent-2');
+  assert.equal(result.state.agents.length, 2);
+
+  const promoted = store.setActiveAgent('agent-1');
+  assert.equal(promoted.ok, true);
+  assert.equal(promoted.changed, true);
+  assert.equal(promoted.state.activeAgentId, 'agent-1');
+  assert.equal(promoted.state.revision, 10);
+});
+
+test('office state store removes agents and falls back to a remaining agent', () => {
+  const store = createOfficeStateStore({
+    initialState: {
+      revision: 12,
+      activeAgentId: 'agent-2',
+      agents: [
+        {
+          id: 'agent-1',
+          name: 'Claw',
+        },
+        {
+          id: 'agent-2',
+          name: 'Support',
+        },
+      ],
+    },
+  });
+
+  const result = store.removeAgent('agent-2');
+
+  assert.equal(result.ok, true);
+  assert.equal(result.changed, true);
+  assert.equal(result.state.agents.length, 1);
+  assert.equal(result.state.agents[0].id, 'agent-1');
+  assert.equal(result.state.activeAgentId, 'agent-1');
+  assert.equal(result.state.revision, 13);
+});
+
 test('office state store applies office conversation events', () => {
   const store = createOfficeStateStore({
     initialState: {
@@ -103,4 +167,20 @@ test('office state store applies office conversation events', () => {
   assert.equal(updateResult.ok, true);
   assert.equal(updateResult.state.activeAgentId, 'agent-2');
   assert.equal(updateResult.state.revision, 7);
+
+  const presenceResult = store.applyConversationEvent({
+    channel: 'office',
+    type: 'presence-upsert',
+    payload: {
+      agents: [
+        {
+          id: 'agent-3',
+          name: 'Observer',
+        },
+      ],
+    },
+  });
+
+  assert.equal(presenceResult.ok, true);
+  assert.equal(presenceResult.state.agents.some((agent) => agent.id === 'agent-3'), true);
 });

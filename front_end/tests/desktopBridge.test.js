@@ -196,6 +196,44 @@ describe('desktopBridge office bridge', () => {
     off();
   });
 
+  it('preserves the current active agent when upserting additional agents', async () => {
+    globalThis.window = {
+      desktop: {
+        isElectron: true,
+      },
+    };
+
+    const updated = await desktopBridge.office.upsertAgents(
+      [
+        {
+          agentId: 'agent-alpha',
+          displayName: 'Alpha',
+          businessState: 'idle',
+        },
+        {
+          agentId: 'agent-beta',
+          displayName: 'Beta',
+          businessState: 'syncing',
+        },
+      ],
+      {
+        activeAgentId: 'agent-beta',
+      },
+    );
+
+    const refreshed = await desktopBridge.office.upsertAgent({
+      agentId: 'agent-alpha',
+      displayName: 'Alpha',
+      businessState: 'writing',
+      detail: 'Updating notes.',
+    });
+
+    expect(updated.activeAgentId).toBe('agent-beta');
+    expect(refreshed.activeAgentId).toBe('agent-beta');
+    expect(refreshed.agents.find((agent) => agent.agentId === 'agent-alpha')?.businessState).toBe('writing');
+    expect(refreshed.agents.find((agent) => agent.agentId === 'agent-beta')?.businessState).toBe('syncing');
+  });
+
   it('routes office.onEvent through preload office changed channel', () => {
     const unsubscribe = vi.fn();
     let listener = null;

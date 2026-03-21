@@ -89,6 +89,41 @@ function collectAgentItems(input = {}) {
   return [];
 }
 
+function collectAgentRemovalIds(input = {}) {
+  const source = isObject(input) ? input : {};
+  const removalIds = new Set();
+  const addRemovalId = (value) => {
+    const id = normalizeText(value);
+    if (id) {
+      removalIds.add(id);
+    }
+  };
+
+  if (Object.prototype.hasOwnProperty.call(source, 'removeAgentId')) {
+    addRemovalId(source.removeAgentId);
+  }
+
+  if (Array.isArray(source.removeAgentIds)) {
+    for (const value of source.removeAgentIds) {
+      addRemovalId(value);
+    }
+  }
+
+  if (isObject(source.removeAgent)) {
+    addRemovalId(source.removeAgent.id || source.removeAgent.agentId);
+  }
+
+  if (Array.isArray(source.removedAgents)) {
+    for (const item of source.removedAgents) {
+      if (isObject(item)) {
+        addRemovalId(item.id || item.agentId);
+      }
+    }
+  }
+
+  return Array.from(removalIds.values());
+}
+
 function normalizeTopLevelPatch(input = {}) {
   const source = isObject(input) ? input : {};
   const patch = {};
@@ -102,6 +137,104 @@ function normalizeTopLevelPatch(input = {}) {
   }
 
   return patch;
+}
+
+function mergeAgentList(currentAgents = [], incomingAgents = [], { allowAdd = true } = {}) {
+  let agents = Array.isArray(currentAgents) ? [...currentAgents] : [];
+  let changed = false;
+
+  for (const item of Array.isArray(incomingAgents) ? incomingAgents : []) {
+    const agent = normalizeAgent(item);
+    if (!agent) {
+      continue;
+    }
+
+    const index = agents.findIndex((candidate) => candidate.id === agent.id);
+    if (index === -1) {
+      if (!allowAdd) {
+        continue;
+      }
+
+      agents = [...agents, agent];
+      changed = true;
+      continue;
+    }
+
+    const merged = normalizeAgent({
+      ...agents[index],
+      ...agent,
+      id: agent.id,
+    });
+
+    if (!merged || isDeepStrictEqual(agents[index], merged)) {
+      continue;
+    }
+
+    agents = [...agents];
+    agents[index] = merged;
+    changed = true;
+  }
+
+  return {
+    agents,
+    changed,
+  };
+}
+
+function removeAgentList(currentAgents = [], removalIds = []) {
+  const removalIdSet = new Set(
+    (Array.isArray(removalIds) ? removalIds : [])
+      .map((value) => normalizeText(value))
+      .filter(Boolean),
+  );
+
+  if (removalIdSet.size === 0) {
+    return {
+      agents: Array.isArray(currentAgents) ? [...currentAgents] : [],
+      changed: false,
+      removedIds: [],
+    };
+  }
+
+  const nextAgents = [];
+  const removedIds = [];
+  for (const agent of Array.isArray(currentAgents) ? currentAgents : []) {
+    if (removalIdSet.has(agent.id)) {
+      removedIds.push(agent.id);
+      continue;
+    }
+
+    nextAgents.push(agent);
+  }
+
+  return {
+    agents: nextAgents,
+    changed: removedIds.length > 0,
+    removedIds,
+  };
+}
+
+function resolveActiveAgentId({
+  currentActiveAgentId = '',
+  explicitActiveAgentId = '',
+  hasExplicitActiveAgentId = false,
+  nextAgents = [],
+  activateIfUnset = true,
+} = {}) {
+  if (hasExplicitActiveAgentId) {
+    return normalizeText(explicitActiveAgentId);
+  }
+
+  const normalizedCurrentActiveAgentId = normalizeText(currentActiveAgentId);
+  if (normalizedCurrentActiveAgentId) {
+    return normalizedCurrentActiveAgentId;
+  }
+
+  if (!activateIfUnset) {
+    return '';
+  }
+
+  return normalizeText(nextAgents[0]?.id || nextAgents[0]?.agentId);
 }
 
 class OfficeStateStore {
@@ -178,51 +311,183 @@ class OfficeStateStore {
     };
   }
 
-  upsert(input = {}) {
+  upsertAgents(input = {}, options = {}) {
     const source = isObject(input) ? input : {};
-    const agentItems = collectAgentItems(source);
+    const agentItems = collectAgentItems(input);
     const topLevelPatch = normalizeTopLevelPatch(source);
-    let agents = [...this.state.agents];
-    let changed = false;
+    const normalizedOptions = isObject(options) ? options : {};
+    const hasExplicitActiveAgentId =
+      Object.prototype.hasOwnProperty.call(normalizedOptions, 'activeAgentId')
+      || Object.prototype.hasOwnProperty.call(topLevelPatch, 'activeAgentId');
+    const explicitActiveAgentId = Object.prototype.hasOwnProperty.call(normalizedOptions, 'activeAgentId')
+      ? normalizedOptions.activeAgentId
+      : topLevelPatch.activeAgentId;
+    const activateIfUnset =
+      Object.prototype.hasOwnProperty.call(normalizedOptions, 'activateIfUnset')
+        ? Boolean(normalizedOptions.activateIfUnset)
+        : true;
 
-    for (const item of agentItems) {
-      const agent = normalizeAgent(item);
-      if (!agent) {
-        continue;
-      }
+    const merged = mergeAgentList(this.state.agents, agentItems, { allowAdd: true });
+    const nextActiveAgentId = resolveActiveAgentId({
+      currentActiveAgentId: this.state.activeAgentId,
+      explicitActiveAgentId,
+      hasExplicitActiveAgentId,
+      nextAgents: merged.agents,
+      activateIfUnset,
+    });
+    let changed = merged.changed;
+    if (nextActiveAgentId !== this.state.activeAgentId) {
+      changed = true;
+    }
 
-      const index = agents.findIndex((candidate) => candidate.id === agent.id);
-      if (index === -1) {
-        agents = [...agents, agent];
-        changed = true;
-        continue;
-      }
+    if (!changed) {
+      return {
+        ok: true,
+        state: this.getState(),
+        changed: false,
+      };
+    }
 
-      const merged = normalizeAgent({
-        ...agents[index],
-        ...agent,
-        id: agent.id,
-      });
+    this.state = normalizeState({
+      revision: this.nextRevision(
+        Object.prototype.hasOwnProperty.call(normalizedOptions, 'revision')
+          ? normalizedOptions.revision
+          : topLevelPatch.revision,
+      ),
+      activeAgentId: nextActiveAgentId,
+      agents: merged.agents,
+    });
 
-      if (!merged || isDeepStrictEqual(agents[index], merged)) {
-        continue;
-      }
+    const snapshot = this.getState();
+    this.emitChange({
+      type: 'upsert',
+      state: snapshot,
+    });
 
-      agents = [...agents];
-      agents[index] = merged;
+    return {
+      ok: true,
+      state: snapshot,
+      changed: true,
+    };
+  }
+
+  upsert(input = {}) {
+    return this.upsertAgents(input);
+  }
+
+  setActiveAgent(agentId = '', options = {}) {
+    const nextActiveAgentId = normalizeText(agentId);
+    const normalizedOptions = isObject(options) ? options : {};
+
+    if (nextActiveAgentId === this.state.activeAgentId) {
+      return {
+        ok: true,
+        state: this.getState(),
+        changed: false,
+      };
+    }
+
+    this.state = normalizeState({
+      revision: this.nextRevision(normalizedOptions.revision),
+      activeAgentId: nextActiveAgentId,
+      agents: this.state.agents,
+    });
+
+    const snapshot = this.getState();
+    this.emitChange({
+      type: 'active-agent',
+      state: snapshot,
+    });
+
+    return {
+      ok: true,
+      state: snapshot,
+      changed: true,
+    };
+  }
+
+  removeAgent(agentId = '', options = {}) {
+    const removalId = normalizeText(agentId);
+    if (!removalId) {
+      return {
+        ok: true,
+        state: this.getState(),
+        changed: false,
+      };
+    }
+
+    const normalizedOptions = isObject(options) ? options : {};
+    const removed = removeAgentList(this.state.agents, [removalId]);
+    if (!removed.changed) {
+      return {
+        ok: true,
+        state: this.getState(),
+        changed: false,
+      };
+    }
+
+    const nextActiveAgentId = resolveActiveAgentId({
+      currentActiveAgentId: this.state.activeAgentId === removalId ? '' : this.state.activeAgentId,
+      explicitActiveAgentId: Object.prototype.hasOwnProperty.call(normalizedOptions, 'activeAgentId')
+        ? normalizedOptions.activeAgentId
+        : '',
+      hasExplicitActiveAgentId: Object.prototype.hasOwnProperty.call(normalizedOptions, 'activeAgentId'),
+      nextAgents: removed.agents,
+      activateIfUnset: Object.prototype.hasOwnProperty.call(normalizedOptions, 'activateIfUnset')
+        ? Boolean(normalizedOptions.activateIfUnset)
+        : true,
+    });
+
+    this.state = normalizeState({
+      revision: this.nextRevision(normalizedOptions.revision),
+      activeAgentId: nextActiveAgentId,
+      agents: removed.agents,
+    });
+
+    const snapshot = this.getState();
+    this.emitChange({
+      type: 'agent-remove',
+      state: snapshot,
+    });
+
+    return {
+      ok: true,
+      state: snapshot,
+      changed: true,
+    };
+  }
+
+  update(input = {}) {
+    const source = isObject(input) ? input : {};
+    const topLevelPatch = normalizeTopLevelPatch(source);
+    const removalIds = collectAgentRemovalIds(source);
+    const removed = removeAgentList(this.state.agents, removalIds);
+    let agents = removed.agents;
+    let changed = removed.changed;
+    const activeWasRemoved = removed.removedIds.includes(this.state.activeAgentId);
+
+    const merged = mergeAgentList(agents, collectAgentItems(source), { allowAdd: false });
+    if (merged.changed) {
+      changed = true;
+    }
+    agents = merged.agents;
+
+    if (
+      Object.prototype.hasOwnProperty.call(topLevelPatch, 'activeAgentId')
+      && topLevelPatch.activeAgentId !== this.state.activeAgentId
+    ) {
       changed = true;
     }
 
     const nextActiveAgentId = Object.prototype.hasOwnProperty.call(topLevelPatch, 'activeAgentId')
       ? topLevelPatch.activeAgentId
-      : this.state.activeAgentId;
-
-    if (
-      Object.prototype.hasOwnProperty.call(topLevelPatch, 'activeAgentId')
-      && nextActiveAgentId !== this.state.activeAgentId
-    ) {
-      changed = true;
-    }
+      : activeWasRemoved
+        ? resolveActiveAgentId({
+            currentActiveAgentId: '',
+            nextAgents: agents,
+            activateIfUnset: true,
+          })
+        : this.state.activeAgentId;
 
     if (!changed) {
       return {
@@ -240,7 +505,7 @@ class OfficeStateStore {
 
     const snapshot = this.getState();
     this.emitChange({
-      type: 'upsert',
+      type: 'update',
       state: snapshot,
     });
 
@@ -251,73 +516,8 @@ class OfficeStateStore {
     };
   }
 
-  update(input = {}) {
-    const source = isObject(input) ? input : {};
-    const topLevelPatch = normalizeTopLevelPatch(source);
-    let agents = [...this.state.agents];
-    let changed = false;
-
-    if (
-      Object.prototype.hasOwnProperty.call(topLevelPatch, 'activeAgentId')
-      && topLevelPatch.activeAgentId !== this.state.activeAgentId
-    ) {
-      changed = true;
-    }
-
-    const agentItems = collectAgentItems(source);
-    for (const item of agentItems) {
-      const patch = normalizeAgent(item);
-      if (!patch) {
-        continue;
-      }
-
-      const index = agents.findIndex((candidate) => candidate.id === patch.id);
-      if (index === -1) {
-        continue;
-      }
-
-      const merged = normalizeAgent({
-        ...agents[index],
-        ...patch,
-        id: patch.id,
-      });
-
-      if (!merged || isDeepStrictEqual(agents[index], merged)) {
-        continue;
-      }
-
-      agents = [...agents];
-      agents[index] = merged;
-      changed = true;
-    }
-
-    if (!changed) {
-      return {
-        ok: true,
-        state: this.getState(),
-        changed: false,
-      };
-    }
-
-    this.state = normalizeState({
-      revision: this.nextRevision(topLevelPatch.revision),
-      activeAgentId: Object.prototype.hasOwnProperty.call(topLevelPatch, 'activeAgentId')
-        ? topLevelPatch.activeAgentId
-        : this.state.activeAgentId,
-      agents,
-    });
-
-    const snapshot = this.getState();
-    this.emitChange({
-      type: 'update',
-      state: snapshot,
-    });
-
-    return {
-      ok: true,
-      state: snapshot,
-      changed: true,
-    };
+  setPresence(input = {}) {
+    return this.upsertAgents(input);
   }
 
   applyConversationEvent(event = {}) {
@@ -336,6 +536,17 @@ class OfficeStateStore {
         payload.state && isObject(payload.state) ? payload.state : payload,
         type,
       );
+    }
+
+    if (
+      type === 'presence'
+      || type === 'presence-upsert'
+      || type === 'agent-presence'
+      || type === 'agent:presence'
+      || type === 'agents-upsert'
+      || type === 'agents:upsert'
+    ) {
+      return this.setPresence(payload);
     }
 
     if (type === 'upsert' || type === 'agent-upsert' || type === 'agent:upsert') {
@@ -362,6 +573,18 @@ class OfficeStateStore {
       }
 
       return this.update(payload);
+    }
+
+    if (
+      type === 'remove'
+      || type === 'remove-agent'
+      || type === 'agent-remove'
+      || type === 'agent:remove'
+      || type === 'presence-remove'
+      || type === 'agent-delete'
+      || type === 'agent:delete'
+    ) {
+      return this.removeAgent(payload.agentId || payload.id || payload.agent?.id || payload.agent?.agentId, payload);
     }
 
     return {
