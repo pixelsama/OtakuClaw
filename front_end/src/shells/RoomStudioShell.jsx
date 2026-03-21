@@ -140,26 +140,38 @@ export default function RoomStudioShell({
         </div>
 
         <div className="room-studio-shell__workspace">
-          {scene ? (
-            <OfficeScene
-              scene={scene}
-              compact={compact}
-              variant="page"
-              className="room-studio-shell__scene"
-              editor={editor}
-              onAgentClick={null}
-            />
-          ) : (
-            <div className="room-studio-shell__empty-state">
-              <AutoAwesomeRoundedIcon className="room-studio-shell__empty-icon" />
-              <Typography className="room-studio-shell__empty-title" variant="h5">
-                No room scene loaded
-              </Typography>
-              <Typography className="room-studio-shell__empty-text" variant="body2">
-                The studio shell is ready, but it needs a scene payload before the workspace can render.
-              </Typography>
-            </div>
-          )}
+          <div className="room-studio-shell__scene-pane">
+            {scene ? (
+              // Browse mode: full-bleed room view without chrome. Editor is rendered
+              // in the separate editor pane so the scene stays purely visual.
+              <OfficeScene
+                scene={scene}
+                compact={compact}
+                presentationMode="browse"
+                onAgentClick={onAgentClick}
+                className="room-studio-shell__scene"
+              />
+            ) : (
+              <div className="room-studio-shell__empty-state">
+                <AutoAwesomeRoundedIcon className="room-studio-shell__empty-icon" />
+                <Typography className="room-studio-shell__empty-title" variant="h5">
+                  No room scene loaded
+                </Typography>
+                <Typography className="room-studio-shell__empty-text" variant="body2">
+                  The studio shell is ready, but it needs a scene payload before the workspace can render.
+                </Typography>
+              </div>
+            )}
+          </div>
+          <aside className="room-studio-shell__editor-pane" aria-label="Pixel room editor workspace">
+            {editor ? (
+              <OfficeSceneEditor
+                {...editor}
+                selectedFurnitureId={selectedFurnitureId}
+                onSelectFurniture={setSelectedFurnitureId}
+              />
+            ) : null}
+          </aside>
         </div>
 
         <footer className="room-studio-shell__footer">
