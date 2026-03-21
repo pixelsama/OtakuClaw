@@ -9,7 +9,7 @@
 }
 
 .office-room--workspace {
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .office-room.is-compact {

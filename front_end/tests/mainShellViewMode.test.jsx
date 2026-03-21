@@ -22,6 +22,10 @@ vi.mock('../src/shells/ImmersiveLive2DShell.jsx', () => ({
   default: () => React.createElement('div', { 'data-testid': 'immersive-shell-mock' }),
 }));
 
+vi.mock('../src/shells/RoomStudioShell.jsx', () => ({
+  default: () => React.createElement('div', { 'data-testid': 'room-studio-shell-mock' }),
+}));
+
 vi.mock('../src/i18n/I18nContext.jsx', () => ({
   useI18n: () => ({ t: (key) => key }),
 }));
@@ -86,6 +90,7 @@ function renderMainShell(props = {}) {
         onFurnitureHiddenChange: () => {},
         onFurniturePositionChange: () => {},
         onFurnitureReset: () => {},
+        onFurnitureEnabledChange: () => {},
       },
       ...props,
     }),
@@ -97,16 +102,24 @@ describe('MainShell window view mode', () => {
     const html = renderMainShell();
     expect(html).toContain('office-scene-page');
     expect(html).not.toContain('data-testid="live2d-viewer-mock"');
-    expect(html).not.toContain('Window view switcher');
+    expect(html).toContain('Decorate');
+    expect(html).not.toContain('Pixel room editor');
+    expect(html).not.toContain('data-testid="room-studio-shell-mock"');
   });
 
   it('renders the office page when initialized in office mode', () => {
     const html = renderMainShell({ initialWindowViewMode: 'office' });
     expect(html).toContain('office-scene-page');
     expect(html).not.toContain('data-testid="live2d-viewer-mock"');
-    expect(html).toContain('Pixel room editor');
-    expect(html).toContain('Star Office Classic');
-    expect(html).toContain('Error Preview');
+    expect(html).toContain('Decorate');
+    expect(html).not.toContain('Pixel room editor');
+  });
+
+  it('renders the dedicated room editor mode when initialized in office-edit mode', () => {
+    const html = renderMainShell({ initialWindowViewMode: 'office-edit' });
+    expect(html).toContain('data-testid="room-studio-shell-mock"');
+    expect(html).not.toContain('data-testid="live2d-viewer-mock"');
+    expect(html).not.toContain('office-scene-page');
   });
 
   it('renders the immersive shell when initialized in immersive mode', () => {

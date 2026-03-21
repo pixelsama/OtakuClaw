@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react';
-import { Box, IconButton } from '@mui/material';
+import { Box, Button, IconButton } from '@mui/material';
 import TuneIcon from '@mui/icons-material/Tune';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import ChatIcon from '@mui/icons-material/Chat';
+import HomeRepairServiceRoundedIcon from '@mui/icons-material/HomeRepairServiceRounded';
 import Live2DViewer from '../components/live2d/Live2DViewer.jsx';
 import SubtitleBar from '../components/subtitle/SubtitleBar.jsx';
 import WindowTitleBar from '../components/window/WindowTitleBar.jsx';
 import OfficeScene from '../components/office/OfficeScene.jsx';
 import ImmersiveLive2DShell from './ImmersiveLive2DShell.jsx';
+import RoomStudioShell from './RoomStudioShell.jsx';
 import { useI18n } from '../i18n/I18nContext.jsx';
 
-const WINDOW_VIEW_MODES = new Set(['avatar', 'office', 'immersive']);
+const WINDOW_VIEW_MODES = new Set(['avatar', 'office', 'office-edit', 'immersive']);
 
 function normalizeWindowViewMode(value, fallback = 'avatar') {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -58,8 +60,16 @@ export default function MainShell({
     : internalWindowViewMode;
   const effectiveWindowViewMode = hasOfficeScene ? resolvedWindowViewMode : 'avatar';
   const showOfficeView = hasOfficeScene && effectiveWindowViewMode === 'office';
+  const showOfficeEditView = hasOfficeScene && effectiveWindowViewMode === 'office-edit';
   const showImmersiveView = hasOfficeScene && effectiveWindowViewMode === 'immersive';
-  const stageClassName = ['live2d-stage', 'window-mode', `window-view-${showImmersiveView ? 'immersive' : showOfficeView ? 'office' : 'avatar'}`, desktopMode ? `platform-${platform}` : '']
+  const currentWindowViewClass = showImmersiveView
+    ? 'immersive'
+    : showOfficeEditView
+      ? 'office-edit'
+      : showOfficeView
+        ? 'office'
+        : 'avatar';
+  const stageClassName = ['live2d-stage', 'window-mode', `window-view-${currentWindowViewClass}`, desktopMode ? `platform-${platform}` : '']
     .filter(Boolean)
     .join(' ');
 
@@ -95,6 +105,14 @@ export default function MainShell({
     setWindowViewMode('office');
   };
 
+  const handleOpenRoomStudio = () => {
+    setWindowViewMode('office-edit');
+  };
+
+  const handleExitRoomStudio = () => {
+    setWindowViewMode('office');
+  };
+
   return (
     <Box className={stageClassName}>
       {desktopMode && (
@@ -112,7 +130,7 @@ export default function MainShell({
         />
       )}
 
-      {!showOfficeView && !showImmersiveView ? (
+      {!showOfficeView && !showOfficeEditView && !showImmersiveView ? (
         <Box className="live2d-hitbox">
           <Live2DViewer
             ref={live2dViewerRef}
@@ -134,8 +152,18 @@ export default function MainShell({
           compact={isNarrowViewport}
           variant="page"
           className="office-scene-page"
-          editor={officeEditor}
+          presentationMode="browse"
           onAgentClick={handleOpenImmersiveMode}
+        />
+      ) : null}
+
+      {showOfficeEditView ? (
+        <RoomStudioShell
+          scene={officeScene}
+          editor={officeEditor}
+          compact={isNarrowViewport}
+          desktopMode={desktopMode}
+          onBackToRoom={handleExitRoomStudio}
         />
       ) : null}
 
@@ -157,38 +185,56 @@ export default function MainShell({
         />
       ) : null}
 
-      <IconButton
-        className="config-toggle"
-        color="primary"
-        onClick={onOpenConfigPanel}
-        title={t('main.openSettings')}
-      >
-        <TuneIcon />
-      </IconButton>
+      {!showOfficeEditView && !showImmersiveView ? (
+        <>
+          <IconButton
+            className="config-toggle"
+            color="primary"
+            onClick={onOpenConfigPanel}
+            title={t('main.openSettings')}
+          >
+            <TuneIcon />
+          </IconButton>
 
-      <Box className="window-bottom-controls">
-        {desktopMode && (
+          {showOfficeView && officeEditor ? (
+            <Button
+              className="office-edit-toggle"
+              color="primary"
+              variant="contained"
+              startIcon={<HomeRepairServiceRoundedIcon />}
+              onClick={handleOpenRoomStudio}
+            >
+              Decorate
+            </Button>
+          ) : null}
+        </>
+      ) : null}
+
+      {!showOfficeEditView && !showImmersiveView ? (
+        <Box className="window-bottom-controls">
+          {desktopMode && (
+            <IconButton
+              className="mode-toggle"
+              color="primary"
+              onClick={() => {
+                void onSwitchToPetMode?.();
+              }}
+              title={t('main.switchToPetMode')}
+            >
+              <SwapHorizIcon />
+            </IconButton>
+          )}
           <IconButton
             className="mode-toggle"
-            color="primary"
-            onClick={() => {
-              void onSwitchToPetMode?.();
-            }}
-            title={t('main.switchToPetMode')}
+            color={showChatPanel ? 'secondary' : 'primary'}
+            onClick={onOpenChatPanel}
+            title={t('chat.openChat')}
+            aria-label={t('chat.openChat')}
           >
-            <SwapHorizIcon />
+            <ChatIcon />
           </IconButton>
-        )}
-        <IconButton
-          className="mode-toggle"
-          color={showChatPanel ? 'secondary' : 'primary'}
-          onClick={onOpenChatPanel}
-          title={t('chat.openChat')}
-          aria-label={t('chat.openChat')}
-        >
-          <ChatIcon />
-        </IconButton>
-      </Box>
+        </Box>
+      ) : null}
 
       {showVoicePermissionWarning && voicePermissionWarningText ? (
         <Box className="window-voice-warning">{voicePermissionWarningText}</Box>

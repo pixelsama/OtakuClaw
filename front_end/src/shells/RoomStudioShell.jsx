@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { Button, Chip, Stack, Typography } from '@mui/material';
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded';
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import DesktopWindowsRoundedIcon from '@mui/icons-material/DesktopWindowsRounded';
 import HomeRepairServiceRoundedIcon from '@mui/icons-material/HomeRepairServiceRounded';
 import OfficeScene from '../components/office/OfficeScene.jsx';
+import OfficeSceneEditor from '../components/office/OfficeSceneEditor.jsx';
 import './RoomStudioShell.css';
 
 function normalizeText(value, fallback = '') {
@@ -26,9 +28,12 @@ export default function RoomStudioShell({
   scene,
   editor,
   onBackToRoom,
+  onAgentClick,
   compact = false,
   desktopMode = false,
 }) {
+  const furniture = Array.isArray(editor?.furniture) ? editor.furniture : [];
+  const [selectedFurnitureId, setSelectedFurnitureId] = useState(furniture[0]?.id || '');
   const title = normalizeText(scene?.title, 'Pixel Room');
   const subtitle = normalizeText(scene?.subtitle, 'Room Studio');
   const caption = normalizeText(
@@ -109,7 +114,7 @@ export default function RoomStudioShell({
                 onBackToRoom?.();
               }}
             >
-              Back To Room
+              返回房间
             </Button>
           </div>
         </header>

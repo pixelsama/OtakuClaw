@@ -308,6 +308,7 @@ export default function OfficeScene({
       layerHeight: layerRect.height,
     };
     setSelectedFurnitureId(furniture.id);
+    editor?.onFurnitureSelect?.(furniture.id);
     setDraggingFurnitureId(furniture.id);
     event.preventDefault();
   };
