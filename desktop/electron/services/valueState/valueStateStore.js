@@ -62,6 +62,7 @@ class ValueStateStore {
     this.history = [];
     this.listeners = new Set();
     this.ruleEngine = createValueRuleEngine();
+    this.persistChain = Promise.resolve();
   }
 
   resolveStoreFilePath() {
@@ -100,12 +101,21 @@ class ValueStateStore {
   }
 
   persistSoon() {
+    const storeFilePath = this.resolveStoreFilePath();
     const payload = JSON.stringify(this.getState(), null, 2);
-    void fs.mkdir(path.dirname(this.resolveStoreFilePath()), { recursive: true })
-      .then(() => fs.writeFile(this.resolveStoreFilePath(), payload, 'utf8'))
+    this.persistChain = this.persistChain
+      .catch(() => {})
+      .then(() => fs.mkdir(path.dirname(storeFilePath), { recursive: true }))
+      .then(() => fs.writeFile(storeFilePath, payload, 'utf8'))
       .catch((error) => {
         console.warn('Failed to persist value state:', error);
       });
+
+    return this.persistChain;
+  }
+
+  waitForPendingPersistence() {
+    return this.persistChain.catch(() => {});
   }
 
   subscribe(listener) {

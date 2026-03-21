@@ -70,6 +70,12 @@ describe('normalizeOfficeState', () => {
           displayName: 'Main',
           businessState: 'idle',
           detail: 'Standing by.',
+          backend: 'nanobot',
+          profileId: 'profile-main',
+          routeKey: 'main:nanobot:session-1',
+          sessionId: 'session-1',
+          sessionNamespace: 'session-1',
+          turnId: 'turn-1',
           mood: 12,
           affinity: '330',
           stats: {
@@ -87,6 +93,12 @@ describe('normalizeOfficeState', () => {
     expect(state.agents[0].stats).toEqual({
       trust: 8,
     });
+    expect(state.agents[0].backend).toBe('nanobot');
+    expect(state.agents[0].profileId).toBe('profile-main');
+    expect(state.agents[0].routeKey).toBe('main:nanobot:session-1');
+    expect(state.agents[0].sessionId).toBe('session-1');
+    expect(state.agents[0].sessionNamespace).toBe('session-1');
+    expect(state.agents[0].turnId).toBe('turn-1');
     expect(state.agents[0].valueState).toEqual({
       revision: 3,
     });
@@ -112,6 +124,30 @@ describe('resolveOfficeSceneState', () => {
     expect(scene.occupants.find((agent) => agent.agentId === 'main')?.areaId).toBe('desk');
     expect(scene.occupants.find((agent) => agent.agentId === 'voice')?.areaId).toBe('syncDock');
     expect(scene.occupants.find((agent) => agent.agentId === 'watcher')?.areaId).toBe('lounge');
+  });
+
+  it('keeps route-aware agent metadata on scene occupants for immersive actions', () => {
+    const scene = resolveOfficeSceneState({
+      officeState: normalizeOfficeState({
+        revision: 2,
+        activeAgentId: 'main',
+        agents: [
+          {
+            agentId: 'main',
+            displayName: 'Main',
+            businessState: 'writing',
+            detail: 'Replying now.',
+            routeKey: 'main:nanobot:session-1',
+            sessionId: 'session-1',
+            turnId: 'turn-1',
+          },
+        ],
+      }),
+    });
+
+    expect(scene.occupants[0].routeKey).toBe('main:nanobot:session-1');
+    expect(scene.occupants[0].sessionId).toBe('session-1');
+    expect(scene.occupants[0].turnId).toBe('turn-1');
   });
 
   it('resolves backdrop and furniture assets from configurable scene data', () => {

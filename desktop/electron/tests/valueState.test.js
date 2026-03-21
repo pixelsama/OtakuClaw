@@ -1,4 +1,7 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
 const test = require('node:test');
 
 const { registerValueStateIpc } = require('../ipc/valueState');
@@ -92,6 +95,54 @@ test('value proposal service extracts structured stat updates from chat events',
   assert.equal(result.changed, true);
   assert.equal(result.state.entities[0].stats.mood.value, -4);
   assert.equal(result.state.history[0].source, 'chat');
+});
+
+test('value state store serializes persistence so the latest snapshot wins', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'value-state-store-'));
+  const store = createValueStateStore({
+    storeFilePath: path.join(tempDir, 'value-state.json'),
+  });
+
+  store.applyStatUpdates({
+    agentId: 'agent-a',
+    characterId: 'character-a',
+    routeKey: 'agent-a:nanobot:shared',
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    source: 'conversation',
+    statUpdates: [
+      {
+        stat: 'mood',
+        delta: 2,
+      },
+    ],
+  });
+  store.applyStatUpdates({
+    agentId: 'agent-a',
+    characterId: 'character-a',
+    routeKey: 'agent-a:nanobot:shared',
+    sessionId: 'session-1',
+    turnId: 'turn-2',
+    source: 'conversation',
+    statUpdates: [
+      {
+        stat: 'affinity',
+        delta: 1,
+      },
+    ],
+  });
+
+  await store.waitForPendingPersistence();
+
+  const persisted = JSON.parse(await fs.readFile(path.join(tempDir, 'value-state.json'), 'utf8'));
+  const entity = persisted.entities.find(
+    (item) => item.agentId === 'agent-a' && item.characterId === 'character-a',
+  );
+
+  assert.ok(entity);
+  assert.equal(entity.stats.mood.value, 2);
+  assert.equal(entity.stats.affinity.value, 101);
+  assert.equal(persisted.history.at(-1)?.turnId, 'turn-2');
 });
 
 test('value state ipc delegates get upsert and propose handlers', async () => {

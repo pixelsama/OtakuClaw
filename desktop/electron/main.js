@@ -857,31 +857,37 @@ async function bootstrap() {
 
         const valueProposal = buildValueProposalUpdate(conversationEvent);
         if (valueProposal) {
-          void valueProposalService?.applyProposal?.(valueProposal).then((result) => {
-            if (!result?.ok || !result?.changed || !mainWindow || mainWindow.isDestroyed()) {
-              return;
-            }
+          try {
+            void Promise.resolve(valueProposalService?.applyProposal?.(valueProposal))
+              .then((result) => {
+                if (!result?.ok || !result?.changed || !mainWindow || mainWindow.isDestroyed()) {
+                  return;
+                }
 
-            mainWindow.webContents.send('conversation:event', {
-              channel: 'system',
-              type: 'stat-updated',
-              timestamp: new Date().toISOString(),
-              agentId: valueProposal.agentId,
-              routeKey: valueProposal.routeKey,
-              sessionId: valueProposal.sessionId,
-              turnId: valueProposal.turnId,
-              payload: {
-                agentId: valueProposal.agentId,
-                routeKey: valueProposal.routeKey,
-                sessionId: valueProposal.sessionId,
-                turnId: valueProposal.turnId,
-                stats: result?.state?.stats || {},
-                statUpdates: valueProposal.statUpdates || [],
-              },
-            });
-          }).catch((error) => {
+                mainWindow.webContents.send('conversation:event', {
+                  channel: 'system',
+                  type: 'stat-updated',
+                  timestamp: new Date().toISOString(),
+                  agentId: valueProposal.agentId,
+                  routeKey: valueProposal.routeKey,
+                  sessionId: valueProposal.sessionId,
+                  turnId: valueProposal.turnId,
+                  payload: {
+                    agentId: valueProposal.agentId,
+                    routeKey: valueProposal.routeKey,
+                    sessionId: valueProposal.sessionId,
+                    turnId: valueProposal.turnId,
+                    stats: result?.state?.stats || {},
+                    statUpdates: valueProposal.statUpdates || [],
+                  },
+                });
+              })
+              .catch((error) => {
+                console.warn('Failed to apply value proposal from chat event:', error);
+              });
+          } catch (error) {
             console.warn('Failed to apply value proposal from chat event:', error);
-          });
+          }
         }
       } else if (conversationEvent.channel === 'office') {
         officePresenceProducer?.applyConversationEvent?.(conversationEvent);

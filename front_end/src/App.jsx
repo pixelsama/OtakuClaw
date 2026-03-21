@@ -985,12 +985,26 @@ function AppContent({ desktopMode }) {
     const sourceArea = sourceAreaId && scene?.config?.areas?.[sourceAreaId]
       ? scene.config.areas[sourceAreaId]
       : null;
+    const routeKey =
+      typeof payload.routeKey === 'string' && payload.routeKey.trim()
+        ? payload.routeKey.trim()
+        : typeof agent?.routeKey === 'string' && agent.routeKey.trim()
+          ? agent.routeKey.trim()
+          : '';
+    const sessionId =
+      typeof payload.sessionId === 'string' && payload.sessionId.trim()
+        ? payload.sessionId.trim()
+        : typeof agent?.sessionId === 'string' && agent.sessionId.trim()
+          ? agent.sessionId.trim()
+          : '';
 
     setImmersiveContext({
       agentId: typeof payload.agentId === 'string' && payload.agentId.trim()
         ? payload.agentId.trim()
         : agent?.agentId || OFFICE_PRIMARY_AGENT_ID,
       agent,
+      routeKey,
+      sessionId,
       sourceAreaId,
       sourceAreaLabel:
         typeof sourceArea?.label === 'string' && sourceArea.label.trim()
@@ -1023,25 +1037,35 @@ function AppContent({ desktopMode }) {
         typeof context?.agent?.agentId === 'string' && context.agent.agentId.trim()
           ? context.agent.agentId.trim()
           : immersiveContext?.agentId || OFFICE_PRIMARY_AGENT_ID;
+      const routeKey =
+        typeof context?.immersiveContext?.routeKey === 'string' && context.immersiveContext.routeKey.trim()
+          ? context.immersiveContext.routeKey.trim()
+          : typeof context?.agent?.routeKey === 'string' && context.agent.routeKey.trim()
+            ? context.agent.routeKey.trim()
+            : typeof immersiveContext?.routeKey === 'string' && immersiveContext.routeKey.trim()
+              ? immersiveContext.routeKey.trim()
+              : '';
+      const sessionId =
+        typeof context?.immersiveContext?.sessionId === 'string' && context.immersiveContext.sessionId.trim()
+          ? context.immersiveContext.sessionId.trim()
+          : typeof context?.agent?.sessionId === 'string' && context.agent.sessionId.trim()
+            ? context.agent.sessionId.trim()
+            : typeof immersiveContext?.sessionId === 'string' && immersiveContext.sessionId.trim()
+              ? immersiveContext.sessionId.trim()
+              : '';
       void desktopBridge.valueState.applyInteraction({
         actionType,
         agentId,
         characterId: agentId,
-        routeKey:
-          typeof context?.immersiveContext?.routeKey === 'string'
-            ? context.immersiveContext.routeKey
-            : '',
-        sessionId:
-          typeof context?.immersiveContext?.sessionId === 'string'
-            ? context.immersiveContext.sessionId
-            : '',
+        routeKey,
+        sessionId,
       }).then((nextState) => {
         setValueStateSnapshot(nextState || null);
       }).catch((error) => {
         console.warn('Immersive value interaction failed:', error);
       });
     }
-  }, [immersiveContext?.agentId, openChatPanel]);
+  }, [immersiveContext?.agentId, immersiveContext?.routeKey, immersiveContext?.sessionId, openChatPanel]);
 
   const updatePetHover = useCallback(
     (componentId, isHovering) => {
