@@ -458,8 +458,8 @@ function resolveRuntimeTtsExecutionProvider(tts = {}) {
   const modelKind = sanitizeOptionalText(tts.modelKind, 'kokoro').toLowerCase();
   const executionProvider = sanitizeOptionalText(tts.executionProvider, 'cpu').toLowerCase();
 
-  // Work around current sherpa-onnx CoreML memory instability for kokoro on macOS.
-  if (process.platform === 'darwin' && modelKind === 'kokoro' && executionProvider === 'coreml') {
+  // Work around current sherpa-onnx CoreML memory instability for kokoro bundles.
+  if (modelKind === 'kokoro' && executionProvider === 'coreml') {
     return 'cpu';
   }
 
@@ -743,6 +743,10 @@ class VoiceModelLibrary {
     this.downloadsDir = path.join(this.rootDir, 'downloads');
     this.stateFilePath = path.join(this.rootDir, STATE_FILE_NAME);
     this.state = normalizeState({});
+    this.stateWritePromise = Promise.resolve();
+    this.stateMutationPromise = Promise.resolve();
+    this.resourceLockTails = new Map();
+    this.installSelectionPolicy = sanitizeOptionalText(process.env.OPENCLAW_VOICE_INSTALL_SELECTION_POLICY, 'manual');
   }
 
   async init() {
@@ -767,6 +771,50 @@ class VoiceModelLibrary {
       const { migrated: _migrated, ...state } = normalizedState;
       this.state = state;
       await this.persistState();
+    }
+  }
+
+
+
+  async withResourceLock(resourceKey, runner) {
+    const key = sanitizeText(resourceKey);
+    if (!key) {
+      return runner();
+    }
+    const previousTail = this.resourceLockTails.get(key) || Promise.resolve();
+    let release;
+    const lockPromise = new Promise((resolve) => {
+      release = resolve;
+    });
+    const currentTail = previousTail.then(() => lockPromise);
+    this.resourceLockTails.set(key, currentTail);
+    await previousTail;
+    try {
+      return await runner();
+    } finally {
+      release();
+      if (this.resourceLockTails.get(key) === currentTail) {
+        this.resourceLockTails.delete(key);
+      }
+    }
+  }
+
+  async mutateState(mutator) {
+    const run = async () => {
+      await Promise.resolve(mutator(this.state));
+      await this.persistState();
+    };
+    this.stateMutationPromise = this.stateMutationPromise.then(run, run);
+    return this.stateMutationPromise;
+  }
+
+  applyInstalledBundleSelection(bundleRecord, { installAsr = true, installTts = true, forceActivate = false } = {}) {
+    const shouldAutoActivate = forceActivate || this.installSelectionPolicy === 'auto-activate-if-idle';
+    if (installAsr && (!this.state.selectedAsrBundleId || shouldAutoActivate)) {
+      this.state.selectedAsrBundleId = bundleRecord.id;
+    }
+    if (installTts && (!this.state.selectedTtsBundleId || shouldAutoActivate)) {
+      this.state.selectedTtsBundleId = bundleRecord.id;
     }
   }
 
@@ -826,14 +874,15 @@ class VoiceModelLibrary {
       );
     }
 
-    this.state.bundles = this.state.bundles.filter((item) => item.id !== normalizedBundleId);
-    if (this.state.selectedAsrBundleId === normalizedBundleId) {
-      this.state.selectedAsrBundleId = '';
-    }
-    if (this.state.selectedTtsBundleId === normalizedBundleId) {
-      this.state.selectedTtsBundleId = '';
-    }
-    await this.persistState();
+    await this.mutateState(() => {
+      this.state.bundles = this.state.bundles.filter((item) => item.id !== normalizedBundleId);
+      if (this.state.selectedAsrBundleId === normalizedBundleId) {
+        this.state.selectedAsrBundleId = '';
+      }
+      if (this.state.selectedTtsBundleId === normalizedBundleId) {
+        this.state.selectedTtsBundleId = '';
+      }
+    });
 
     const recycledPythonEnvIds = [];
     if (bundlePythonEnvId && typeof this.pythonEnvManager?.removeEnv === 'function') {
@@ -860,7 +909,7 @@ class VoiceModelLibrary {
     };
   }
 
-  async installCatalogBundle({ catalogId, installAsr, installTts } = {}, { onProgress } = {}) {
+  async installCatalogBundle({ catalogId, installAsr, installTts } = {}, { onProgress, signal } = {}) {
     const normalizedCatalogId = sanitizeText(catalogId);
     const catalogEntry = getBuiltInVoiceModelCatalog().find((item) => item.id === normalizedCatalogId);
     if (!catalogEntry) {
@@ -902,6 +951,7 @@ class VoiceModelLibrary {
         installTts: shouldInstallTts,
         installTarget,
         onProgress,
+        signal,
       });
     }
 
@@ -996,9 +1046,10 @@ class VoiceModelLibrary {
         );
         const extractedBaseDir = path.join(bundleDir, component.key);
 
-        await this.downloadFileImpl({
+        await this.withResourceLock(`artifact:${archivePath}`, () => this.downloadFileImpl({
           url: component.archiveUrl,
           destinationPath: archivePath,
+          signal,
           onProgress: ({ downloadedBytes, totalBytes, bytesPerSecond, estimatedRemainingSeconds }) => {
             const downloadRatio =
               Number.isFinite(totalBytes) && totalBytes > 0 ? Math.min(1, downloadedBytes / totalBytes) : 0;
@@ -1016,7 +1067,7 @@ class VoiceModelLibrary {
               overallProgress: progress,
             });
           },
-        });
+        }));
         completedTasks += 1;
         emitProgress({
           phase: 'running',
@@ -1158,10 +1209,11 @@ class VoiceModelLibrary {
       throw createVoiceModelError('voice_model_bundle_invalid', 'Failed to build model bundle record.');
     }
 
-    this.state.bundles = this.state.bundles.filter((item) => item.id !== bundleRecord.id);
-    this.state.bundles.unshift(bundleRecord);
-    this.selectInstalledBundleCapabilities(bundleRecord);
-    await this.persistState();
+    await this.mutateState(() => {
+      this.state.bundles = this.state.bundles.filter((item) => item.id !== bundleRecord.id);
+      this.state.bundles.unshift(bundleRecord);
+      this.applyInstalledBundleSelection(bundleRecord, { installAsr: hasAsr, installTts: hasTts, forceActivate: true });
+    });
 
     emitProgress({
       phase: 'completed',
@@ -1181,6 +1233,7 @@ class VoiceModelLibrary {
     installTts = true,
     installTarget = null,
     onProgress,
+    signal = null,
   }) {
     const normalizedCatalogId = sanitizeText(catalogEntry?.id);
     const runtime = catalogEntry?.runtime && typeof catalogEntry.runtime === 'object'
@@ -1286,6 +1339,7 @@ class VoiceModelLibrary {
         pythonVersion,
         runtimePackages: runtime.packages,
         pipPackages,
+        signal,
         onProgress: (payload = {}) => {
           const progress = typeof payload.overallProgress === 'number'
             ? (payload.overallProgress / totalTasks)
@@ -1548,10 +1602,11 @@ class VoiceModelLibrary {
         throw createVoiceModelError('voice_model_bundle_invalid', 'Failed to build Python runtime bundle.');
       }
 
-      this.state.bundles = this.state.bundles.filter((item) => item.id !== bundleRecord.id);
-      this.state.bundles.unshift(bundleRecord);
-      this.selectInstalledBundleCapabilities(bundleRecord);
-      await this.persistState();
+      await this.mutateState(() => {
+        this.state.bundles = this.state.bundles.filter((item) => item.id !== bundleRecord.id);
+        this.state.bundles.unshift(bundleRecord);
+        this.applyInstalledBundleSelection(bundleRecord, { installAsr: shouldInstallAsr, installTts: shouldInstallTts });
+      });
 
       emitProgress({
         phase: 'completed',
@@ -1578,15 +1633,6 @@ class VoiceModelLibrary {
         // noop
       }
       throw error;
-    }
-  }
-
-  selectInstalledBundleCapabilities(bundleRecord) {
-    if (bundleSupportsAsr(bundleRecord)) {
-      this.state.selectedAsrBundleId = bundleRecord.id;
-    }
-    if (bundleSupportsTts(bundleRecord)) {
-      this.state.selectedTtsBundleId = bundleRecord.id;
     }
   }
 
@@ -1692,9 +1738,10 @@ class VoiceModelLibrary {
       }
     }
 
-    this.state.selectedAsrBundleId = nextAsrBundleId;
-    this.state.selectedTtsBundleId = nextTtsBundleId;
-    return this.persistState();
+    return this.mutateState(() => {
+      this.state.selectedAsrBundleId = nextAsrBundleId;
+      this.state.selectedTtsBundleId = nextTtsBundleId;
+    });
   }
 
   getRuntimeEnv(baseEnv = process.env) {
@@ -1847,7 +1894,7 @@ class VoiceModelLibrary {
       asr = {},
       tts = {},
     } = {},
-    { onProgress } = {},
+    { onProgress, signal } = {},
   ) {
     const asrModelUrl = sanitizeText(asr.modelUrl);
     const asrTokensUrl = sanitizeText(asr.tokensUrl);
@@ -2000,9 +2047,10 @@ class VoiceModelLibrary {
     let completedTasks = 0;
     try {
       for (const task of downloadTasks) {
-        await this.downloadFileImpl({
+        await this.withResourceLock(`artifact:${task.destinationPath}`, () => this.downloadFileImpl({
           url: task.url,
           destinationPath: task.destinationPath,
+          signal,
           onProgress: ({ downloadedBytes, totalBytes, bytesPerSecond, estimatedRemainingSeconds }) => {
             emitProgress({
               phase: 'running',
@@ -2014,7 +2062,7 @@ class VoiceModelLibrary {
               completedTasks,
             });
           },
-        });
+        }));
 
         completedTasks += 1;
         emitProgress({
@@ -2074,10 +2122,11 @@ class VoiceModelLibrary {
       throw createVoiceModelError('voice_model_bundle_invalid', 'Failed to build model bundle record.');
     }
 
-    this.state.bundles = this.state.bundles.filter((item) => item.id !== bundleRecord.id);
-    this.state.bundles.unshift(bundleRecord);
-    this.selectInstalledBundleCapabilities(bundleRecord);
-    await this.persistState();
+    await this.mutateState(() => {
+      this.state.bundles = this.state.bundles.filter((item) => item.id !== bundleRecord.id);
+      this.state.bundles.unshift(bundleRecord);
+      this.applyInstalledBundleSelection(bundleRecord, { installAsr: hasAsr, installTts: hasTts });
+    });
 
     emitProgress({
       phase: 'completed',
@@ -2094,8 +2143,14 @@ class VoiceModelLibrary {
   }
 
   async persistState() {
-    await fsp.mkdir(this.rootDir, { recursive: true });
-    await fsp.writeFile(this.stateFilePath, JSON.stringify(this.state, null, 2), 'utf-8');
+    const run = async () => {
+      await fsp.mkdir(path.dirname(this.stateFilePath), { recursive: true });
+      const tempFile = `${this.stateFilePath}.tmp`;
+      await fsp.writeFile(tempFile, JSON.stringify(this.state, null, 2), 'utf-8');
+      await fsp.rename(tempFile, this.stateFilePath);
+    };
+    this.stateWritePromise = this.stateWritePromise.then(run, run);
+    return this.stateWritePromise;
   }
 }
 

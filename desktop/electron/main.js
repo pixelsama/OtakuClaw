@@ -21,6 +21,7 @@ const { registerNanobotRuntimeIpc } = require('./ipc/nanobotRuntime');
 const { registerSettingsIpc } = require('./ipc/settings');
 const { registerScreenshotCaptureIpc } = require('./ipc/screenshotCapture');
 const { registerVoiceModelsIpc } = require('./ipc/voiceModels');
+const { DownloadInstallTaskManager } = require('./services/download/downloadInstallTaskManager');
 const { registerVoiceSessionIpc } = require('./ipc/voiceSession');
 const { createConversationRuntime } = require('./services/chat/conversationRuntime');
 const { createChatBackendManager } = require('./services/chat/backendManager');
@@ -74,6 +75,7 @@ let screenshotSelectionService = null;
 let pythonRuntimeManager = null;
 let pythonEnvManager = null;
 let voiceModelLibrary = null;
+let downloadInstallTaskManager = null;
 let nanobotRuntimeManager = null;
 let nanobotSkillsLibrary = null;
 let isQuitting = false;
@@ -477,6 +479,14 @@ async function bootstrap() {
     pythonEnvManager,
   });
   await voiceModelLibrary.init();
+  downloadInstallTaskManager = new DownloadInstallTaskManager(app);
+  await downloadInstallTaskManager.init();
+  downloadInstallTaskManager.on('download-task:progress', (payload) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+    mainWindow.webContents.send('download-task:progress', payload);
+  });
   nanobotRuntimeManager = new NanobotRuntimeManager(app, {
     pythonRuntimeManager,
     pythonEnvManager,
@@ -591,6 +601,13 @@ async function bootstrap() {
       }
       mainWindow.webContents.send('voice-models:download-progress', payload);
     },
+    emitTaskProgress: (payload) => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+      }
+      mainWindow.webContents.send('download-task:progress', payload);
+    },
+    taskManager: downloadInstallTaskManager,
     onSelectionChanged: async () => {
       if (!disposeVoiceSessionHandlers || typeof disposeVoiceSessionHandlers.warmupRuntime !== 'function') {
         return;
