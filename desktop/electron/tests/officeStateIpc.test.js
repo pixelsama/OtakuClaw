@@ -77,6 +77,59 @@ test('office state ipc delegates get/upsert/update to the store', async () => {
         };
       },
     },
+    officePresenceProducer: {
+      publishPresence(request) {
+        calls.push(['presence', request]);
+        currentState = {
+          ...currentState,
+          revision: currentState.revision + 1,
+          agents: request.agents || currentState.agents,
+        };
+        return {
+          ok: true,
+          changed: true,
+          state: currentState,
+        };
+      },
+      heartbeat(request) {
+        calls.push(['heartbeat', request]);
+        currentState = {
+          ...currentState,
+          revision: currentState.revision + 1,
+        };
+        return {
+          ok: true,
+          changed: true,
+          state: currentState,
+        };
+      },
+      removePresence(request) {
+        calls.push(['remove', request]);
+        currentState = {
+          ...currentState,
+          revision: currentState.revision + 1,
+          agents: currentState.agents.filter((agent) => agent.id !== request.agentId),
+        };
+        return {
+          ok: true,
+          changed: true,
+          state: currentState,
+        };
+      },
+      setActiveAgent(request) {
+        calls.push(['setActive', request]);
+        currentState = {
+          ...currentState,
+          revision: currentState.revision + 1,
+          activeAgentId: request.agentId,
+        };
+        return {
+          ok: true,
+          changed: true,
+          state: currentState,
+        };
+      },
+    },
   });
 
   const stateResult = await ipcMain.invoke('office-state:get');
@@ -98,6 +151,34 @@ test('office state ipc delegates get/upsert/update to the store', async () => {
   assert.equal(updateResult.ok, true);
   assert.equal(updateResult.state.activeAgentId, 'agent-2');
 
+  const presenceResult = await ipcMain.invoke('office-state:presence', {
+    agents: [
+      {
+        id: 'agent-3',
+        name: 'Presence Agent',
+      },
+    ],
+  });
+  assert.equal(presenceResult.ok, true);
+  assert.equal(presenceResult.state.agents[0].id, 'agent-3');
+
+  const heartbeatResult = await ipcMain.invoke('office-state:heartbeat', {
+    agentIds: ['agent-3'],
+  });
+  assert.equal(heartbeatResult.ok, true);
+
+  const setActiveResult = await ipcMain.invoke('office-state:set-active', {
+    agentId: 'agent-3',
+  });
+  assert.equal(setActiveResult.ok, true);
+  assert.equal(setActiveResult.state.activeAgentId, 'agent-3');
+
+  const removeResult = await ipcMain.invoke('office-state:remove', {
+    agentId: 'agent-3',
+  });
+  assert.equal(removeResult.ok, true);
+  assert.equal(removeResult.state.agents.length, 0);
+
   assert.deepEqual(calls, [
     'getState',
     ['upsert', {
@@ -108,6 +189,23 @@ test('office state ipc delegates get/upsert/update to the store', async () => {
     }],
     ['update', {
       activeAgentId: 'agent-2',
+    }],
+    ['presence', {
+      agents: [
+        {
+          id: 'agent-3',
+          name: 'Presence Agent',
+        },
+      ],
+    }],
+    ['heartbeat', {
+      agentIds: ['agent-3'],
+    }],
+    ['setActive', {
+      agentId: 'agent-3',
+    }],
+    ['remove', {
+      agentId: 'agent-3',
     }],
   ]);
 });

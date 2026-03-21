@@ -122,6 +122,18 @@ const office = {
   update(request) {
     return ipcRenderer.invoke('office-state:update', request);
   },
+  publishPresence(request) {
+    return ipcRenderer.invoke('office-state:presence', request);
+  },
+  heartbeat(request) {
+    return ipcRenderer.invoke('office-state:heartbeat', request);
+  },
+  remove(request) {
+    return ipcRenderer.invoke('office-state:remove', request);
+  },
+  setActive(request) {
+    return ipcRenderer.invoke('office-state:set-active', request);
+  },
   onChanged(handler) {
     return onChannel('office-state:changed', handler);
   },

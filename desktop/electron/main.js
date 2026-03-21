@@ -29,6 +29,7 @@ const { NanobotBackendAdapter } = require('./services/chat/backends/nanobotBacke
 const { NanobotRuntimeManager } = require('./services/chat/nanobot/nanobotRuntimeManager');
 const { NanobotSkillsLibrary } = require('./services/chat/nanobot/nanobotSkillsLibrary');
 const { Live2DModelLibrary, MODEL_PROTOCOL } = require('./services/live2dModelLibrary');
+const { createOfficePresenceProducer } = require('./services/officePresenceProducer');
 const { PythonEnvManager } = require('./services/python/pythonEnvManager');
 const { PythonRuntimeManager } = require('./services/python/pythonRuntimeManager');
 const { createOfficeStateStore } = require('./services/officeStateStore');
@@ -69,6 +70,7 @@ let disposeScreenshotCaptureHandlers = null;
 let startChatStreamFromMain = null;
 let conversationRuntime = null;
 let officeStateStore = null;
+let officePresenceProducer = null;
 let settingsStore = null;
 let windowModeManager = null;
 let trayManager = null;
@@ -495,6 +497,9 @@ async function bootstrap() {
   });
   await voiceModelLibrary.init();
   officeStateStore = createOfficeStateStore();
+  officePresenceProducer = createOfficePresenceProducer({
+    officeStateStore,
+  });
   nanobotRuntimeManager = new NanobotRuntimeManager(app, {
     pythonRuntimeManager,
     pythonEnvManager,
@@ -535,6 +540,7 @@ async function bootstrap() {
   disposeOfficeStateHandlers = registerOfficeStateIpc({
     ipcMain,
     officeStateStore,
+    officePresenceProducer,
   });
   appUpdaterService = new AppUpdaterService({
     app,
@@ -710,7 +716,7 @@ async function bootstrap() {
     },
     emitConversationEvent: (payload) => {
       if (payload?.channel === 'office') {
-        officeStateStore?.applyConversationEvent?.(payload);
+        officePresenceProducer?.applyConversationEvent?.(payload);
       }
 
       if (!mainWindow || mainWindow.isDestroyed()) {
@@ -870,6 +876,10 @@ app.on('before-quit', () => {
   if (disposeOfficeStateSubscription) {
     disposeOfficeStateSubscription();
     disposeOfficeStateSubscription = null;
+  }
+  if (officePresenceProducer) {
+    officePresenceProducer.dispose();
+    officePresenceProducer = null;
   }
   if (chatBackendManager) {
     void chatBackendManager.dispose();

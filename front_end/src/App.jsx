@@ -736,7 +736,11 @@ function AppContent({ desktopMode }) {
   }, [desktopMode]);
 
   useEffect(() => {
-    void desktopBridge.office.upsertAgent(primaryOfficeAgent).catch((error) => {
+    void desktopBridge.office.publishPresence({
+      source: 'renderer-primary',
+      activeAgentId: OFFICE_PRIMARY_AGENT_ID,
+      agents: [primaryOfficeAgent],
+    }).catch((error) => {
       console.warn('Failed to sync office state:', error);
     });
   }, [primaryOfficeAgent]);

@@ -132,6 +132,31 @@ function removeWebOfficeAgent(currentState, agentId, options = {}) {
   });
 }
 
+function normalizeOfficePresenceRequest(request = {}, fallbackId = OFFICE_PRIMARY_AGENT_ID) {
+  if (Array.isArray(request)) {
+    return {
+      agents: request.map((item, index) => normalizeOfficeAgent(item, index === 0 ? fallbackId : `agent-${index + 1}`)),
+    };
+  }
+
+  if (!request || typeof request !== 'object') {
+    return {
+      agents: [],
+    };
+  }
+
+  const agents = Array.isArray(request.agents)
+    ? request.agents.map((item, index) => normalizeOfficeAgent(item, index === 0 ? fallbackId : `agent-${index + 1}`))
+    : request.agent
+      ? [normalizeOfficeAgent(request.agent, fallbackId)]
+      : [];
+
+  return {
+    ...request,
+    agents,
+  };
+}
+
 function getDesktopApi() {
   if (typeof window === 'undefined') {
     return null;
@@ -884,33 +909,84 @@ export const desktopBridge = {
       }
       return normalizeOfficeState(webOfficeState);
     },
-    async upsertAgent(agent = {}, options = {}) {
-      return this.upsertAgents([agent], options);
-    },
-    async upsertAgents(agents = [], options = {}) {
-      const normalizedAgents = Array.isArray(agents)
-        ? agents.map((item, index) => normalizeOfficeAgent(item, index === 0 ? OFFICE_PRIMARY_AGENT_ID : `agent-${index + 1}`))
-        : [];
+    async publishPresence(request = {}) {
+      const normalizedRequest = normalizeOfficePresenceRequest(request, OFFICE_PRIMARY_AGENT_ID);
       const api = getDesktopApi();
+      if (api?.office?.publishPresence) {
+        const result = await api.office.publishPresence(normalizedRequest);
+        return normalizeOfficeState(result?.state || result);
+      }
       if (api?.office?.upsert) {
-        const request = {
-          agents: normalizedAgents,
+        const fallbackRequest = {
+          agents: normalizedRequest.agents,
         };
-        if (Object.prototype.hasOwnProperty.call(options, 'activeAgentId')) {
-          request.activeAgentId = normalizeOfficeAgentId(options.activeAgentId);
+        if (Object.prototype.hasOwnProperty.call(normalizedRequest, 'activeAgentId')) {
+          fallbackRequest.activeAgentId = normalizeOfficeAgentId(normalizedRequest.activeAgentId);
         }
-        if (Object.prototype.hasOwnProperty.call(options, 'activateIfUnset')) {
-          request.activateIfUnset = Boolean(options.activateIfUnset);
+        if (Object.prototype.hasOwnProperty.call(normalizedRequest, 'activateIfUnset')) {
+          fallbackRequest.activateIfUnset = Boolean(normalizedRequest.activateIfUnset);
         }
-        const result = await api.office.upsert(request);
+        if (Object.prototype.hasOwnProperty.call(normalizedRequest, 'ttlMs')) {
+          fallbackRequest.ttlMs = normalizedRequest.ttlMs;
+        }
+        if (Object.prototype.hasOwnProperty.call(normalizedRequest, 'source')) {
+          fallbackRequest.source = normalizedRequest.source;
+        }
+        if (Object.prototype.hasOwnProperty.call(normalizedRequest, 'sourceId')) {
+          fallbackRequest.sourceId = normalizedRequest.sourceId;
+        }
+        if (Object.prototype.hasOwnProperty.call(normalizedRequest, 'revision')) {
+          fallbackRequest.revision = normalizedRequest.revision;
+        }
+        const result = await api.office.upsert(fallbackRequest);
         return normalizeOfficeState(result?.state || result);
       }
       return updateWebOfficeState((current) =>
-        mergeWebOfficeAgents(current, normalizedAgents, options));
+        mergeWebOfficeAgents(current, normalizedRequest.agents, normalizedRequest));
+    },
+    async heartbeat(request = {}) {
+      const normalizedRequest = normalizeOfficePresenceRequest(request, OFFICE_PRIMARY_AGENT_ID);
+      const api = getDesktopApi();
+      if (api?.office?.heartbeat) {
+        const result = await api.office.heartbeat(normalizedRequest);
+        return normalizeOfficeState(result?.state || result);
+      }
+      const heartbeatAgentIds = [
+        normalizeOfficeAgentId(request?.agentId || request?.id),
+        ...(Array.isArray(request?.agentIds) ? request.agentIds.map((item) => normalizeOfficeAgentId(item)) : []),
+      ].filter(Boolean);
+      const heartbeatAgents = normalizedRequest.agents.length > 0
+        ? normalizedRequest.agents
+        : heartbeatAgentIds.map((agentId) => ({
+            agentId,
+            id: agentId,
+            updatedAt: new Date().toISOString(),
+          }));
+      return updateWebOfficeState((current) =>
+        mergeWebOfficeAgents(current, heartbeatAgents, normalizedRequest));
+    },
+    async upsertAgent(agent = {}, options = {}) {
+      return this.publishPresence({
+        ...options,
+        agent,
+      });
+    },
+    async upsertAgents(agents = [], options = {}) {
+      return this.publishPresence({
+        ...options,
+        agents,
+      });
     },
     async setActiveAgent(agentId = '', options = {}) {
       const normalizedAgentId = normalizeOfficeAgentId(agentId);
       const api = getDesktopApi();
+      if (api?.office?.setActive) {
+        const result = await api.office.setActive({
+          agentId: normalizedAgentId,
+          ...(Object.prototype.hasOwnProperty.call(options, 'revision') ? { revision: options.revision } : {}),
+        });
+        return normalizeOfficeState(result?.state || result);
+      }
       if (api?.office?.update) {
         const result = await api.office.update({
           activeAgentId: normalizedAgentId,
@@ -943,6 +1019,14 @@ export const desktopBridge = {
     async removeAgent(agentId = '', options = {}) {
       const normalizedAgentId = normalizeOfficeAgentId(agentId);
       const api = getDesktopApi();
+      if (api?.office?.remove) {
+        const result = await api.office.remove({
+          agentId: normalizedAgentId,
+          ...(Object.prototype.hasOwnProperty.call(options, 'activeAgentId') ? { activeAgentId: normalizeOfficeAgentId(options.activeAgentId) } : {}),
+          ...(Object.prototype.hasOwnProperty.call(options, 'revision') ? { revision: options.revision } : {}),
+        });
+        return normalizeOfficeState(result?.state || result);
+      }
       if (api?.office?.update) {
         const result = await api.office.update({
           removeAgentId: normalizedAgentId,

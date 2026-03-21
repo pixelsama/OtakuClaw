@@ -234,6 +234,80 @@ describe('desktopBridge office bridge', () => {
     expect(refreshed.agents.find((agent) => agent.agentId === 'agent-beta')?.businessState).toBe('syncing');
   });
 
+  it('uses semantic preload office presence methods when available', async () => {
+    const publishPresence = vi.fn(async (payload) => ({
+      ok: true,
+      state: {
+        revision: 1,
+        activeAgentId: 'agent-beta',
+        agents: payload.agents,
+      },
+    }));
+    const heartbeat = vi.fn(async () => ({
+      ok: true,
+      state: {
+        revision: 2,
+        activeAgentId: 'agent-beta',
+        agents: [{ agentId: 'agent-beta', businessState: 'idle' }],
+      },
+    }));
+    const setActive = vi.fn(async (payload) => ({
+      ok: true,
+      state: {
+        revision: 3,
+        activeAgentId: payload.agentId,
+        agents: [{ agentId: payload.agentId, businessState: 'idle' }],
+      },
+    }));
+    const remove = vi.fn(async () => ({
+      ok: true,
+      state: {
+        revision: 4,
+        activeAgentId: 'main',
+        agents: [{ agentId: 'main', businessState: 'idle' }],
+      },
+    }));
+
+    globalThis.window = {
+      desktop: {
+        isElectron: true,
+        office: {
+          publishPresence,
+          heartbeat,
+          setActive,
+          remove,
+        },
+      },
+    };
+
+    const published = await desktopBridge.office.publishPresence({
+      source: 'test',
+      activeAgentId: 'agent-beta',
+      agents: [
+        {
+          agentId: 'agent-beta',
+          displayName: 'Beta',
+          businessState: 'idle',
+        },
+      ],
+    });
+    const heartbeatState = await desktopBridge.office.heartbeat({
+      agentId: 'agent-beta',
+      ttlMs: 1000,
+    });
+    const activeState = await desktopBridge.office.setActiveAgent('agent-beta');
+    const removedState = await desktopBridge.office.removeAgent('agent-beta');
+
+    expect(publishPresence).toHaveBeenCalledTimes(1);
+    expect(heartbeat).toHaveBeenCalledTimes(1);
+    expect(setActive).toHaveBeenCalledTimes(1);
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(published.activeAgentId).toBe('agent-beta');
+    expect(heartbeatState.activeAgentId).toBe('agent-beta');
+    expect(activeState.activeAgentId).toBe('agent-beta');
+    expect(removedState.activeAgentId).toBe('main');
+  });
+
   it('routes office.onEvent through preload office changed channel', () => {
     const unsubscribe = vi.fn();
     let listener = null;
