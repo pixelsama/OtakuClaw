@@ -86,3 +86,43 @@ test('ensureEnv installs pip packages one-by-one and forwards runtime download s
   assert.equal(dependencyEvents[1].currentFile, '正在安装 Python 依赖 2/2');
 });
 
+
+test('ensureEnv deduplicates concurrent requests for the same envId', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'python-env-manager-dedupe-test-'));
+  let runtimeEnsureCount = 0;
+  let runCount = 0;
+
+  const manager = new PythonEnvManager(createApp(tmpDir), {
+    pythonRuntimeManager: {
+      init: async () => {},
+      async ensureRuntime() {
+        runtimeEnsureCount += 1;
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return {
+          pythonExecutable: '/usr/bin/python3',
+        };
+      },
+    },
+    runCommandImpl: async () => {
+      runCount += 1;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    },
+  });
+
+  const [resultA, resultB] = await Promise.all([
+    manager.ensureEnv({
+      profile: 'voice-default',
+      pythonVersion: '3.12.12',
+      pipPackages: ['pkg-a==1.0.0'],
+    }),
+    manager.ensureEnv({
+      profile: 'voice-default',
+      pythonVersion: '3.12.12',
+      pipPackages: ['pkg-a==1.0.0'],
+    }),
+  ]);
+
+  assert.equal(resultA.envId, resultB.envId);
+  assert.equal(runtimeEnsureCount, 1);
+  assert.equal(runCount, 3);
+});

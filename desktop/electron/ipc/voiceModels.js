@@ -16,6 +16,8 @@ function registerVoiceModelsIpc({
   ipcMain,
   voiceModelLibrary,
   emitDownloadProgress,
+  emitTaskProgress,
+  taskManager = null,
   onSelectionChanged,
 }) {
   const notifySelectionChanged = (payload = {}) => {
@@ -25,6 +27,37 @@ function registerVoiceModelsIpc({
 
     Promise.resolve(onSelectionChanged(payload)).catch((error) => {
       console.warn('Failed to refresh warmed voice runtime after model selection change:', error);
+    });
+  };
+
+
+  const emitProgressPayload = (progressPayload) => {
+    if (typeof emitDownloadProgress === 'function') {
+      emitDownloadProgress(progressPayload);
+    }
+  };
+
+  const createVoiceInstallTask = async ({
+    taskType,
+    payload,
+    resourceLocks,
+    run,
+  }) => {
+    if (!taskManager) {
+      const result = await run({ signal: null, taskId: '' });
+      return { task: null, result };
+    }
+
+    return taskManager.createTask({
+      taskType,
+      payload,
+      resourceLocks,
+      resumable: true,
+    }, async ({ signal, taskId, setCheckpoint }) => {
+      setCheckpoint('running');
+      const result = await run({ signal, taskId });
+      setCheckpoint('state_persisted');
+      return result;
     });
   };
 
@@ -44,25 +77,43 @@ function registerVoiceModelsIpc({
 
   ipcMain.handle('voice-models:install-catalog', async (_event, payload = {}) => {
     try {
-      const result = await voiceModelLibrary.installCatalogBundle(
-        {
+      const taskResult = await createVoiceInstallTask({
+        taskType: 'voice-model-install',
+        payload: {
           catalogId: payload.catalogId,
           installAsr: payload.installAsr,
           installTts: payload.installTts,
         },
-        {
-          onProgress: (progressPayload) => {
-            if (typeof emitDownloadProgress === 'function') {
-              emitDownloadProgress(progressPayload);
-            }
+        resourceLocks: [
+          `voice-catalog:${payload.catalogId || 'unknown'}`,
+          'voice-state',
+        ],
+        run: ({ signal, taskId }) => voiceModelLibrary.installCatalogBundle(
+          {
+            catalogId: payload.catalogId,
+            installAsr: payload.installAsr,
+            installTts: payload.installTts,
           },
-        },
-      );
+          {
+            signal,
+            onProgress: (progressPayload) => {
+              emitProgressPayload(progressPayload);
+              emitTaskProgress?.({
+                ...(progressPayload || {}),
+                taskId: taskId || progressPayload?.taskId,
+                taskType: 'voice-model-install',
+                resourceLocks: ['voice-state'],
+              });
+            },
+          },
+        ),
+      });
 
       notifySelectionChanged();
       return {
         ok: true,
-        ...result,
+        ...(taskResult.result || {}),
+        task: taskResult.task,
       };
     } catch (error) {
       console.error('voice-models:install-catalog failed:', error);
@@ -91,18 +142,32 @@ function registerVoiceModelsIpc({
 
   ipcMain.handle('voice-models:download', async (_event, payload = {}) => {
     try {
-      const result = await voiceModelLibrary.downloadBundle(payload, {
-        onProgress: (progressPayload) => {
-          if (typeof emitDownloadProgress === 'function') {
-            emitDownloadProgress(progressPayload);
-          }
-        },
+      const taskResult = await createVoiceInstallTask({
+        taskType: 'voice-model-download',
+        payload,
+        resourceLocks: [
+          `voice-bundle:${payload.bundleId || payload.bundleName || 'custom'}`,
+          'voice-state',
+        ],
+        run: ({ signal, taskId }) => voiceModelLibrary.downloadBundle(payload, {
+          signal,
+          onProgress: (progressPayload) => {
+            emitProgressPayload(progressPayload);
+            emitTaskProgress?.({
+              ...(progressPayload || {}),
+              taskId: taskId || progressPayload?.taskId,
+              taskType: 'voice-model-download',
+              resourceLocks: ['voice-state'],
+            });
+          },
+        }),
       });
 
       notifySelectionChanged();
       return {
         ok: true,
-        ...result,
+        ...(taskResult.result || {}),
+        task: taskResult.task,
       };
     } catch (error) {
       console.error('voice-models:download failed:', error);
@@ -129,6 +194,20 @@ function registerVoiceModelsIpc({
     }
   });
 
+
+  ipcMain.handle('download-task:list', async () => ({
+    ok: true,
+    items: taskManager?.listTasks?.() || [],
+  }));
+
+  ipcMain.handle('download-task:cancel', async (_event, payload = {}) => {
+    if (!taskManager) {
+      return { ok: false, error: { code: 'download_task_not_enabled', message: 'Download task manager is not enabled.' } };
+    }
+    const task = await taskManager.cancelTask(payload.taskId);
+    return { ok: true, task };
+  });
+
   return () => {
     ipcMain.removeHandler('voice-models:catalog');
     ipcMain.removeHandler('voice-models:list');
@@ -136,6 +215,8 @@ function registerVoiceModelsIpc({
     ipcMain.removeHandler('voice-models:select');
     ipcMain.removeHandler('voice-models:download');
     ipcMain.removeHandler('voice-models:remove');
+    ipcMain.removeHandler('download-task:list');
+    ipcMain.removeHandler('download-task:cancel');
   };
 }
 

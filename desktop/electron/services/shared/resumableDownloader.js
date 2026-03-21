@@ -89,6 +89,18 @@ function sleep(ms) {
   });
 }
 
+function throwIfAborted(signal, createError, errorCodes) {
+  if (!signal?.aborted) {
+    return;
+  }
+  throw createAugmentedError(
+    createError,
+    errorCodes.downloadFailed,
+    'Download canceled by user.',
+    { retryCode: 'ABORT_ERR', causeCode: 'ABORT_ERR' },
+  );
+}
+
 function inferCompoundExtension(fileName) {
   const normalized = sanitizeText(fileName).toLowerCase();
   if (!normalized) {
@@ -169,6 +181,7 @@ function requestWithRedirect(urlString, redirectsLeft, options) {
     requestTimeoutMs,
     userAgent,
     headers = {},
+    signal,
   } = options;
 
   return new Promise((resolve, reject) => {
@@ -275,6 +288,25 @@ function requestWithRedirect(urlString, redirectsLeft, options) {
         ),
       );
     });
+
+    if (signal) {
+      const onAbort = () => {
+        request.destroy(
+          createAugmentedError(
+            createError,
+            errorCodes.downloadFailed,
+            'Download canceled by user.',
+            { retryCode: 'ABORT_ERR', causeCode: 'ABORT_ERR' },
+          ),
+        );
+      };
+      if (signal.aborted) {
+        onAbort();
+      } else {
+        signal.addEventListener('abort', onAbort, { once: true });
+        request.once('close', () => signal.removeEventListener('abort', onAbort));
+      }
+    }
   });
 }
 
@@ -305,6 +337,7 @@ async function downloadFileWithRetry({
   requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
   retryBaseDelayMs = DEFAULT_RETRY_BASE_DELAY_MS,
   retryMaxDelayMs = DEFAULT_RETRY_MAX_DELAY_MS,
+  signal,
 }) {
   const partialPath = `${destinationPath}.part`;
   const retryableErrorCodes = [
@@ -314,6 +347,7 @@ async function downloadFileWithRetry({
 
   let lastError = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    throwIfAborted(signal, createError, errorCodes);
     let partialSize = 0;
     try {
       partialSize = await getFileSize(partialPath);
@@ -329,6 +363,7 @@ async function downloadFileWithRetry({
         requestTimeoutMs,
         userAgent,
         headers,
+        signal,
       });
 
       const statusCode = response.statusCode || 0;
