@@ -244,6 +244,47 @@ class NanobotBackendAdapter extends ChatBackendAdapter {
     return this.bridgeClient.testConnection({ config, signal });
   }
 
+  async runDirect({ settings, sessionId, content, signal }) {
+    const config = normalizeNanobotConfig(settings);
+    const effectiveModel = resolveEffectiveModel(config);
+    this.debug('direct-request', 'Running Nanobot direct request.', {
+      config: redactNanobotConfig(config),
+      modelTrace: {
+        provider: config.provider,
+        configuredModel: config.model,
+        effectiveModel,
+      },
+      sessionId,
+      content,
+    });
+
+    const directInvoker =
+      typeof this.bridgeClient.direct === 'function'
+        ? this.bridgeClient.direct
+        : this.bridgeClient.invokeDirect;
+
+    if (typeof directInvoker !== 'function') {
+      throw createNanobotError('nanobot_unreachable', 'Nanobot direct call is unavailable.');
+    }
+
+    const response = await directInvoker.call(this.bridgeClient, {
+      config,
+      sessionId,
+      content,
+      signal,
+    });
+
+    if (typeof response === 'string') {
+      return response;
+    }
+
+    return response?.text || response?.payload?.text || '';
+  }
+
+  async invokeDirect(payload) {
+    return this.runDirect(payload);
+  }
+
   async startStream({ settings, sessionId, content, options = {}, signal, onEvent }) {
     const config = normalizeNanobotConfig(settings);
     const effectiveModel = resolveEffectiveModel(config);

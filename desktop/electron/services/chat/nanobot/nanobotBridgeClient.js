@@ -19,6 +19,13 @@ function createBridgeError(code, message, status) {
 }
 
 function normalizeErrorPayload(payload = {}) {
+  if (typeof payload === 'string' && payload.trim()) {
+    return {
+      code: 'nanobot_unreachable',
+      message: payload.trim(),
+    };
+  }
+
   if (payload && typeof payload === 'object' && typeof payload.code === 'string') {
     return payload;
   }
@@ -31,6 +38,25 @@ function normalizeErrorPayload(payload = {}) {
 
 function toRequestId(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeMessageText(payload) {
+  if (typeof payload === 'string') {
+    return payload.trim();
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    return '';
+  }
+
+  for (const key of ['text', 'content', 'result', 'message']) {
+    const value = payload[key];
+    if (typeof value === 'string') {
+      return value.trim();
+    }
+  }
+
+  return '';
 }
 
 function normalizeString(value, fallback = '') {
@@ -120,8 +146,13 @@ function createNanobotBridgeClient({
     5_000,
     Number.parseInt(env?.NANOBOT_TEST_TIMEOUT_MS, 10) || 70_000,
   );
+  const directRequestTimeoutMs = Math.max(
+    5_000,
+    Number.parseInt(env?.NANOBOT_DIRECT_TIMEOUT_MS, 10) || testRequestTimeoutMs,
+  );
   const pendingStreamRequests = new Map();
   const pendingTestRequests = new Map();
+  const pendingDirectRequests = new Map();
   const debug = (stage, message, details = undefined) => {
     if (typeof emitDebugLog !== 'function') {
       return;
@@ -153,6 +184,17 @@ function createNanobotBridgeClient({
       pending.reject(error);
     }
     pendingTestRequests.clear();
+
+    for (const [, pending] of pendingDirectRequests.entries()) {
+      if (pending.signal && pending.onAbort) {
+        pending.signal.removeEventListener('abort', pending.onAbort);
+      }
+      if (pending.timeoutId) {
+        clearTimeout(pending.timeoutId);
+      }
+      pending.reject(error);
+    }
+    pendingDirectRequests.clear();
   };
 
   const takePendingTestRequest = (requestId) => {
@@ -169,6 +211,52 @@ function createNanobotBridgeClient({
     }
     pendingTestRequests.delete(requestId);
     return pending;
+  };
+
+  const takePendingDirectRequest = (requestId) => {
+    const pending = pendingDirectRequests.get(requestId);
+    if (!pending) {
+      return null;
+    }
+
+    if (pending.signal && pending.onAbort) {
+      pending.signal.removeEventListener('abort', pending.onAbort);
+    }
+    if (pending.timeoutId) {
+      clearTimeout(pending.timeoutId);
+    }
+    pendingDirectRequests.delete(requestId);
+    return pending;
+  };
+
+  const resolveDirectResult = (requestId, message) => {
+    const directText = normalizeMessageText(message.text || message.payload);
+    const isSuccessful = message.ok !== false && (!message.error || message.ok === true || directText);
+
+    debug('bridge-direct-result', 'Bridge returned direct result.', {
+      requestId,
+      ok: Boolean(isSuccessful),
+      text: directText,
+      latencyMs: Number.isFinite(message.latencyMs) ? Math.floor(message.latencyMs) : undefined,
+      error: message.error || null,
+    });
+
+    const pending = takePendingDirectRequest(requestId);
+    if (!pending) {
+      return;
+    }
+
+    if (isSuccessful) {
+      pending.resolve({
+        ok: true,
+        text: directText,
+        latencyMs: Number.isFinite(message.latencyMs) ? Math.floor(message.latencyMs) : undefined,
+      });
+      return;
+    }
+
+    const payload = normalizeErrorPayload(message.error);
+    pending.reject(createBridgeError(payload.code, payload.message, payload.status));
   };
 
   const handleJsonLine = (line) => {
@@ -232,7 +320,17 @@ function createNanobotBridgeClient({
         pendingStreamRequests.delete(requestId);
         const payload = normalizeErrorPayload(event.payload);
         pending.reject(createBridgeError(payload.code, payload.message, payload.status));
+        return;
       }
+
+      if (event.type === 'direct-result') {
+        resolveDirectResult(requestId, event.payload || {});
+      }
+      return;
+    }
+
+    if (message.type === 'direct-result') {
+      resolveDirectResult(requestId, message);
       return;
     }
 
@@ -513,7 +611,7 @@ function createNanobotBridgeClient({
       };
 
       if (signal?.aborted) {
-        onAbort();
+        reject(createAbortError());
         return;
       }
 
@@ -573,7 +671,7 @@ function createNanobotBridgeClient({
       };
 
       if (signal?.aborted) {
-        onAbort();
+        reject(createAbortError());
         return;
       }
 
@@ -628,6 +726,90 @@ function createNanobotBridgeClient({
     });
   };
 
+  const direct = async ({ config, content, sessionId, signal }) => {
+    await ensureReady();
+
+    const requestId = nextRequestId();
+    debug('bridge-direct', 'Creating Nanobot direct request.', {
+      requestId,
+      sessionId,
+      content,
+      config,
+    });
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        try {
+          sendMessage({
+            type: 'abort',
+            requestId,
+          });
+        } catch {
+          // noop
+        }
+        const pending = takePendingDirectRequest(requestId);
+        if (pending) {
+          pending.reject(createAbortError());
+        }
+      };
+
+      if (signal?.aborted) {
+        reject(createAbortError());
+        return;
+      }
+
+      if (signal) {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+
+      const timeoutId = setTimeout(() => {
+        debug('bridge-direct-timeout', 'Nanobot direct request timed out.', {
+          requestId,
+          timeoutMs: directRequestTimeoutMs,
+        });
+        try {
+          sendMessage({
+            type: 'abort',
+            requestId,
+          });
+        } catch {
+          // noop
+        }
+        const pending = takePendingDirectRequest(requestId);
+        if (pending) {
+          pending.reject(createBridgeError(
+            'nanobot_direct_timeout',
+            `Nanobot direct request timed out after ${directRequestTimeoutMs}ms.`,
+          ));
+        }
+      }, directRequestTimeoutMs);
+
+      pendingDirectRequests.set(requestId, {
+        resolve,
+        reject,
+        signal,
+        onAbort,
+        timeoutId,
+      });
+
+      try {
+        sendMessage({
+          type: 'direct',
+          requestId,
+          sessionId,
+          content,
+          config,
+        });
+      } catch (error) {
+        const pending = takePendingDirectRequest(requestId);
+        if (pending) {
+          pending.reject(error);
+        } else {
+          reject(error);
+        }
+      }
+    });
+  };
+
   const dispose = async () => {
     if (disposed) {
       return;
@@ -647,6 +829,8 @@ function createNanobotBridgeClient({
   };
 
   return {
+    direct,
+    invokeDirect: direct,
     start,
     testConnection,
     dispose,

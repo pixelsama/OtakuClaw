@@ -124,6 +124,32 @@ class ChatBackendManager {
     return adapter.testConnection({ settings, signal });
   }
 
+  async runDirect({ backend, settings, sessionId, content, options = {}, signal }) {
+    const adapter = this.getBackend(backend);
+    adapter.validateSettings(settings);
+
+    const directInvoker =
+      typeof adapter.runDirect === 'function'
+        ? adapter.runDirect
+        : adapter.invokeDirect;
+
+    if (typeof directInvoker !== 'function') {
+      throw new Error('runDirect is not implemented');
+    }
+
+    return directInvoker.call(adapter, {
+      settings,
+      sessionId,
+      content,
+      options,
+      signal,
+    });
+  }
+
+  async invokeDirect(payload) {
+    return this.runDirect(payload);
+  }
+
   mapError(error, { backend } = {}) {
     if (error && typeof error === 'object' && typeof error.code === 'string') {
       return {

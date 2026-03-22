@@ -34,6 +34,7 @@ DESKTOP_SKILLS_PATCH_FLAG = "_openclaw_desktop_skills_patched"
 LITELLM_OPENROUTER_PATCH_FLAG = "_openclaw_desktop_openrouter_native_model_patched"
 OPENROUTER_PROVIDER_NAME = "openrouter"
 OPENROUTER_MODEL_PREFIX = "openrouter/"
+DIRECT_REQUEST_TIMEOUT_SECONDS = 60
 OPENROUTER_NATIVE_MODEL_CONTEXT: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "openclaw_openrouter_native_model",
     default=False,
@@ -463,6 +464,38 @@ def map_exception(exc: Exception, model_trace: dict[str, str] | None = None) -> 
     return append_model_trace(payload, model_trace)
 
 
+async def call_process_direct(agent, **kwargs):
+    result = agent.process_direct(**kwargs)
+    if inspect.isawaitable(result):
+        return await result
+    return result
+
+
+def extract_direct_result_text(result: Any) -> str:
+    if isinstance(result, str):
+        return normalize_string(result)
+
+    if result is None:
+        return ""
+
+    if isinstance(result, dict):
+        for key in ("text", "content", "result", "message"):
+            value = result.get(key)
+            if isinstance(value, str):
+                return normalize_string(value)
+        nested = result.get("payload")
+        if nested is not None:
+            return extract_direct_result_text(nested)
+        return ""
+
+    for attr in ("text", "content", "result", "message"):
+        value = getattr(result, attr, None)
+        if isinstance(value, str):
+            return normalize_string(value)
+
+    return ""
+
+
 def first_progress_block(content: str) -> str:
     normalized = normalize_string(content)
     if not normalized:
@@ -604,6 +637,60 @@ async def handle_start(
         )
 
 
+async def handle_direct(request_id: str, session_id: str, content: str, config: dict[str, Any]) -> None:
+    started_at = time.perf_counter()
+    model_trace: dict[str, str] | None = None
+    try:
+        normalized = normalize_config(config)
+        model_trace = build_model_trace(config, normalized)
+        if not normalized["apiKey"]:
+            raise BridgeError("nanobot_missing_config", "Nanobot API Key is required.")
+
+        agent = get_or_create_agent(normalized)
+        response = await asyncio.wait_for(
+            call_process_direct(
+                agent,
+                content=content,
+                session_key=session_id or f"desktop:direct:{request_id}",
+                channel="desktop",
+                chat_id=session_id or "default",
+            ),
+            timeout=DIRECT_REQUEST_TIMEOUT_SECONDS,
+        )
+        direct_text = extract_direct_result_text(response)
+
+        emit(
+            {
+                "type": "direct-result",
+                "requestId": request_id,
+                "ok": True,
+                "text": direct_text,
+                "latencyMs": int((time.perf_counter() - started_at) * 1000),
+            }
+        )
+    except asyncio.CancelledError:
+        emit(
+            {
+                "type": "direct-result",
+                "requestId": request_id,
+                "ok": False,
+                "error": {
+                    "code": "aborted",
+                    "message": "aborted",
+                },
+            }
+        )
+    except Exception as exc:  # pragma: no cover - mapped runtime path
+        emit(
+            {
+                "type": "direct-result",
+                "requestId": request_id,
+                "ok": False,
+                "error": map_exception(exc, model_trace),
+            }
+        )
+
+
 async def handle_test(request_id: str, config: dict[str, Any]) -> None:
     started_at = time.perf_counter()
     model_trace: dict[str, str] | None = None
@@ -616,7 +703,8 @@ async def handle_test(request_id: str, config: dict[str, Any]) -> None:
         agent = get_or_create_agent(normalized)
 
         await asyncio.wait_for(
-            agent.process_direct(
+            call_process_direct(
+                agent,
                 content="ping",
                 session_key=f"desktop:test:{request_id}",
                 channel="desktop",
@@ -666,6 +754,15 @@ async def process_message(payload: dict[str, Any]) -> None:
         task = ACTIVE_TASKS.get(request_id)
         if task:
             task.cancel()
+        return
+
+    if msg_type == "direct":
+        session_id = normalize_string(payload.get("sessionId"), "default")
+        content = normalize_string(payload.get("content"))
+        config = payload.get("config") if isinstance(payload.get("config"), dict) else {}
+        task = asyncio.create_task(handle_direct(request_id, session_id, content, config))
+        ACTIVE_TASKS[request_id] = task
+        task.add_done_callback(lambda _: ACTIVE_TASKS.pop(request_id, None))
         return
 
     if msg_type == "start":

@@ -90,3 +90,106 @@ test('nanobot bridge client times out test request and sends abort', async () =>
   assert.equal(writes.some((line) => line.includes('"type":"abort"')), true);
   await client.dispose();
 });
+
+test('nanobot bridge client resolves direct request text and supports abort', async () => {
+  const writes = [];
+  const child = createFakeChildProcess();
+  child.stdin.write = (chunk) => {
+    const line = String(chunk || '').trim();
+    writes.push(line);
+
+    let payload = null;
+    try {
+      payload = JSON.parse(line);
+    } catch {
+      return;
+    }
+
+    if (payload.type === 'direct') {
+      setImmediate(() => {
+        child.stdout.emit(
+          'data',
+          Buffer.from(
+            `${JSON.stringify({
+              type: 'direct-result',
+              requestId: payload.requestId,
+              ok: true,
+              text: 'direct ok',
+            })}\n`,
+          ),
+        );
+      });
+    }
+  };
+
+  const client = createNanobotBridgeClient({
+    scriptPath: __filename,
+    spawnImpl: () => {
+      setImmediate(() => {
+        child.stdout.emit('data', Buffer.from('{"type":"ready"}\n'));
+      });
+      return child;
+    },
+  });
+
+  const directResult = await client.invokeDirect({
+    config: {
+      provider: 'openrouter',
+      model: 'qwen/qwen3.5-flash-02-23',
+      apiKey: 'x',
+    },
+    content: 'hello direct',
+    sessionId: 'session-1',
+  });
+
+  assert.equal(directResult.ok, true);
+  assert.equal(directResult.text, 'direct ok');
+  assert.equal(writes.some((line) => line.includes('"type":"direct"')), true);
+  await client.dispose();
+
+  const abortWrites = [];
+  const abortChild = createFakeChildProcess();
+  abortChild.stdin.write = (chunk) => {
+    const line = String(chunk || '').trim();
+    abortWrites.push(line);
+    let payload = null;
+    try {
+      payload = JSON.parse(line);
+    } catch {
+      return;
+    }
+
+    if (payload.type === 'direct') {
+      setImmediate(() => {
+        abortController.abort();
+      });
+    }
+  };
+
+  const abortController = new AbortController();
+  const abortClient = createNanobotBridgeClient({
+    scriptPath: __filename,
+    spawnImpl: () => {
+      setImmediate(() => {
+        abortChild.stdout.emit('data', Buffer.from('{"type":"ready"}\n'));
+      });
+      return abortChild;
+    },
+  });
+
+  await assert.rejects(
+    abortClient.direct({
+      config: {
+        provider: 'openrouter',
+        model: 'qwen/qwen3.5-flash-02-23',
+        apiKey: 'x',
+      },
+      content: 'please abort',
+      signal: abortController.signal,
+    }),
+    (error) => error && error.name === 'AbortError',
+  );
+
+  assert.equal(abortWrites.some((line) => line.includes('"type":"abort"')), true);
+  await abortClient.dispose();
+});
