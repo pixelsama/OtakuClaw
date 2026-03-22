@@ -31,6 +31,14 @@ function createPythonEnvError(code, message) {
   return error;
 }
 
+
+function throwIfAborted(signal) {
+  if (!signal?.aborted) {
+    return;
+  }
+  throw createPythonEnvError('python_env_canceled', 'Python env setup canceled by user.');
+}
+
 async function runCommand(executable, args, { cwd } = {}) {
   try {
     await execFileAsync(executable, args, {
@@ -132,6 +140,7 @@ class PythonEnvManager {
 
     this.rootDir = path.join(this.app.getPath('userData'), PYTHON_ENVS_ROOT_DIR);
     this.envs = new Map();
+    this.inflightEnsureByEnvId = new Map();
     this.initialized = false;
   }
 
@@ -214,6 +223,7 @@ class PythonEnvManager {
     runtimePackages,
     pipPackages,
     onProgress,
+    signal,
   } = {}) {
     await this.init();
 
@@ -235,12 +245,53 @@ class PythonEnvManager {
       return this.touchEnv(envId);
     }
 
+    const inflight = this.inflightEnsureByEnvId.get(envId);
+    if (inflight) {
+      return inflight;
+    }
+
+    const ensurePromise = this.ensureEnvInternal({
+      envId,
+      resolvedProfile,
+      resolvedPythonVersion,
+      runtimePackages,
+      resolvedPipPackages,
+      lockHash,
+      onProgress,
+      signal,
+    });
+    this.inflightEnsureByEnvId.set(envId, ensurePromise);
+    try {
+      return await ensurePromise;
+    } finally {
+      if (this.inflightEnsureByEnvId.get(envId) === ensurePromise) {
+        this.inflightEnsureByEnvId.delete(envId);
+      }
+    }
+  }
+
+  async ensureEnvInternal({
+    envId,
+    resolvedProfile,
+    resolvedPythonVersion,
+    runtimePackages,
+    resolvedPipPackages,
+    lockHash,
+    onProgress,
+    signal,
+  }) {
+    const existing = this.getEnvById(envId);
+    if (existing) {
+      return this.touchEnv(envId);
+    }
+
     const emitProgress = (payload = {}) => {
       if (typeof onProgress === 'function') {
         onProgress(payload);
       }
     };
 
+    throwIfAborted(signal);
     const runtime = await this.pythonRuntimeManager.ensureRuntime({
       pythonVersion: resolvedPythonVersion,
       packages: runtimePackages,
@@ -276,6 +327,7 @@ class PythonEnvManager {
       currentFile: '正在创建 Python env',
       overallProgress: 0.55,
     });
+    throwIfAborted(signal);
     await this.runCommandImpl(runtime.pythonExecutable, ['-m', 'venv', envDir]);
 
     emitProgress({
@@ -283,6 +335,7 @@ class PythonEnvManager {
       currentFile: '正在初始化 pip / setuptools / wheel',
       overallProgress: 0.7,
     });
+    throwIfAborted(signal);
     await this.runCommandImpl(envPythonExecutable, ['-m', 'pip', 'install', '--upgrade', 'pip', 'setuptools', 'wheel']);
 
     if (resolvedPipPackages.length) {
@@ -297,6 +350,7 @@ class PythonEnvManager {
           currentFile: `正在安装 Python 依赖 ${index + 1}/${totalDependencies}`,
           overallProgress: pipStartProgress + (pipProgressRange * ratio),
         });
+    throwIfAborted(signal);
         await this.runCommandImpl(envPythonExecutable, ['-m', 'pip', 'install', '--upgrade', dependency]);
       }
     }
