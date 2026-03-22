@@ -35,6 +35,9 @@ const { createOfficePresenceProducer } = require('./services/officePresenceProdu
 const { PythonEnvManager } = require('./services/python/pythonEnvManager');
 const { PythonRuntimeManager } = require('./services/python/pythonRuntimeManager');
 const { createOfficeStateStore } = require('./services/officeStateStore');
+const { createFastPersonaService } = require('./services/persona/fastPersonaService');
+const { createPersonaResponseRewriter } = require('./services/persona/personaResponseRewriter');
+const { createShortTermMemoryStore } = require('./services/persona/shortTermMemoryStore');
 const { createValueStateStore } = require('./services/valueState/valueStateStore');
 const { createValueProposalService } = require('./services/valueState/valueProposalService');
 const { SettingsStore } = require('./services/settingsStore');
@@ -76,6 +79,9 @@ let startChatStreamFromMain = null;
 let conversationRuntime = null;
 let officeStateStore = null;
 let officePresenceProducer = null;
+let shortTermMemoryStore = null;
+let fastPersonaService = null;
+let personaResponseRewriter = null;
 let valueStateStore = null;
 let valueProposalService = null;
 let settingsStore = null;
@@ -95,6 +101,7 @@ let chatBackendManager = null;
 let appUpdaterService = null;
 let disposeOfficeStateSubscription = null;
 let disposeValueStateSubscription = null;
+const personaTurnStateByStreamId = new Map();
 const PINNED_NANOBOT_ARCHIVE_URL = 'https://codeload.github.com/HKUDS/nanobot/tar.gz/refs/tags/v0.1.4.post4';
 const legacyConversationMirrorEnabled = (() => {
   const value = process.env.OPENCLAW_ENABLE_LEGACY_STREAM_EVENTS;
@@ -355,6 +362,7 @@ function buildValueProposalUpdate(event = {}) {
 
   return {
     agentId: normalizeMainAgentId(event.agentId || payload.agentId),
+    backend: normalizeMainBackendName(event.backend || payload.backend),
     characterId: normalizeMainText(event.characterId || payload.characterId || payload.avatarId) || 'default-character',
     routeKey: normalizeMainText(event.routeKey || payload.routeKey),
     sessionId: normalizeMainText(event.sessionId || payload.sessionId),
@@ -364,6 +372,155 @@ function buildValueProposalUpdate(event = {}) {
     source: normalizeMainText(event.source || payload.source || 'conversation'),
     statUpdates,
   };
+}
+
+function extractNumericStatValue(stat = null, fallback = 0) {
+  if (Number.isFinite(stat)) {
+    return Number(stat);
+  }
+
+  if (stat && typeof stat === 'object') {
+    if (Number.isFinite(stat.value)) {
+      return Number(stat.value);
+    }
+    if (Number.isFinite(stat.current)) {
+      return Number(stat.current);
+    }
+  }
+
+  return fallback;
+}
+
+function derivePersonaMood(valueState = {}) {
+  const moodValue = extractNumericStatValue(valueState?.stats?.mood, 0);
+  let label = 'neutral';
+  if (moodValue >= 10) {
+    label = 'excited';
+  } else if (moodValue >= 4) {
+    label = 'warm';
+  } else if (moodValue <= -10) {
+    label = 'upset';
+  } else if (moodValue <= -4) {
+    label = 'low';
+  }
+
+  return {
+    label,
+    score: moodValue,
+    note: '',
+  };
+}
+
+function resolvePersonaAffinity(valueState = {}) {
+  return extractNumericStatValue(valueState?.stats?.affinity, 0);
+}
+
+function buildPersonaMemorySummary(memorySnapshot = {}) {
+  const summaryText = normalizeMainText(memorySnapshot?.summary?.text);
+  if (summaryText) {
+    return summaryText;
+  }
+
+  const highlights = Array.isArray(memorySnapshot?.summary?.highlights)
+    ? memorySnapshot.summary.highlights.map((item) => normalizeMainText(item)).filter(Boolean)
+    : [];
+  return normalizeMainText(highlights.slice(0, 3).join('；'));
+}
+
+function buildPersonaEscalationContent({
+  userContent = '',
+  routeContext = {},
+  valueState = {},
+  memorySnapshot = {},
+  personaResult = {},
+} = {}) {
+  const mood = derivePersonaMood(valueState);
+  const affinity = resolvePersonaAffinity(valueState);
+  const summaryText = buildPersonaMemorySummary(memorySnapshot);
+  const recentTurns = Array.isArray(memorySnapshot?.turns)
+    ? memorySnapshot.turns.slice(-4).map((turn) => ({
+      role: normalizeMainText(turn?.role || 'user'),
+      content: normalizeMainText(turn?.content),
+    })).filter((turn) => turn.content)
+    : [];
+
+  return [
+    '[Desktop companion persona overlay]',
+    `Agent: ${normalizeMainText(routeContext.agentId || 'main')}`,
+    `Backend: ${normalizeMainText(routeContext.backend || 'nanobot')}`,
+    `Mood: ${mood.label} (${mood.score})`,
+    `Affinity: ${affinity}`,
+    summaryText ? `Short-term memory: ${summaryText}` : 'Short-term memory: (empty)',
+    recentTurns.length
+      ? `Recent turns: ${JSON.stringify(recentTurns)}`
+      : 'Recent turns: []',
+    normalizeMainText(personaResult?.reply)
+      ? `Fast persona prelude: ${normalizeMainText(personaResult.reply)}`
+      : 'Fast persona prelude: (none)',
+    'When tools or deeper reasoning are needed, use them.',
+    'Keep the final answer warm, concise, in-character, and do not expose internal tool traces.',
+    '',
+    'User request:',
+    userContent,
+  ].join('\n');
+}
+
+function buildOfficeSystemUpdate(event = {}) {
+  if (!event || typeof event !== 'object' || event.channel !== 'system') {
+    return null;
+  }
+
+  const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
+  const type = normalizeMainText(event.type).toLowerCase();
+  const agentId = normalizeMainAgentId(event.agentId || payload.agentId);
+  if (!agentId) {
+    return null;
+  }
+
+  if (type === 'persona-plan') {
+    return {
+      channel: 'office',
+      type: 'upsert',
+      payload: {
+        agent: {
+          id: agentId,
+          agentId,
+          backend: normalizeMainBackendName(event.backend || payload.backend),
+          routeKey: normalizeMainText(event.routeKey || payload.routeKey),
+          sessionId: normalizeMainText(event.sessionId || payload.sessionId),
+          sessionNamespace: normalizeMainText(event.sessionNamespace || payload.sessionNamespace),
+          profileId: normalizeMainText(event.profileId || payload.profileId),
+          turnId: normalizeMainText(event.turnId || payload.turnId),
+          businessState: payload.needsEscalation ? 'researching' : 'writing',
+          detail: normalizeMainText(payload.reply || payload.reason || 'persona planning'),
+          updatedAt: event.timestamp || new Date().toISOString(),
+        },
+      },
+    };
+  }
+
+  if (type === 'persona-memory-updated') {
+    return {
+      channel: 'office',
+      type: 'upsert',
+      payload: {
+        agent: {
+          id: agentId,
+          agentId,
+          backend: normalizeMainBackendName(event.backend || payload.backend),
+          routeKey: normalizeMainText(event.routeKey || payload.routeKey),
+          sessionId: normalizeMainText(event.sessionId || payload.sessionId),
+          sessionNamespace: normalizeMainText(event.sessionNamespace || payload.sessionNamespace),
+          profileId: normalizeMainText(event.profileId || payload.profileId),
+          turnId: normalizeMainText(event.turnId || payload.turnId),
+          detail: normalizeMainText(payload.summaryText || payload.summary || ''),
+          updatedAt: event.timestamp || new Date().toISOString(),
+        },
+      },
+    };
+  }
+
+  return null;
 }
 
 function getRendererDevUrl() {
@@ -628,6 +785,14 @@ async function bootstrap() {
     mainWindow.webContents.send('download-task:progress', payload);
   });
   officeStateStore = createOfficeStateStore();
+  shortTermMemoryStore = createShortTermMemoryStore({
+    baseDir: path.join(app.getPath('userData'), 'persona'),
+  });
+  personaResponseRewriter = createPersonaResponseRewriter();
+  fastPersonaService = createFastPersonaService({
+    memoryStore: shortTermMemoryStore,
+    responseRewriter: personaResponseRewriter,
+  });
   valueStateStore = createValueStateStore({
     app,
   });
@@ -839,6 +1004,78 @@ async function bootstrap() {
   disposeChatStreamHandlers = chatStreamControl;
   startChatStreamFromMain =
     typeof chatStreamControl?.start === 'function' ? chatStreamControl.start : null;
+  const emitValueProposalUpdate = (emitEvent, proposal, result) => {
+    if (!result?.ok || !result?.changed || typeof emitEvent !== 'function') {
+      return;
+    }
+
+    emitEvent({
+      channel: 'system',
+      type: 'stat-updated',
+      timestamp: new Date().toISOString(),
+      agentId: proposal.agentId,
+      backend: proposal.backend,
+      routeKey: proposal.routeKey,
+      sessionId: proposal.sessionId,
+      sessionNamespace: proposal.sessionNamespace,
+      profileId: proposal.profileId,
+      turnId: proposal.turnId,
+      payload: {
+        agentId: proposal.agentId,
+        backend: proposal.backend,
+        routeKey: proposal.routeKey,
+        sessionId: proposal.sessionId,
+        sessionNamespace: proposal.sessionNamespace,
+        profileId: proposal.profileId,
+        turnId: proposal.turnId,
+        stats: result?.state?.stats || {},
+        statUpdates: proposal.statUpdates || [],
+      },
+    });
+  };
+  const emitPersonaMemoryUpdate = (emitEvent, routeContext, personaResult, memorySnapshot) => {
+    if (typeof emitEvent !== 'function' || !routeContext) {
+      return;
+    }
+
+    emitEvent({
+      channel: 'system',
+      type: 'persona-memory-updated',
+      timestamp: new Date().toISOString(),
+      agentId: routeContext.agentId,
+      backend: routeContext.backend,
+      routeKey: routeContext.routeKey,
+      sessionId: routeContext.sessionId,
+      sessionNamespace: routeContext.sessionNamespace,
+      profileId: routeContext.profileId,
+      turnId: routeContext.turnId || '',
+      payload: {
+        agentId: routeContext.agentId,
+        backend: routeContext.backend,
+        routeKey: routeContext.routeKey,
+        sessionId: routeContext.sessionId,
+        sessionNamespace: routeContext.sessionNamespace,
+        profileId: routeContext.profileId,
+        summaryText: buildPersonaMemorySummary(memorySnapshot),
+        summary: memorySnapshot?.summary || {},
+        state: memorySnapshot?.state || {},
+        directModelUsed: Boolean(personaResult?.directModelUsed),
+      },
+    });
+  };
+  const createPersonaDirectRunner = (settings, routeContext) => async ({ promptBundle }) => {
+    const backend = chatBackendManager.resolveBackendName({
+      settings,
+      requestBackend: routeContext.backend,
+      requestProfileId: routeContext.profileId,
+    });
+    return chatBackendManager.runDirect({
+      backend,
+      settings,
+      sessionId: `${routeContext.sessionId || 'default'}:persona-fast`,
+      content: promptBundle?.prompt || '',
+    });
+  };
   conversationRuntime = createConversationRuntime({
     startChatStream: async (request = {}) => {
       if (typeof startChatStreamFromMain !== 'function') {
@@ -864,6 +1101,189 @@ async function bootstrap() {
       }
       return chatStreamControl.abort({ streamId });
     },
+    prepareTurn: async ({ request = {}, routeContext = {}, policy, emitEvent }) => {
+      const settings = settingsStore.getForMain();
+      const valueState = valueStateStore?.getState?.({
+        agentId: routeContext.agentId || 'main',
+        characterId: routeContext.agentId || 'main',
+      }) || {};
+      const directModelRunner = createPersonaDirectRunner(settings, routeContext);
+      const personaResult = await fastPersonaService.evaluateTurn({
+        agentId: routeContext.agentId,
+        backend: routeContext.backend,
+        routeKey: routeContext.routeKey,
+        sessionId: routeContext.sessionId,
+        userInput: request.content,
+        mood: derivePersonaMood(valueState),
+        affinity: resolvePersonaAffinity(valueState),
+        channel: 'chat',
+        directModelRunner,
+        metadata: {
+          policy,
+          source: request?.options?.source || '',
+        },
+      });
+      const personaPayload = {
+        agentId: routeContext.agentId,
+        backend: routeContext.backend,
+        routeKey: routeContext.routeKey,
+        sessionId: routeContext.sessionId,
+        sessionNamespace: routeContext.sessionNamespace,
+        profileId: routeContext.profileId,
+        reply: personaResult.reply,
+        needsEscalation: personaResult.needsEscalation,
+        reason: personaResult.reason,
+        confidence: personaResult.confidence,
+        directModelUsed: personaResult.directModelUsed,
+        statUpdates: personaResult.statUpdates,
+      };
+      emitEvent({
+        channel: 'system',
+        type: 'persona-plan',
+        timestamp: new Date().toISOString(),
+        agentId: routeContext.agentId,
+        backend: routeContext.backend,
+        routeKey: routeContext.routeKey,
+        sessionId: routeContext.sessionId,
+        sessionNamespace: routeContext.sessionNamespace,
+        profileId: routeContext.profileId,
+        payload: personaPayload,
+      });
+
+      if (personaResult.statUpdates.length > 0) {
+        const proposal = {
+          agentId: routeContext.agentId,
+          backend: routeContext.backend,
+          characterId: routeContext.agentId || 'main',
+          routeKey: routeContext.routeKey,
+          sessionId: routeContext.sessionId,
+          sessionNamespace: routeContext.sessionNamespace,
+          profileId: routeContext.profileId,
+          turnId: routeContext.turnId || '',
+          source: 'fast-persona',
+          statUpdates: personaResult.statUpdates,
+        };
+        const valueResult = await Promise.resolve(valueProposalService?.applyProposal?.(proposal));
+        emitValueProposalUpdate(emitEvent, proposal, valueResult);
+      }
+
+      emitPersonaMemoryUpdate(emitEvent, routeContext, personaResult, personaResult.memorySnapshot);
+
+      if (!personaResult.needsEscalation) {
+        return {
+          needsBackend: false,
+          reply: personaResult.reply,
+          personaResult,
+          originalUserContent: request.content,
+        };
+      }
+
+      return {
+        needsBackend: true,
+        request: {
+          ...request,
+          content: buildPersonaEscalationContent({
+            userContent: request.content,
+            routeContext,
+            valueState,
+            memorySnapshot: personaResult.memorySnapshot,
+            personaResult,
+          }),
+          options: {
+            ...(request.options && typeof request.options === 'object' ? request.options : {}),
+            personaPrelude: personaResult.reply,
+            personaEscalationReason: personaResult.reason,
+          },
+        },
+        personaResult,
+        originalUserContent: request.content,
+      };
+    },
+    onTurnStarted: async ({ streamId, routeContext, prepareResult, synthetic }) => {
+      personaTurnStateByStreamId.set(streamId, {
+        routeContext,
+        prepareResult,
+        synthetic: Boolean(synthetic),
+        text: '',
+      });
+    },
+    onTurnEvent: async ({ streamId, type, payload }) => {
+      if (type !== 'text-delta' || !payload?.content) {
+        return;
+      }
+
+      const current = personaTurnStateByStreamId.get(streamId);
+      if (!current) {
+        return;
+      }
+
+      current.text += payload.content;
+      personaTurnStateByStreamId.set(streamId, current);
+    },
+    onTurnSettled: async ({ streamId, type }) => {
+      const current = personaTurnStateByStreamId.get(streamId);
+      if (!current) {
+        return;
+      }
+
+      personaTurnStateByStreamId.delete(streamId);
+      if (current.synthetic || !current.prepareResult?.personaResult?.needsEscalation) {
+        return;
+      }
+
+      if (type !== 'done') {
+        await shortTermMemoryStore?.patch?.(current.routeContext, {
+          metadata: {
+            lastEscalationStatus: type,
+            lastEscalationReason: current.prepareResult.personaResult.reason || '',
+          },
+        });
+        return;
+      }
+
+      const backendReply = normalizeMainText(current.text);
+      if (!backendReply) {
+        return;
+      }
+
+      const rewritten = personaResponseRewriter?.rewrite?.(backendReply, {
+        maxChars: 1200,
+      }) || { reply: backendReply };
+      const memoryCommit = await shortTermMemoryStore?.patch?.(current.routeContext, {
+        appendTurns: [
+          {
+            role: 'assistant',
+            content: rewritten.reply || backendReply,
+            metadata: {
+              channel: 'chat',
+              turnKind: 'assistant-backend',
+              source: 'backend',
+            },
+          },
+        ],
+        metadata: {
+          lastEscalationStatus: 'done',
+          lastEscalationReason: current.prepareResult.personaResult.reason || '',
+        },
+        compact: true,
+      });
+      if (memoryCommit?.snapshot) {
+        emitPersonaMemoryUpdate(
+          (event) => {
+            const officeEvent = buildOfficeSystemUpdate(event);
+            if (officeEvent) {
+              officeStateStore?.applyConversationEvent?.(officeEvent);
+            }
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('conversation:event', event);
+            }
+          },
+          current.routeContext,
+          current.prepareResult.personaResult,
+          memoryCommit.snapshot,
+        );
+      }
+    },
     emitConversationEvent: (payload) => {
       const conversationEvent = payload && typeof payload === 'object' ? payload : {};
       if (conversationEvent.channel === 'chat') {
@@ -881,23 +1301,13 @@ async function bootstrap() {
                   return;
                 }
 
-                mainWindow.webContents.send('conversation:event', {
-                  channel: 'system',
-                  type: 'stat-updated',
-                  timestamp: new Date().toISOString(),
-                  agentId: valueProposal.agentId,
-                  routeKey: valueProposal.routeKey,
-                  sessionId: valueProposal.sessionId,
-                  turnId: valueProposal.turnId,
-                  payload: {
-                    agentId: valueProposal.agentId,
-                    routeKey: valueProposal.routeKey,
-                    sessionId: valueProposal.sessionId,
-                    turnId: valueProposal.turnId,
-                    stats: result?.state?.stats || {},
-                    statUpdates: valueProposal.statUpdates || [],
+                emitValueProposalUpdate(
+                  (event) => {
+                    mainWindow.webContents.send('conversation:event', event);
                   },
-                });
+                  valueProposal,
+                  result,
+                );
               })
               .catch((error) => {
                 console.warn('Failed to apply value proposal from chat event:', error);
@@ -908,6 +1318,11 @@ async function bootstrap() {
         }
       } else if (conversationEvent.channel === 'office') {
         officePresenceProducer?.applyConversationEvent?.(conversationEvent);
+      } else if (conversationEvent.channel === 'system') {
+        const officeEvent = buildOfficeSystemUpdate(conversationEvent);
+        if (officeEvent) {
+          officeStateStore?.applyConversationEvent?.(officeEvent);
+        }
       }
 
       if (!mainWindow || mainWindow.isDestroyed()) {
@@ -986,6 +1401,23 @@ async function bootstrap() {
     }) || null;
   disposeValueStateSubscription =
     valueStateStore?.subscribe?.((state, mutation) => {
+      const moodValue = Number.isFinite(state?.stats?.mood?.value) ? state.stats.mood.value : null;
+      const affinityValue = Number.isFinite(state?.stats?.affinity?.value) ? state.stats.affinity.value : null;
+      if (state?.agentId) {
+        officeStateStore?.upsertAgents?.({
+          agent: {
+            id: state.agentId,
+            agentId: state.agentId,
+            routeKey: state.routeKey || mutation?.event?.routeKey || '',
+            sessionId: state.sessionId || mutation?.event?.sessionId || '',
+            turnId: state.turnId || mutation?.event?.turnId || '',
+            mood: moodValue,
+            affinity: affinityValue,
+            stats: state.stats || {},
+            valueState: state || {},
+          },
+        });
+      }
       sendValueStateChange({
         channel: 'value',
         type: mutation?.type || 'state-changed',
@@ -1100,6 +1532,16 @@ app.on('before-quit', () => {
   if (valueProposalService) {
     valueProposalService = null;
   }
+  if (shortTermMemoryStore) {
+    shortTermMemoryStore = null;
+  }
+  if (fastPersonaService) {
+    fastPersonaService = null;
+  }
+  if (personaResponseRewriter) {
+    personaResponseRewriter = null;
+  }
+  personaTurnStateByStreamId.clear();
   if (chatBackendManager) {
     void chatBackendManager.dispose();
     chatBackendManager = null;

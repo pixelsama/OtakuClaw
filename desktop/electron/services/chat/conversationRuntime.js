@@ -1,3 +1,5 @@
+const { randomUUID } = require('node:crypto');
+
 const DEFAULT_POLICY = 'latest-wins';
 const DEFAULT_AGENT_ID = 'main';
 const DEFAULT_BACKEND = 'nanobot';
@@ -115,6 +117,10 @@ function createConversationRuntime({
   abortChatStream,
   emitConversationEvent,
   emitDebugLog,
+  prepareTurn,
+  onTurnStarted,
+  onTurnEvent,
+  onTurnSettled,
 } = {}) {
   const activeStreamByRouteKey = new Map();
   const streamContextByStreamId = new Map();
@@ -154,6 +160,26 @@ function createConversationRuntime({
       type: typeof payload.type === 'string' ? payload.type : '',
       payload: normalizedPayload,
     });
+  };
+
+  const callHook = async (hook, payload = {}, label = 'hook') => {
+    if (typeof hook !== 'function') {
+      return null;
+    }
+
+    try {
+      return await Promise.resolve(hook(payload));
+    } catch (error) {
+      debug({
+        stage: `${label}-failed`,
+        message: `Conversation runtime ${label} failed.`,
+        details: {
+          error: error?.message || String(error),
+          payload,
+        },
+      });
+      return null;
+    }
   };
 
   const trackActiveStream = (streamId, context = {}) => {
@@ -371,7 +397,163 @@ function createConversationRuntime({
       },
     };
 
-    const startResult = await startChatStream(requestPayload);
+    const preparedTurn =
+      (await callHook(
+        prepareTurn,
+        {
+          request: requestPayload,
+          routeContext: normalizedContext,
+          policy,
+          emitEvent,
+        },
+        'prepare-turn',
+      )) || null;
+    const preparedRequest =
+      preparedTurn?.request && typeof preparedTurn.request === 'object'
+        ? {
+            ...requestPayload,
+            ...preparedTurn.request,
+            options: {
+              ...requestPayload.options,
+              ...(preparedTurn.request.options && typeof preparedTurn.request.options === 'object'
+                ? preparedTurn.request.options
+                : {}),
+            },
+          }
+        : requestPayload;
+
+    if (preparedTurn?.needsBackend === false) {
+      const streamId = normalizeRouteSegment(
+        preparedTurn.streamId || preparedTurn.turnId || randomUUID(),
+        randomUUID(),
+      );
+      const syntheticContext = {
+        ...normalizedContext,
+        turnId: normalizeRouteSegment(preparedTurn.turnId || streamId, streamId),
+      };
+      const responseText =
+        typeof preparedTurn.reply === 'string'
+          ? preparedTurn.reply.trim()
+          : typeof preparedTurn.content === 'string'
+            ? preparedTurn.content.trim()
+            : '';
+
+      emitEvent({
+        channel: 'chat',
+        type: 'stream-start',
+        streamId,
+        agentId: syntheticContext.agentId,
+        backend: syntheticContext.backend,
+        routeKey: syntheticContext.routeKey,
+        sessionId: syntheticContext.sessionId,
+        sessionNamespace: syntheticContext.sessionNamespace,
+        profileId: syntheticContext.profileId,
+        turnId: syntheticContext.turnId,
+        payload: {
+          sessionId: syntheticContext.sessionId,
+          sessionNamespace: syntheticContext.sessionNamespace,
+          routeKey: syntheticContext.routeKey,
+          agentId: syntheticContext.agentId,
+          backend: syntheticContext.backend,
+          profileId: syntheticContext.profileId,
+          source: preparedRequest?.options?.source || '',
+          policy,
+          synthetic: true,
+          fastPath: true,
+        },
+      });
+      await callHook(
+        onTurnStarted,
+        {
+          streamId,
+          routeContext: syntheticContext,
+          request: preparedRequest,
+          policy,
+          prepareResult: preparedTurn,
+          synthetic: true,
+        },
+        'turn-started',
+      );
+
+      if (responseText) {
+        const textPayload = {
+          content: responseText,
+          source: preparedRequest?.options?.source || 'fast-persona',
+          synthetic: true,
+          fastPath: true,
+        };
+        emitEvent({
+          channel: 'chat',
+          type: 'text-delta',
+          streamId,
+          agentId: syntheticContext.agentId,
+          backend: syntheticContext.backend,
+          routeKey: syntheticContext.routeKey,
+          sessionId: syntheticContext.sessionId,
+          sessionNamespace: syntheticContext.sessionNamespace,
+          profileId: syntheticContext.profileId,
+          turnId: syntheticContext.turnId,
+          payload: textPayload,
+        });
+        await callHook(
+          onTurnEvent,
+          {
+            streamId,
+            routeContext: syntheticContext,
+            type: 'text-delta',
+            payload: textPayload,
+            prepareResult: preparedTurn,
+            synthetic: true,
+          },
+          'turn-event',
+        );
+      }
+
+      const donePayload = {
+        source: preparedRequest?.options?.source || 'fast-persona',
+        synthetic: true,
+        fastPath: true,
+      };
+      emitEvent({
+        channel: 'chat',
+        type: 'done',
+        streamId,
+        agentId: syntheticContext.agentId,
+        backend: syntheticContext.backend,
+        routeKey: syntheticContext.routeKey,
+        sessionId: syntheticContext.sessionId,
+        sessionNamespace: syntheticContext.sessionNamespace,
+        profileId: syntheticContext.profileId,
+        turnId: syntheticContext.turnId,
+        payload: donePayload,
+      });
+      await callHook(
+        onTurnSettled,
+        {
+          streamId,
+          routeContext: syntheticContext,
+          type: 'done',
+          payload: donePayload,
+          prepareResult: preparedTurn,
+          synthetic: true,
+          text: responseText,
+        },
+        'turn-settled',
+      );
+
+      return {
+        ok: true,
+        streamId,
+        sessionId: syntheticContext.sessionId,
+        routeKey: syntheticContext.routeKey,
+        backend: syntheticContext.backend,
+        profileId: syntheticContext.profileId,
+        policy,
+        synthetic: true,
+      };
+    }
+
+    const startResult = await startChatStream(preparedRequest);
 
     if (!startResult?.ok || !startResult.streamId) {
       return {
@@ -425,6 +607,18 @@ function createConversationRuntime({
         policy,
       },
     });
+    await callHook(
+      onTurnStarted,
+      {
+        streamId,
+        routeContext: streamContext,
+        request: preparedRequest,
+        policy,
+        prepareResult: preparedTurn,
+        synthetic: false,
+      },
+      'turn-started',
+    );
 
     return {
       ok: true,
@@ -434,6 +628,7 @@ function createConversationRuntime({
       backend: streamContext.backend,
       profileId: streamContext.profileId,
       policy,
+      synthetic: false,
     };
   };
 
@@ -553,10 +748,43 @@ function createConversationRuntime({
         profileId: context?.profileId || rawPayload.profileId || '',
       },
     });
+    void callHook(
+      onTurnEvent,
+      {
+        streamId,
+        routeContext: context,
+        type,
+        payload: {
+          ...rawPayload,
+          streamId,
+          turnId,
+        },
+        rawEvent: payload,
+        synthetic: false,
+      },
+      'turn-event',
+    );
 
     if (!streamId || (type !== 'done' && type !== 'error')) {
       return;
     }
+
+    void callHook(
+      onTurnSettled,
+      {
+        streamId,
+        routeContext: context,
+        type,
+        payload: {
+          ...rawPayload,
+          streamId,
+          turnId,
+        },
+        rawEvent: payload,
+        synthetic: false,
+      },
+      'turn-settled',
+    );
 
     const clearedRouteKey = clearActiveByStreamId(streamId);
     if (!clearedRouteKey) {

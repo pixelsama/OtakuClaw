@@ -160,6 +160,7 @@ function buildFastPersonaPrompt(input = {}) {
   const personaHeader = [
     'You are the fast persona layer for a vtuber companion.',
     'Keep the reply short, warm, in-character, and low latency.',
+    'This is an internal orchestration request where JSON output is explicitly required.',
     'Return JSON only. Do not wrap the answer in markdown or code fences.',
     'If the request needs tools, deeper reasoning, or more memory than the short-term snapshot can support, set needsEscalation to true.',
     'When unsure, prefer a safe escalation over inventing facts.',

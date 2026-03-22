@@ -190,3 +190,45 @@ test('conversation runtime isolates streams by routeKey and enriches chat envelo
 
   await runtime.dispose();
 });
+
+test('conversation runtime supports synthetic fast-path turns without backend stream', async () => {
+  const emitted = [];
+  const started = [];
+  const settled = [];
+  const runtime = createConversationRuntime({
+    startChatStream: async () => {
+      throw new Error('backend should not start for synthetic turn');
+    },
+    abortChatStream: async () => ({ ok: true }),
+    emitConversationEvent: (payload) => emitted.push(payload),
+    prepareTurn: async ({ request }) => ({
+      request,
+      needsBackend: false,
+      reply: '你好呀，我在这儿。',
+      turnId: 'fast-turn-1',
+    }),
+    onTurnStarted: async (payload) => {
+      started.push(payload);
+    },
+    onTurnSettled: async (payload) => {
+      settled.push(payload);
+    },
+  });
+
+  const result = await runtime.submitUserText({
+    sessionId: 'fast-session',
+    agentId: 'agent-fast',
+    backend: 'nanobot',
+    content: 'hi',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.synthetic, true);
+  assert.equal(result.streamId, 'fast-turn-1');
+  assert.equal(emitted.map((event) => event.type).join(','), 'stream-start,text-delta,done');
+  assert.equal(emitted[1].payload.content, '你好呀，我在这儿。');
+  assert.equal(started.length, 1);
+  assert.equal(started[0].synthetic, true);
+  assert.equal(settled.length, 1);
+  assert.equal(settled[0].text, '你好呀，我在这儿。');
+});
