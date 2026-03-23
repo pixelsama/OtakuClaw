@@ -36,6 +36,7 @@ const { PythonEnvManager } = require('./services/python/pythonEnvManager');
 const { PythonRuntimeManager } = require('./services/python/pythonRuntimeManager');
 const { createOfficeStateStore } = require('./services/officeStateStore');
 const { createFastPersonaService } = require('./services/persona/fastPersonaService');
+const { createQuickPersonaBackendManager } = require('./services/persona/quickPersonaBackendManager');
 const { createPersonaResponseRewriter } = require('./services/persona/personaResponseRewriter');
 const { createShortTermMemoryStore } = require('./services/persona/shortTermMemoryStore');
 const { createValueStateStore } = require('./services/valueState/valueStateStore');
@@ -81,6 +82,7 @@ let officeStateStore = null;
 let officePresenceProducer = null;
 let shortTermMemoryStore = null;
 let fastPersonaService = null;
+let quickPersonaBackendManager = null;
 let personaResponseRewriter = null;
 let valueStateStore = null;
 let valueProposalService = null;
@@ -793,6 +795,7 @@ async function bootstrap() {
     memoryStore: shortTermMemoryStore,
     responseRewriter: personaResponseRewriter,
   });
+  quickPersonaBackendManager = createQuickPersonaBackendManager();
   valueStateStore = createValueStateStore({
     app,
   });
@@ -1063,19 +1066,6 @@ async function bootstrap() {
       },
     });
   };
-  const createPersonaDirectRunner = (settings, routeContext) => async ({ promptBundle }) => {
-    const backend = chatBackendManager.resolveBackendName({
-      settings,
-      requestBackend: routeContext.backend,
-      requestProfileId: routeContext.profileId,
-    });
-    return chatBackendManager.runDirect({
-      backend,
-      settings,
-      sessionId: `${routeContext.sessionId || 'default'}:persona-fast`,
-      content: promptBundle?.prompt || '',
-    });
-  };
   conversationRuntime = createConversationRuntime({
     startChatStream: async (request = {}) => {
       if (typeof startChatStreamFromMain !== 'function') {
@@ -1107,8 +1097,17 @@ async function bootstrap() {
         agentId: routeContext.agentId || 'main',
         characterId: routeContext.agentId || 'main',
       }) || {};
-      const directModelRunner = createPersonaDirectRunner(settings, routeContext);
-      const personaResult = await fastPersonaService.evaluateTurn({
+      const quickPersonaResolution = quickPersonaBackendManager?.resolveConfig?.(settings) || {
+        ok: false,
+        disabled: false,
+        reason: 'fast_persona_unavailable',
+      };
+      const directModelRunner = quickPersonaResolution.ok
+        ? quickPersonaBackendManager.createRunner({
+            settings,
+          })
+        : null;
+      const rawPersonaResult = await fastPersonaService.evaluateTurn({
         agentId: routeContext.agentId,
         backend: routeContext.backend,
         routeKey: routeContext.routeKey,
@@ -1123,6 +1122,18 @@ async function bootstrap() {
           source: request?.options?.source || '',
         },
       });
+      const shouldForceBackendEscalation = Boolean(
+        !rawPersonaResult.directModelUsed
+        && quickPersonaResolution.disabled !== true,
+      );
+      const personaResult = shouldForceBackendEscalation
+        ? {
+            ...rawPersonaResult,
+            needsEscalation: true,
+            reason: 'fast_persona_direct_unavailable',
+            forcedBackendEscalation: true,
+          }
+        : rawPersonaResult;
       const personaPayload = {
         agentId: routeContext.agentId,
         backend: routeContext.backend,
@@ -1135,6 +1146,9 @@ async function bootstrap() {
         reason: personaResult.reason,
         confidence: personaResult.confidence,
         directModelUsed: personaResult.directModelUsed,
+        directModelConfigMode: quickPersonaResolution?.config?.configMode || '',
+        directModelInheritedFrom: quickPersonaResolution?.config?.inheritedFrom || '',
+        forcedBackendEscalation: Boolean(personaResult.forcedBackendEscalation),
         statUpdates: personaResult.statUpdates,
       };
       emitEvent({

@@ -7,6 +7,7 @@ const test = require('node:test');
 const { SettingsStore } = require('../services/settingsStore');
 const {
   DASHSCOPE_ACCOUNT_NAME,
+  FAST_PERSONA_ACCOUNT_NAME,
   OPENCLAW_ACCOUNT_NAME,
   NANOBOT_ACCOUNT_NAME,
 } = require('../services/secretStore');
@@ -173,7 +174,12 @@ test('uses batched secure secret reads during init when supported', async () => 
   assert.equal(mainSettings.nanobot.apiKey, 'saved-nanobot-api-key');
   assert.equal(mainSettings.voice.dashscope.apiKey, 'saved-dashscope-api-key');
   assert.deepEqual(secretStore.getCalls, []);
-  assert.deepEqual(secretStore.getManyCalls, [[OPENCLAW_ACCOUNT_NAME, NANOBOT_ACCOUNT_NAME, DASHSCOPE_ACCOUNT_NAME]]);
+  assert.deepEqual(secretStore.getManyCalls, [[
+    OPENCLAW_ACCOUNT_NAME,
+    NANOBOT_ACCOUNT_NAME,
+    DASHSCOPE_ACCOUNT_NAME,
+    FAST_PERSONA_ACCOUNT_NAME,
+  ]]);
 });
 
 test('falls back to plain text secrets when secure storage is unavailable', async () => {
@@ -249,6 +255,36 @@ test('persists dashscope voice settings and secret', async () => {
   assert.equal(runtimeEnv.VOICE_TTS_PROVIDER, 'dashscope');
   assert.equal(runtimeEnv.VOICE_DASHSCOPE_API_KEY, 'dashscope-secret');
   assert.equal(runtimeEnv.VOICE_TTS_DASHSCOPE_VOICE, 'Cherry');
+});
+
+test('persists fast persona settings and dedicated api key', async () => {
+  const secretStore = new FakeSecretStore({ available: true });
+  const { store } = await setupTempStore({ secretStore });
+
+  await store.save({
+    fastPersona: {
+      enabled: true,
+      configMode: 'custom',
+      provider: 'openai',
+      model: 'gpt-fast',
+      apiBase: 'https://api.example.com/v1',
+      apiKey: 'fast-persona-secret',
+      maxTokens: 512,
+      temperature: 0.15,
+      timeoutMs: 12000,
+    },
+  });
+
+  const publicSettings = store.getPublic();
+  assert.equal(publicSettings.fastPersona.enabled, true);
+  assert.equal(publicSettings.fastPersona.configMode, 'custom');
+  assert.equal(publicSettings.fastPersona.provider, 'openai');
+  assert.equal(publicSettings.fastPersona.model, 'gpt-fast');
+  assert.equal(publicSettings.fastPersona.hasApiKey, true);
+
+  const mainSettings = store.getForMain();
+  assert.equal(mainSettings.fastPersona.apiKey, 'fast-persona-secret');
+  assert.equal(secretStore.secrets[FAST_PERSONA_ACCOUNT_NAME], 'fast-persona-secret');
 });
 
 test('preserves tokens when save payload omits tokens', async () => {
