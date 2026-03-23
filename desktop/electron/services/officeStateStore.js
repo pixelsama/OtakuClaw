@@ -28,6 +28,160 @@ function cloneValue(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+const DEFAULT_INTENT_TTL_MS = 4000;
+const DEFAULT_IDLE_STATE = 'idle';
+const KNOWN_OFFICE_BUSINESS_STATES = new Set([
+  'idle',
+  'writing',
+  'researching',
+  'executing',
+  'syncing',
+  'error',
+  'chatting',
+  'singing',
+  'gaming',
+  'comforting',
+  'sleeping',
+  'streaming',
+  'thinking',
+]);
+
+function toPositiveInteger(value, fallback = 0) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function normalizeBusinessState(value, fallback = DEFAULT_IDLE_STATE) {
+  const normalized = normalizeText(value).toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (KNOWN_OFFICE_BUSINESS_STATES.has(normalized)) {
+    return normalized;
+  }
+
+  return fallback;
+}
+
+function normalizeTimestamp(value, fallback = '') {
+  const normalized = normalizeText(value);
+  return normalized || fallback;
+}
+
+function buildExpiresAtMs(updatedAt, ttlMs) {
+  const parsedUpdatedAt = Date.parse(updatedAt);
+  if (Number.isFinite(parsedUpdatedAt)) {
+    return parsedUpdatedAt + ttlMs;
+  }
+
+  return Date.now() + ttlMs;
+}
+
+function normalizeIntentState(input = {}, fallbackTimestamp = '') {
+  if (!isObject(input)) {
+    return null;
+  }
+
+  const businessState = normalizeBusinessState(
+    input.businessState || input.state || input.activity || input.status,
+    '',
+  );
+  if (!businessState) {
+    return null;
+  }
+
+  const ttlMs = toPositiveInteger(input.ttlMs, DEFAULT_INTENT_TTL_MS);
+  const updatedAt = normalizeTimestamp(input.updatedAt || input.timestamp, fallbackTimestamp || new Date().toISOString());
+  const expiresAtMsCandidate = Number(input.expiresAtMs);
+  const expiresAtMs = Number.isFinite(expiresAtMsCandidate) && expiresAtMsCandidate > 0
+    ? expiresAtMsCandidate
+    : buildExpiresAtMs(updatedAt, ttlMs);
+
+  return {
+    businessState,
+    areaId: normalizeText(input.areaId || input.sceneState),
+    detail: normalizeText(input.detail || input.message || input.text),
+    turnId: normalizeText(input.turnId || input.streamId),
+    source: normalizeText(input.source),
+    updatedAt,
+    ttlMs,
+    expiresAtMs,
+  };
+}
+
+function normalizeFactState(input = {}, fallbackTimestamp = '') {
+  if (!isObject(input)) {
+    return null;
+  }
+
+  const businessState = normalizeBusinessState(
+    input.businessState || input.state || input.activity || input.status,
+    '',
+  );
+  if (!businessState) {
+    return null;
+  }
+
+  return {
+    businessState,
+    areaId: normalizeText(input.areaId || input.sceneState),
+    detail: normalizeText(input.detail || input.message || input.text),
+    turnId: normalizeText(input.turnId || input.streamId),
+    source: normalizeText(input.source),
+    updatedAt: normalizeTimestamp(input.updatedAt || input.timestamp, fallbackTimestamp || new Date().toISOString()),
+  };
+}
+
+function isIntentAlive(intentState = null, nowMs = Date.now()) {
+  if (!isObject(intentState)) {
+    return false;
+  }
+
+  const expiresAtMs = Number(intentState.expiresAtMs);
+  if (!Number.isFinite(expiresAtMs)) {
+    return false;
+  }
+
+  return expiresAtMs > nowMs;
+}
+
+function deriveEffectiveAgentState(agent = {}, nowMs = Date.now()) {
+  const intentState = isObject(agent.intentState) ? agent.intentState : null;
+  const factState = isObject(agent.factState) ? agent.factState : null;
+  const activeIntentState = isIntentAlive(intentState, nowMs) ? intentState : null;
+  const effectiveState = factState || activeIntentState;
+  const hasLayeredState = Boolean(intentState || factState);
+
+  if (effectiveState) {
+    return {
+      businessState: normalizeBusinessState(effectiveState.businessState, DEFAULT_IDLE_STATE),
+      detail: normalizeText(effectiveState.detail),
+      sceneState: normalizeText(effectiveState.areaId || effectiveState.sceneState),
+      updatedAt: normalizeTimestamp(effectiveState.updatedAt, normalizeText(agent.updatedAt)),
+    };
+  }
+
+  if (hasLayeredState) {
+    return {
+      businessState: DEFAULT_IDLE_STATE,
+      detail: '',
+      sceneState: '',
+      updatedAt: normalizeTimestamp(agent.updatedAt),
+    };
+  }
+
+  return {
+    businessState: normalizeBusinessState(agent.businessState, DEFAULT_IDLE_STATE),
+    detail: normalizeText(agent.detail),
+    sceneState: normalizeText(agent.sceneState),
+    updatedAt: normalizeTimestamp(agent.updatedAt),
+  };
+}
+
 function normalizeAgent(agent = {}) {
   if (!isObject(agent)) {
     return null;
@@ -38,9 +192,38 @@ function normalizeAgent(agent = {}) {
     return null;
   }
 
-  return {
+  const fallbackTimestamp = normalizeTimestamp(agent.updatedAt, new Date().toISOString());
+  const normalized = {
     ...agent,
     id,
+    agentId: id,
+  };
+  const hasIntentState = Object.prototype.hasOwnProperty.call(agent, 'intentState');
+  const hasFactState = Object.prototype.hasOwnProperty.call(agent, 'factState');
+
+  if (hasIntentState) {
+    normalized.intentState = agent.intentState === null
+      ? null
+      : normalizeIntentState(agent.intentState, fallbackTimestamp);
+  } else if (isObject(normalized.intentState)) {
+    normalized.intentState = normalizeIntentState(normalized.intentState, fallbackTimestamp);
+  }
+
+  if (hasFactState) {
+    normalized.factState = agent.factState === null
+      ? null
+      : normalizeFactState(agent.factState, fallbackTimestamp);
+  } else if (isObject(normalized.factState)) {
+    normalized.factState = normalizeFactState(normalized.factState, fallbackTimestamp);
+  }
+
+  const effective = deriveEffectiveAgentState(normalized);
+  return {
+    ...normalized,
+    businessState: effective.businessState,
+    detail: effective.detail,
+    sceneState: effective.sceneState,
+    updatedAt: effective.updatedAt,
   };
 }
 
@@ -235,6 +418,99 @@ function resolveActiveAgentId({
   }
 
   return normalizeText(nextAgents[0]?.id || nextAgents[0]?.agentId);
+}
+
+function resolveOfficeEventAgentId(event = {}, payload = {}, source = {}) {
+  return normalizeText(
+    source.agentId
+    || source.id
+    || payload.agentId
+    || payload.id
+    || payload.activeAgentId
+    || event.agentId
+    || event.activeAgentId,
+  );
+}
+
+function createSceneIntentUpdate(event = {}) {
+  const payload = isObject(event.payload) ? event.payload : {};
+  const intentSource = isObject(payload.intent) ? payload.intent : payload;
+  const agentId = resolveOfficeEventAgentId(event, payload, intentSource);
+  if (!agentId) {
+    return null;
+  }
+
+  const fallbackTimestamp = normalizeTimestamp(event.timestamp, new Date().toISOString());
+  const clearIntent = Boolean(payload.clearIntent || payload.clear);
+  const sceneIntent = clearIntent
+    ? null
+    : normalizeIntentState({
+        businessState: intentSource.businessState || payload.businessState,
+        areaId: intentSource.areaId || payload.areaId,
+        sceneState: intentSource.sceneState || payload.sceneState,
+        detail: intentSource.detail || payload.detail,
+        turnId: intentSource.turnId || payload.turnId || event.turnId || event.streamId,
+        source: intentSource.source || payload.source || event.source || 'fast',
+        updatedAt: intentSource.updatedAt || payload.updatedAt || fallbackTimestamp,
+        ttlMs: intentSource.ttlMs || payload.ttlMs,
+        expiresAtMs: intentSource.expiresAtMs || payload.expiresAtMs,
+      }, fallbackTimestamp);
+  if (!clearIntent && !sceneIntent) {
+    return null;
+  }
+
+  return {
+    revision: payload.revision,
+    activeAgentId: normalizeText(payload.activeAgentId || agentId),
+    agent: {
+      id: agentId,
+      agentId,
+      updatedAt: fallbackTimestamp,
+      intentState: sceneIntent,
+    },
+  };
+}
+
+function createExecutionFactUpdate(event = {}) {
+  const payload = isObject(event.payload) ? event.payload : {};
+  const factSource = isObject(payload.fact) ? payload.fact : payload;
+  const agentId = resolveOfficeEventAgentId(event, payload, factSource);
+  if (!agentId) {
+    return null;
+  }
+
+  const fallbackTimestamp = normalizeTimestamp(event.timestamp, new Date().toISOString());
+  const clearFact = Boolean(
+    payload.clearFact
+    || payload.clear
+    || factSource.clearFact
+    || factSource.clear,
+  );
+  const factState = clearFact
+    ? null
+    : normalizeFactState({
+        businessState: factSource.businessState || payload.businessState,
+        areaId: factSource.areaId || payload.areaId,
+        sceneState: factSource.sceneState || payload.sceneState,
+        detail: factSource.detail || payload.detail,
+        turnId: factSource.turnId || payload.turnId || event.turnId || event.streamId,
+        source: factSource.source || payload.source || event.source || 'backend',
+        updatedAt: factSource.updatedAt || payload.updatedAt || fallbackTimestamp,
+      }, fallbackTimestamp);
+  if (!clearFact && !factState) {
+    return null;
+  }
+
+  return {
+    revision: payload.revision,
+    activeAgentId: normalizeText(payload.activeAgentId || agentId),
+    agent: {
+      id: agentId,
+      agentId,
+      updatedAt: fallbackTimestamp,
+      factState,
+    },
+  };
 }
 
 class OfficeStateStore {
@@ -536,6 +812,36 @@ class OfficeStateStore {
         payload.state && isObject(payload.state) ? payload.state : payload,
         type,
       );
+    }
+
+    if (
+      type === 'scene-intent'
+      || type === 'agent-intent'
+      || type === 'intent'
+    ) {
+      const patch = createSceneIntentUpdate(event);
+      if (!patch) {
+        return {
+          ok: false,
+          reason: 'invalid_scene_intent',
+        };
+      }
+      return this.upsert(patch);
+    }
+
+    if (
+      type === 'execution-fact'
+      || type === 'agent-fact'
+      || type === 'fact'
+    ) {
+      const patch = createExecutionFactUpdate(event);
+      if (!patch) {
+        return {
+          ok: false,
+          reason: 'invalid_execution_fact',
+        };
+      }
+      return this.upsert(patch);
     }
 
     if (

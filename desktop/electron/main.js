@@ -290,6 +290,33 @@ function normalizeMainBackendName(value) {
   return normalized;
 }
 
+function resolveOfficeAreaForBusinessState(businessState = '') {
+  const normalized = normalizeMainText(businessState).toLowerCase();
+  if (!normalized) {
+    return 'lounge';
+  }
+
+  if (normalized === 'syncing') {
+    return 'syncDock';
+  }
+  if (normalized === 'error') {
+    return 'bugNook';
+  }
+  if (
+    normalized === 'writing'
+    || normalized === 'researching'
+    || normalized === 'executing'
+    || normalized === 'thinking'
+    || normalized === 'streaming'
+    || normalized === 'gaming'
+    || normalized === 'singing'
+  ) {
+    return 'desk';
+  }
+
+  return 'lounge';
+}
+
 function buildOfficeConversationUpdate(event = {}) {
   if (!event || typeof event !== 'object' || event.channel !== 'chat') {
     return null;
@@ -304,12 +331,16 @@ function buildOfficeConversationUpdate(event = {}) {
   const sessionNamespace = normalizeMainText(event.sessionNamespace || payload.sessionNamespace || sessionId);
   const profileId = normalizeMainText(event.profileId || payload.profileId);
   const turnId = normalizeMainText(event.turnId || payload.turnId || event.streamId || payload.streamId);
-  const activeState =
-    normalizeMainText(payload.businessState || payload.state || payload.activity || payload.status)
-    || (eventType === 'error' ? 'error' : eventType === 'done' ? 'idle' : eventType === 'stream-start' ? 'writing' : '');
-  const detail =
-    normalizeMainText(payload.detail || payload.message || payload.text || payload.content)
-    || (eventType === 'error' ? 'stream error' : eventType === 'done' ? 'stream complete' : '');
+  const normalizedPayloadState = normalizeMainText(
+    payload.businessState || payload.state || payload.activity || payload.status,
+  ).toLowerCase();
+  const inferredFactState = normalizedPayloadState
+    || (eventType === 'error'
+      ? 'error'
+      : eventType === 'stream-start' || eventType === 'text-delta'
+        ? 'writing'
+        : '');
+  const detail = normalizeMainText(payload.detail || payload.message || payload.text || payload.content);
 
   if (!agentId) {
     return null;
@@ -319,13 +350,12 @@ function buildOfficeConversationUpdate(event = {}) {
     return null;
   }
 
-  return {
-    channel: 'office',
-    type: 'upsert',
-    payload: {
-      activeAgentId: agentId,
-      agent: {
-        id: agentId,
+  if (eventType === 'done' || eventType === 'error') {
+    return {
+      channel: 'office',
+      type: 'execution-fact',
+      payload: {
+        activeAgentId: agentId,
         agentId,
         backend,
         routeKey,
@@ -333,8 +363,35 @@ function buildOfficeConversationUpdate(event = {}) {
         sessionNamespace,
         profileId,
         turnId,
-        businessState: activeState || 'writing',
+        clearFact: true,
+        terminalType: eventType,
+        updatedAt: event.timestamp || new Date().toISOString(),
+      },
+    };
+  }
+
+  if (!inferredFactState) {
+    return null;
+  }
+
+  return {
+    channel: 'office',
+    type: 'execution-fact',
+    payload: {
+      activeAgentId: agentId,
+      agentId,
+      backend,
+      routeKey,
+      sessionId,
+      sessionNamespace,
+      profileId,
+      turnId,
+      fact: {
+        businessState: inferredFactState,
+        areaId: resolveOfficeAreaForBusinessState(inferredFactState),
         detail,
+        source: 'backend',
+        turnId,
         updatedAt: event.timestamp || new Date().toISOString(),
       },
     },
@@ -1182,6 +1239,34 @@ async function bootstrap() {
       }
 
       emitPersonaMemoryUpdate(emitEvent, routeContext, personaResult, personaResult.memorySnapshot);
+
+      const fastIntentBusinessState = personaResult.needsEscalation ? 'researching' : 'writing';
+      const fastIntentDetail = normalizeMainText(personaResult.reply || '');
+      emitEvent({
+        channel: 'office',
+        type: 'scene-intent',
+        timestamp: new Date().toISOString(),
+        agentId: routeContext.agentId,
+        backend: routeContext.backend,
+        routeKey: routeContext.routeKey,
+        sessionId: routeContext.sessionId,
+        sessionNamespace: routeContext.sessionNamespace,
+        profileId: routeContext.profileId,
+        turnId: routeContext.turnId || '',
+        payload: {
+          activeAgentId: routeContext.agentId,
+          agentId: routeContext.agentId,
+          source: 'fast',
+          turnId: routeContext.turnId || '',
+          intent: {
+            businessState: fastIntentBusinessState,
+            areaId: resolveOfficeAreaForBusinessState(fastIntentBusinessState),
+            detail: fastIntentDetail,
+            ttlMs: personaResult.needsEscalation ? 6000 : 4000,
+            source: 'fast',
+          },
+        },
+      });
 
       if (!personaResult.needsEscalation) {
         return {

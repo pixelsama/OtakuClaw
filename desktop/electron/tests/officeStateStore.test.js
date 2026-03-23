@@ -184,3 +184,96 @@ test('office state store applies office conversation events', () => {
   assert.equal(presenceResult.ok, true);
   assert.equal(presenceResult.state.agents.some((agent) => agent.id === 'agent-3'), true);
 });
+
+test('office state store reduces scene-intent and execution-fact into effective business state', () => {
+  const store = createOfficeStateStore({
+    initialState: {
+      revision: 0,
+      activeAgentId: 'main',
+      agents: [
+        {
+          id: 'main',
+          name: 'OtakuClaw',
+        },
+      ],
+    },
+  });
+
+  const intentResult = store.applyConversationEvent({
+    channel: 'office',
+    type: 'scene-intent',
+    timestamp: '2026-03-23T10:00:00.000Z',
+    payload: {
+      agentId: 'main',
+      intent: {
+        businessState: 'researching',
+        areaId: 'desk',
+        detail: 'Let me check this first.',
+        ttlMs: 4000,
+      },
+    },
+  });
+
+  assert.equal(intentResult.ok, true);
+  assert.equal(intentResult.state.activeAgentId, 'main');
+  assert.equal(intentResult.state.agents[0].businessState, 'researching');
+  assert.equal(intentResult.state.agents[0].sceneState, 'desk');
+  assert.equal(typeof intentResult.state.agents[0].intentState?.expiresAtMs, 'number');
+
+  const factResult = store.applyConversationEvent({
+    channel: 'office',
+    type: 'execution-fact',
+    timestamp: '2026-03-23T10:00:01.000Z',
+    payload: {
+      agentId: 'main',
+      fact: {
+        businessState: 'executing',
+        areaId: 'desk',
+        detail: 'Running local command.',
+      },
+    },
+  });
+
+  assert.equal(factResult.ok, true);
+  assert.equal(factResult.state.agents[0].businessState, 'executing');
+  assert.equal(factResult.state.agents[0].detail, 'Running local command.');
+  assert.equal(factResult.state.agents[0].factState?.businessState, 'executing');
+
+  const clearFactResult = store.applyConversationEvent({
+    channel: 'office',
+    type: 'execution-fact',
+    timestamp: '2026-03-23T10:00:02.000Z',
+    payload: {
+      agentId: 'main',
+      clearFact: true,
+    },
+  });
+
+  assert.equal(clearFactResult.ok, true);
+  assert.equal(clearFactResult.state.agents[0].businessState, 'researching');
+  assert.equal(clearFactResult.state.agents[0].sceneState, 'desk');
+  assert.equal(clearFactResult.state.agents[0].factState, null);
+});
+
+test('office state store expires stale scene-intent and falls back to idle', () => {
+  const store = createOfficeStateStore();
+
+  const result = store.applyConversationEvent({
+    channel: 'office',
+    type: 'scene-intent',
+    payload: {
+      agentId: 'main',
+      intent: {
+        businessState: 'writing',
+        areaId: 'desk',
+        detail: 'Composing reply.',
+        updatedAt: '2000-01-01T00:00:00.000Z',
+        ttlMs: 1,
+      },
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.state.agents[0].businessState, 'idle');
+  assert.equal(result.state.agents[0].sceneState, '');
+});
