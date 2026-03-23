@@ -90,9 +90,8 @@
 }
 
 .immersive-live2d-shell__content {
-  display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(250px, 0.62fr);
-  gap: 20px;
+  position: relative;
+  display: block;
   height: 100%;
 }
 
@@ -102,6 +101,10 @@
 }
 
 .immersive-live2d-shell__stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
   border-radius: 0;
   overflow: visible;
   background: transparent;
@@ -110,11 +113,10 @@
 
 .immersive-live2d-shell__viewer-shell {
   position: relative;
-  width: min(66vh, 620px);
+  width: min(62vh, 560px);
   max-width: 100%;
   height: 100%;
   min-height: 420px;
-  margin: 0 auto;
   overflow: visible;
 }
 
@@ -124,15 +126,25 @@
 }
 
 .immersive-live2d-shell__rail {
+  position: absolute;
+  left: calc(50% + min(31vh, 280px) + 10px);
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 16px;
-  padding: 18px;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 0;
+  width: 208px;
+  max-width: 40vw;
   border-radius: 0;
   border: none;
   background: transparent;
   box-shadow: none;
+}
+
+.immersive-live2d-shell__rail .MuiStack-root {
+  align-items: flex-start;
 }
 
 .immersive-live2d-shell .live2d-container {
@@ -145,11 +157,20 @@
   box-shadow: none !important;
 }
 
+.immersive-live2d-shell .loading-overlay,
+.immersive-live2d-shell .error-overlay,
+.immersive-live2d-shell .empty-overlay {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  border-radius: 0 !important;
+}
+
 .immersive-live2d-shell__action-button {
   justify-content: flex-start !important;
-  border-radius: 18px !important;
-  padding: 12px 16px !important;
-  min-height: 52px !important;
+  width: 208px !important;
+  border-radius: 14px !important;
+  padding: 10px 14px !important;
+  min-height: 44px !important;
   font-weight: 700 !important;
   letter-spacing: 0.03em !important;
   transition: transform 180ms ease, box-shadow 180ms ease !important;
@@ -199,16 +220,27 @@
   }
 
   .immersive-live2d-shell__content {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
   }
 
   .immersive-live2d-shell__rail {
-    justify-content: flex-start;
+    position: static;
+    left: auto;
+    top: auto;
+    transform: none;
+    width: auto;
+    max-width: none;
   }
 
   .immersive-live2d-shell__meta {
     max-width: 64%;
+  }
+
+  .immersive-live2d-shell__action-button {
+    width: min(76vw, 230px) !important;
   }
 }
 
@@ -235,11 +267,16 @@
   }
 
   .immersive-live2d-shell__viewer-shell {
+    width: min(72vw, 420px);
     min-height: 360px;
   }
 
   .immersive-live2d-shell__rail {
-    padding: 12px;
-    border-radius: 18px;
+    gap: 8px;
+  }
+
+  .immersive-live2d-shell__action-button {
+    width: min(82vw, 210px) !important;
+    min-height: 42px !important;
   }
 }
