@@ -123,9 +123,11 @@ function createConversationRuntime({
   onTurnSettled,
 } = {}) {
   const activeStreamByRouteKey = new Map();
+  const activeTurnByRouteKey = new Map();
   const streamContextByStreamId = new Map();
   const pendingQueueByRouteKey = new Map();
   const activeRouteKeysBySessionId = new Map();
+  let turnTokenSeq = 0;
 
   const debug = (payload = {}) => {
     if (typeof emitDebugLog !== 'function') {
@@ -205,6 +207,14 @@ function createConversationRuntime({
       streamId,
     });
     activeStreamByRouteKey.set(normalizedContext.routeKey, streamId);
+    const activeTurn = activeTurnByRouteKey.get(normalizedContext.routeKey);
+    if (activeTurn) {
+      activeTurnByRouteKey.set(normalizedContext.routeKey, {
+        ...activeTurn,
+        streamId,
+        sessionId: normalizedContext.sessionId,
+      });
+    }
 
     const activeRouteKeys = activeRouteKeysBySessionId.get(normalizedContext.sessionId) || new Set();
     activeRouteKeys.add(normalizedContext.routeKey);
@@ -232,6 +242,10 @@ function createConversationRuntime({
     if (activeStreamByRouteKey.get(context.routeKey) === streamId) {
       activeStreamByRouteKey.delete(context.routeKey);
     }
+    const activeTurn = activeTurnByRouteKey.get(context.routeKey);
+    if (activeTurn?.streamId === streamId) {
+      activeTurnByRouteKey.delete(context.routeKey);
+    }
 
     const activeRouteKeys = activeRouteKeysBySessionId.get(context.sessionId);
     if (activeRouteKeys) {
@@ -242,6 +256,49 @@ function createConversationRuntime({
     }
 
     return context.routeKey;
+  };
+
+  const nextTurnToken = () => {
+    turnTokenSeq += 1;
+    return `turn-${Date.now().toString(36)}-${turnTokenSeq.toString(36)}`;
+  };
+
+  const beginRouteTurn = (routeContext = {}) => {
+    const routeKey = normalizeRouteSegment(routeContext.routeKey, '');
+    const token = nextTurnToken();
+    if (!routeKey) {
+      return token;
+    }
+
+    activeTurnByRouteKey.set(routeKey, {
+      token,
+      routeKey,
+      sessionId: normalizeSessionId(routeContext.sessionId),
+      streamId: '',
+    });
+    return token;
+  };
+
+  const isCurrentRouteTurn = (routeKey, token) => {
+    if (!routeKey || !token) {
+      return false;
+    }
+    return activeTurnByRouteKey.get(routeKey)?.token === token;
+  };
+
+  const finishRouteTurn = (routeKey, token) => {
+    const safeRouteKey = normalizeRouteSegment(routeKey, '');
+    if (!safeRouteKey || !token) {
+      return false;
+    }
+
+    const current = activeTurnByRouteKey.get(safeRouteKey);
+    if (!current || current.token !== token) {
+      return false;
+    }
+
+    activeTurnByRouteKey.delete(safeRouteKey);
+    return true;
   };
 
   const doAbortStream = async (streamId, reason) => {
@@ -310,7 +367,7 @@ function createConversationRuntime({
 
   const drainQueue = (routeKey) => {
     const safeRouteKey = normalizeRouteSegment(routeKey, '');
-    if (!safeRouteKey || activeStreamByRouteKey.has(safeRouteKey)) {
+    if (!safeRouteKey || activeTurnByRouteKey.has(safeRouteKey)) {
       return;
     }
 
@@ -325,7 +382,9 @@ function createConversationRuntime({
       pendingQueueByRouteKey.delete(safeRouteKey);
     }
 
-    void startTurn(next.request, 'queue', normalizeConversationRouteContext(next.request))
+    const routeContext = normalizeConversationRouteContext(next.request);
+    const turnToken = beginRouteTurn(routeContext);
+    void startTurn(next.request, 'queue', routeContext, turnToken)
       .then((result) => {
         next.resolve(result);
       })
@@ -360,10 +419,15 @@ function createConversationRuntime({
       });
     });
 
-  const startTurn = async (request, policy, routeContext = null) => {
+  const startTurn = async (request, policy, routeContext = null, turnToken = '') => {
     const sessionId = normalizeSessionId(request?.sessionId);
     const content = normalizeContent(request?.content);
+    const normalizedContext = routeContext || normalizeConversationRouteContext(request);
+    const safeRouteKey = normalizeRouteSegment(normalizedContext.routeKey, '');
     if (!content) {
+      if (finishRouteTurn(safeRouteKey, turnToken)) {
+        drainQueue(safeRouteKey);
+      }
       return {
         ok: false,
         reason: 'content_required',
@@ -371,13 +435,15 @@ function createConversationRuntime({
     }
 
     if (typeof startChatStream !== 'function') {
+      if (finishRouteTurn(safeRouteKey, turnToken)) {
+        drainQueue(safeRouteKey);
+      }
       return {
         ok: false,
         reason: 'chat_stream_unavailable',
       };
     }
 
-    const normalizedContext = routeContext || normalizeConversationRouteContext(request);
     const requestPayload = {
       ...request,
       sessionId,
@@ -408,6 +474,12 @@ function createConversationRuntime({
         },
         'prepare-turn',
       )) || null;
+    if (!isCurrentRouteTurn(safeRouteKey, turnToken)) {
+      return {
+        ok: false,
+        reason: 'superseded_by_latest',
+      };
+    }
     const preparedRequest =
       preparedTurn?.request && typeof preparedTurn.request === 'object'
         ? {
@@ -438,6 +510,25 @@ function createConversationRuntime({
             ? preparedTurn.content.trim()
             : '';
 
+      await callHook(
+        onTurnStarted,
+        {
+          streamId,
+          routeContext: syntheticContext,
+          request: preparedRequest,
+          policy,
+          prepareResult: preparedTurn,
+          synthetic: true,
+        },
+        'turn-started',
+      );
+      if (!isCurrentRouteTurn(safeRouteKey, turnToken)) {
+        return {
+          ok: false,
+          reason: 'superseded_by_latest',
+        };
+      }
+
       emitEvent({
         channel: 'chat',
         type: 'stream-start',
@@ -462,18 +553,6 @@ function createConversationRuntime({
           fastPath: true,
         },
       });
-      await callHook(
-        onTurnStarted,
-        {
-          streamId,
-          routeContext: syntheticContext,
-          request: preparedRequest,
-          policy,
-          prepareResult: preparedTurn,
-          synthetic: true,
-        },
-        'turn-started',
-      );
 
       if (responseText) {
         const textPayload = {
@@ -540,6 +619,9 @@ function createConversationRuntime({
         },
         'turn-settled',
       );
+      if (finishRouteTurn(safeRouteKey, turnToken)) {
+        drainQueue(safeRouteKey);
+      }
 
       return {
         ok: true,
@@ -556,6 +638,9 @@ function createConversationRuntime({
     const startResult = await startChatStream(preparedRequest);
 
     if (!startResult?.ok || !startResult.streamId) {
+      if (finishRouteTurn(safeRouteKey, turnToken)) {
+        drainQueue(safeRouteKey);
+      }
       return {
         ok: false,
         reason: startResult?.reason || 'stream_start_failed',
@@ -619,6 +704,15 @@ function createConversationRuntime({
       },
       'turn-started',
     );
+    if (!isCurrentRouteTurn(streamContext.routeKey, turnToken)) {
+      await doAbortStream(streamId, 'superseded_before_start');
+      clearActiveByStreamId(streamId);
+      drainQueue(streamContext.routeKey);
+      return {
+        ok: false,
+        reason: 'superseded_by_latest',
+      };
+    }
 
     return {
       ok: true,
@@ -659,18 +753,22 @@ function createConversationRuntime({
       };
     }
 
-    const activeStreamId = activeStreamByRouteKey.get(routeContext.routeKey) || '';
-    if (policy === 'queue' && activeStreamId) {
+    const activeTurn = activeTurnByRouteKey.get(routeContext.routeKey) || null;
+    const activeStreamId = activeTurn?.streamId || '';
+    if (policy === 'queue' && activeTurn) {
       return enqueueRequest(routeContext.routeKey, normalizedRequest);
     }
 
-    if (policy === 'latest-wins' && activeStreamId) {
+    if (policy === 'latest-wins' && activeTurn) {
       clearPendingQueue(routeContext.routeKey, 'superseded_by_latest');
-      await doAbortStream(activeStreamId, 'latest_wins');
-      clearActiveByStreamId(activeStreamId);
+      if (activeStreamId) {
+        await doAbortStream(activeStreamId, 'latest_wins');
+        clearActiveByStreamId(activeStreamId);
+      }
     }
 
-    return startTurn(normalizedRequest, policy, routeContext);
+    const turnToken = beginRouteTurn(routeContext);
+    return startTurn(normalizedRequest, policy, routeContext, turnToken);
   };
 
   const abortActive = async (request = {}) => {
@@ -693,7 +791,14 @@ function createConversationRuntime({
     const activeStreamIds = [...streamContextByStreamId.entries()]
       .filter(([, context]) => normalizeSessionId(context.sessionId) === requestedSessionId)
       .map(([streamId]) => streamId);
+    const preparingRouteKeys = [...activeTurnByRouteKey.entries()]
+      .filter(([, context]) => normalizeSessionId(context.sessionId) === requestedSessionId)
+      .map(([routeKey]) => routeKey);
     if (!activeStreamIds.length) {
+      for (const routeKey of preparingRouteKeys) {
+        activeTurnByRouteKey.delete(routeKey);
+      }
+      clearPendingQueuesForSession(requestedSessionId, request?.reason || 'manual');
       return {
         ok: true,
         aborted: [],
@@ -712,6 +817,9 @@ function createConversationRuntime({
     }
 
     clearPendingQueuesForSession(requestedSessionId, request?.reason || 'manual');
+    for (const routeKey of preparingRouteKeys) {
+      activeTurnByRouteKey.delete(routeKey);
+    }
     return {
       ok: true,
       aborted,
@@ -813,6 +921,7 @@ function createConversationRuntime({
       clearPendingQueue(routeKey, 'dispose');
     }
     activeStreamByRouteKey.clear();
+    activeTurnByRouteKey.clear();
     streamContextByStreamId.clear();
     pendingQueueByRouteKey.clear();
     activeRouteKeysBySessionId.clear();

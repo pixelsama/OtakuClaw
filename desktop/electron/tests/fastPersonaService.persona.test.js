@@ -33,8 +33,9 @@ test('fast persona service falls back heuristically when no direct runner is pro
   assert.equal(result.reason, 'tool_request');
   assert.equal(result.statUpdates.length >= 0, true);
   assert.match(result.reply, /升级给后端/);
-  assert.equal(result.memorySnapshot.turns.length >= 2, true);
-  assert.equal(result.memoryPatch.appendTurns.length, 2);
+  assert.equal(result.memorySnapshot.turns.length, 1);
+  assert.equal(result.memorySnapshot.turns[0].role, 'user');
+  assert.equal(result.memoryPatch.appendTurns.length, 1);
 });
 
 test('fast persona service accepts a direct runner and normalizes structured JSON output', async () => {
@@ -84,6 +85,8 @@ test('fast persona service accepts a direct runner and normalizes structured JSO
   assert.match(result.reply, /我已经帮你记好了/);
   assert.equal(result.memorySnapshot.state.affinity >= 6, true);
   assert.equal(result.memorySnapshot.turns.length >= 2, true);
+  assert.equal(result.memoryPatch.summary.text, '用户提出了记忆请求。');
+  assert.equal(result.memoryPatch.summary.highlights.includes('memory'), true);
   assert.equal(result.rewrittenReply.changed, false);
 });
 

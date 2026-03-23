@@ -232,3 +232,42 @@ test('conversation runtime supports synthetic fast-path turns without backend st
   assert.equal(settled.length, 1);
   assert.equal(settled[0].text, '你好呀，我在这儿。');
 });
+
+test('conversation runtime latest-wins suppresses stale synthetic turn after async prepare', async () => {
+  const emitted = [];
+  const runtime = createConversationRuntime({
+    startChatStream: async () => {
+      throw new Error('backend should not start for synthetic turn');
+    },
+    abortChatStream: async () => ({ ok: true }),
+    emitConversationEvent: (payload) => emitted.push(payload),
+    prepareTurn: async ({ request }) => {
+      await new Promise((resolve) => setTimeout(resolve, request.content === 'first' ? 40 : 5));
+      return {
+        needsBackend: false,
+        reply: `reply:${request.content}`,
+        turnId: `fast-${request.content}`,
+      };
+    },
+  });
+
+  const firstPromise = runtime.submitUserText({
+    sessionId: 'race-session',
+    content: 'first',
+    policy: 'latest-wins',
+  });
+  const secondPromise = runtime.submitUserText({
+    sessionId: 'race-session',
+    content: 'second',
+    policy: 'latest-wins',
+  });
+
+  const [first, second] = await Promise.all([firstPromise, secondPromise]);
+  assert.equal(first.ok, false);
+  assert.equal(first.reason, 'superseded_by_latest');
+  assert.equal(second.ok, true);
+  assert.deepEqual(
+    emitted.filter((event) => event.type === 'text-delta').map((event) => event.payload.content),
+    ['reply:second'],
+  );
+});

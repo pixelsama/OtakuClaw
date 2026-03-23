@@ -274,20 +274,20 @@ function mergeStatUpdates(primary = [], secondary = []) {
 
 function mergeMemoryPatch(primary = {}, secondary = {}) {
   const result = {
-    summaryHint: normalizeText(primary.summaryHint || secondary.summaryHint || ''),
+    summaryHint: normalizeText(secondary.summaryHint || primary.summaryHint || ''),
     tags: Array.from(
       new Set([
         ...(Array.isArray(primary.tags) ? primary.tags : []),
         ...(Array.isArray(secondary.tags) ? secondary.tags : []),
       ].map((tag) => normalizeText(tag)).filter(Boolean)),
     ).slice(0, 8),
-    note: normalizeText(primary.note || secondary.note || ''),
+    note: normalizeText(secondary.note || primary.note || ''),
   };
 
   if (isObject(primary.state) || isObject(secondary.state)) {
     result.state = {
-      ...(isObject(secondary.state) ? cloneValue(secondary.state) : {}),
       ...(isObject(primary.state) ? cloneValue(primary.state) : {}),
+      ...(isObject(secondary.state) ? cloneValue(secondary.state) : {}),
     };
   }
 
@@ -466,6 +466,7 @@ class FastPersonaService {
       ? cloneValue(normalized.statePatch)
       : {};
     const statUpdates = mergeStatUpdates(merged.statUpdates, normalized.statUpdates || []);
+    const shouldPersistAssistantReply = !merged.needsEscalation;
 
     for (const update of statUpdates) {
       if (update.stat === 'mood') {
@@ -490,7 +491,7 @@ class FastPersonaService {
       },
       {
         role: 'assistant',
-        content: finalReply,
+        content: shouldPersistAssistantReply ? finalReply : '',
         metadata: {
           channel: normalized.channel,
           turnKind: 'assistant',
