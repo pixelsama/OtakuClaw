@@ -985,6 +985,17 @@ function AppContent({ desktopMode }) {
     const sourceArea = sourceAreaId && scene?.config?.areas?.[sourceAreaId]
       ? scene.config.areas[sourceAreaId]
       : null;
+    const sourceAreaPoint =
+      Number.isFinite(sourceArea?.x) && Number.isFinite(sourceArea?.y)
+        ? {
+            x: sourceArea.x,
+            y: sourceArea.y,
+          }
+        : null;
+    const sourceAreaBackdrop =
+      sourceArea?.immersiveBackdrop && typeof sourceArea.immersiveBackdrop === 'object'
+        ? sourceArea.immersiveBackdrop
+        : null;
     const routeKey =
       typeof payload.routeKey === 'string' && payload.routeKey.trim()
         ? payload.routeKey.trim()
@@ -1016,6 +1027,8 @@ function AppContent({ desktopMode }) {
           : typeof scene?.caption === 'string'
             ? scene.caption.trim()
             : '',
+      sourceAreaPoint,
+      sourceAreaBackdrop,
       sceneTitle: typeof scene?.title === 'string' ? scene.title.trim() : '',
     });
     setMainWindowViewMode('immersive');

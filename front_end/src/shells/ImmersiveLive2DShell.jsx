@@ -87,6 +87,58 @@ function normalizeText(value, fallback = '') {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
 }
 
+function clamp(value, min, max) {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+  return Math.min(max, Math.max(min, value));
+}
+
+function toClampedPercent(value) {
+  if (typeof value === 'number') {
+    return clamp(value, 0, 100);
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return clamp(parsed, 0, 100);
+  }
+
+  return null;
+}
+
+function resolveBackdropViewport(immersiveContext, background) {
+  const backdropConfig =
+    immersiveContext?.sourceAreaBackdrop && typeof immersiveContext.sourceAreaBackdrop === 'object'
+      ? immersiveContext.sourceAreaBackdrop
+      : {};
+  const sourceAreaPoint =
+    immersiveContext?.sourceAreaPoint && typeof immersiveContext.sourceAreaPoint === 'object'
+      ? immersiveContext.sourceAreaPoint
+      : {};
+  const fallbackX = toClampedPercent(sourceAreaPoint.x);
+  const fallbackY = toClampedPercent(sourceAreaPoint.y);
+  const customX = toClampedPercent(backdropConfig.x);
+  const customY = toClampedPercent(backdropConfig.y);
+  const resolvedX = customX ?? fallbackX;
+  const resolvedY = customY ?? fallbackY;
+  const backgroundPosition = normalizeText(
+    backdropConfig.position,
+    resolvedX !== null && resolvedY !== null ? `${resolvedX}% ${resolvedY}%` : 'center',
+  );
+  const backgroundSize = normalizeText(
+    backdropConfig.size,
+    resolvedX !== null && resolvedY !== null ? '210%' : 'cover',
+  );
+  const assetKey = normalizeText(backdropConfig.assetKey, background.backdropAssetKey);
+
+  return {
+    backgroundPosition,
+    backgroundSize,
+    assetKey,
+  };
+}
+
 function resolveStatValue(source = {}, statKey = '') {
   if (!source || typeof source !== 'object') {
     return null;
@@ -163,7 +215,14 @@ export default function ImmersiveLive2DShell({
   const sourceAreaId = normalizeText(immersiveContext?.sourceAreaId || immersiveContext?.areaId, '');
   const agent = immersiveContext?.agent || null;
   const background = useMemo(() => resolveImmersiveBackgroundPreset(sourceAreaId), [sourceAreaId]);
-  const backgroundAsset = useMemo(() => resolveOfficeSceneAsset(background.backdropAssetKey), [background.backdropAssetKey]);
+  const backdropViewport = useMemo(
+    () => resolveBackdropViewport(immersiveContext, background),
+    [background, immersiveContext],
+  );
+  const backgroundAsset = useMemo(
+    () => resolveOfficeSceneAsset(backdropViewport.assetKey),
+    [backdropViewport.assetKey],
+  );
   const valueStats = resolveValueSource(valueSnapshot, agent);
   const mood = resolveStatValue(valueStats, 'mood');
   const affinity = resolveStatValue(valueStats, 'affinity');
@@ -193,6 +252,8 @@ export default function ImmersiveLive2DShell({
         style={{
           backgroundImage: backgroundAsset?.url ? `url(${backgroundAsset.url})` : 'none',
           backgroundColor: backgroundAsset?.url ? 'transparent' : 'rgba(18, 26, 58, 0.45)',
+          backgroundPosition: backdropViewport.backgroundPosition,
+          backgroundSize: backdropViewport.backgroundSize,
         }}
         aria-hidden="true"
       />

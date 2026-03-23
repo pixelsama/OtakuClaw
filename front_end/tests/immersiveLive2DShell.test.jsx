@@ -70,4 +70,27 @@ describe('ImmersiveLive2DShell', () => {
     expect(html).toContain('Mood 12');
     expect(html).toContain('Affinity 330');
   });
+
+  it('uses source area coordinates for immersive backdrop framing and allows size overrides', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ImmersiveLive2DShell, {
+        desktopMode: false,
+        platform: 'darwin',
+        currentModelPath: '/models/star.model3.json',
+        motions: [],
+        expressions: [],
+        immersiveContext: {
+          sourceAreaId: 'desk',
+          sourceAreaPoint: { x: 21, y: 47 },
+          sourceAreaBackdrop: { size: '230%' },
+        },
+        onOpenChatPanel: () => {},
+        onBackToRoom: () => {},
+        onActionRequested: () => {},
+      }),
+    );
+
+    expect(html).toContain('background-position:21% 47%');
+    expect(html).toContain('background-size:230%');
+  });
 });
