@@ -379,8 +379,7 @@
 }
 
 .office-room__agent-name,
-.office-room__agent-state,
-.office-room__agent-bubble {
+.office-room__agent-state {
   white-space: nowrap;
 }
 
@@ -407,15 +406,18 @@
   left: 50%;
   bottom: calc(100% + 14px);
   transform: translateX(-50%);
-  max-width: 220px;
-  padding: 9px 12px;
+  max-width: clamp(180px, 32vw, 300px);
+  padding: 10px 13px;
   border-radius: 14px;
   background: rgba(255, 249, 231, 0.96);
   box-shadow: 0 16px 22px rgba(9, 11, 32, 0.18);
   color: #47331c;
   font-size: 11px;
-  line-height: 1.45;
+  line-height: 1.5;
   text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .office-room__agent-bubble::after {
@@ -775,7 +777,7 @@
   }
 
   .office-room__agent-bubble {
-    max-width: 170px;
+    max-width: min(220px, calc(100vw - 80px));
     font-size: 10px;
   }
 
