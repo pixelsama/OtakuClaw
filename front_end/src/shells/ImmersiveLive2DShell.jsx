@@ -191,13 +191,8 @@ export default function ImmersiveLive2DShell({
       <div
         className="immersive-live2d-shell__backdrop"
         style={{
-          backgroundImage: [
-            'radial-gradient(circle at top left, rgba(255, 255, 255, 0.18), transparent 36%)',
-            'radial-gradient(circle at 80% 20%, rgba(255, 214, 143, 0.18), transparent 28%)',
-            'radial-gradient(circle at 26% 64%, rgba(255, 255, 255, 0.06), transparent 46%)',
-            `linear-gradient(180deg, ${background.accentSoft}, rgba(20, 34, 82, 0.3) 72%)`,
-            backgroundAsset?.url ? `url(${backgroundAsset.url})` : 'none',
-          ].join(', '),
+          backgroundImage: backgroundAsset?.url ? `url(${backgroundAsset.url})` : 'none',
+          backgroundColor: backgroundAsset?.url ? 'transparent' : 'rgba(18, 26, 58, 0.45)',
         }}
         aria-hidden="true"
       />
