@@ -406,6 +406,8 @@
   left: 50%;
   bottom: calc(100% + 14px);
   transform: translateX(-50%);
+  width: max-content;
+  min-width: 120px;
   max-width: clamp(180px, 32vw, 300px);
   padding: 10px 13px;
   border-radius: 14px;
@@ -416,8 +418,8 @@
   line-height: 1.5;
   text-align: center;
   white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .office-room__agent-bubble::after {
@@ -777,6 +779,7 @@
   }
 
   .office-room__agent-bubble {
+    min-width: 100px;
     max-width: min(220px, calc(100vw - 80px));
     font-size: 10px;
   }
