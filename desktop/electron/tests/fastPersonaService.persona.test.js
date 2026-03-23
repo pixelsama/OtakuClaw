@@ -90,6 +90,33 @@ test('fast persona service accepts a direct runner and normalizes structured JSO
   assert.equal(result.rewrittenReply.changed, false);
 });
 
+test('fast persona service parses plain string JSON from direct runner and only exposes reply', async () => {
+  const baseDir = await fs.mkdtemp(path.join(os.tmpdir(), 'fast-persona-direct-string-test-'));
+  const memoryStore = createShortTermMemoryStore({ baseDir, maxTurns: 8, keepTurns: 3 });
+  const service = createFastPersonaService({
+    memoryStore,
+    directModelRunner: async () => '{"reply":"你好呀！又见到你了，真开心","needsEscalation":false,"reason":"greeting","confidence":0.9,"statUpdates":[{"stat":"affinity","delta":1,"reason":"friendly_greeting"}]}',
+  });
+
+  const result = await service.evaluateTurn({
+    agentId: 'agent-a',
+    backend: 'nanobot',
+    routeKey: 'route-3',
+    sessionId: 'session-1',
+    userInput: '你好',
+    mood: {
+      label: 'warm',
+    },
+    affinity: 3,
+  });
+
+  assert.equal(result.mode, 'direct');
+  assert.equal(result.reply, '你好呀！又见到你了，真开心。');
+  assert.equal(result.needsEscalation, false);
+  assert.equal(result.reason, 'greeting');
+  assert.equal(result.statUpdates.some((item) => item.stat === 'affinity' && item.delta === 1), true);
+});
+
 test('persona response rewriter can act as a small normalization wrapper', () => {
   const rewritten = rewritePersonaResponse('  我来了  ', {
     prefix: '嗯，',

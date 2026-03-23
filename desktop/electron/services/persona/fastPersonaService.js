@@ -86,7 +86,44 @@ function normalizeReason(value) {
 }
 
 function normalizeDirectResult(result) {
+  const parseStructuredText = (rawText = '') => {
+    const content = normalizeText(rawText, '');
+    if (!content) {
+      return null;
+    }
+
+    const trimmed = content.trim();
+    const fenced = trimmed.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+    const firstBrace = fenced.indexOf('{');
+    const lastBrace = fenced.lastIndexOf('}');
+    const parseTarget = firstBrace >= 0 && lastBrace > firstBrace
+      ? fenced.slice(firstBrace, lastBrace + 1)
+      : fenced;
+
+    try {
+      return JSON.parse(parseTarget);
+    } catch {
+      return null;
+    }
+  };
+
   if (typeof result === 'string') {
+    const parsedObject = parseStructuredText(result);
+    if (parsedObject && isObject(parsedObject)) {
+      return {
+        reply: normalizeText(
+          parsedObject.reply || parsedObject.text || parsedObject.content || parsedObject.message || '',
+          '',
+        ),
+        needsEscalation: typeof parsedObject.needsEscalation === 'boolean' ? parsedObject.needsEscalation : undefined,
+        reason: normalizeReason(parsedObject.reason || parsedObject.explanation || ''),
+        confidence: Number.isFinite(Number(parsedObject.confidence)) ? Number(parsedObject.confidence) : undefined,
+        statUpdates: normalizeStatUpdates(parsedObject.statUpdates || parsedObject.stats || []),
+        memoryPatch: isObject(parsedObject.memoryPatch) ? cloneValue(parsedObject.memoryPatch) : null,
+        raw: result,
+      };
+    }
+
     return {
       reply: result,
       raw: result,
@@ -105,22 +142,7 @@ function normalizeDirectResult(result) {
     ? candidate
     : normalizeText(candidate?.content || candidate?.text || candidate?.message || '');
 
-  let parsedObject = null;
-  if (content) {
-    const trimmed = content.trim();
-    const fenced = trimmed.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-    const firstBrace = fenced.indexOf('{');
-    const lastBrace = fenced.lastIndexOf('}');
-    const parseTarget = firstBrace >= 0 && lastBrace > firstBrace
-      ? fenced.slice(firstBrace, lastBrace + 1)
-      : fenced;
-
-    try {
-      parsedObject = JSON.parse(parseTarget);
-    } catch {
-      parsedObject = null;
-    }
-  }
+  const parsedObject = content ? parseStructuredText(content) : null;
 
   const source = parsedObject && isObject(parsedObject) ? parsedObject : candidate;
 
