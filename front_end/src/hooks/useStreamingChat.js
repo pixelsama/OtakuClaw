@@ -106,11 +106,16 @@ const normalizeDesktopChatConversationEvent = (event = {}) => {
 export const buildDesktopConversationRequest = (sessionId, content, extras = {}) => {
   const safeExtras = extras && typeof extras === 'object' ? extras : {};
   const { policy, options: nestedOptions = {}, ...legacyOptions } = safeExtras;
+  const explicitBackend =
+    typeof legacyOptions.backend === 'string' && legacyOptions.backend.trim()
+      ? legacyOptions.backend.trim()
+      : '';
 
   return {
     sessionId,
     content,
     policy: policy || 'latest-wins',
+    ...(explicitBackend ? { backend: explicitBackend } : {}),
     options: {
       ...legacyOptions,
       ...(nestedOptions && typeof nestedOptions === 'object' ? nestedOptions : {}),

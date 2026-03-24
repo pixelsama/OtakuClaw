@@ -1,4 +1,6 @@
 const { NanobotBackendAdapter } = require('./backends/nanobotBackend');
+const { ClaudeCodeBackendAdapter } = require('./backends/claudeCodeBackend');
+const { CodexBackendAdapter } = require('./backends/codexBackend');
 
 function normalizeBackendName(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -6,9 +8,12 @@ function normalizeBackendName(value) {
 
 function coerceBackendName(value) {
   const normalized = normalizeBackendName(value);
-  // OpenClaw is temporarily disabled in current public builds.
+  // Legacy compatibility: OpenClaw has been removed from user-visible backend choices.
   if (normalized === 'openclaw') {
     return 'nanobot';
+  }
+  if (normalized === 'claude code' || normalized === 'claudecode' || normalized === 'claude_code') {
+    return 'claude-code';
   }
   return normalized;
 }
@@ -38,7 +43,11 @@ class ChatBackendManager {
 
     const backendList = Array.isArray(backends) && backends.length > 0
       ? backends
-      : [new NanobotBackendAdapter()];
+      : [
+        new NanobotBackendAdapter(),
+        new ClaudeCodeBackendAdapter(),
+        new CodexBackendAdapter(),
+      ];
     for (const backend of backendList) {
       this.register(backend);
     }

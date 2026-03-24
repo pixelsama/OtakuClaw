@@ -40,6 +40,10 @@ function normalizeBackendName(value) {
     return DEFAULT_BACKEND;
   }
 
+  if (normalized === 'claude code' || normalized === 'claudecode' || normalized === 'claude_code') {
+    return 'claude-code';
+  }
+
   if (normalized === 'openclaw') {
     return 'nanobot';
   }

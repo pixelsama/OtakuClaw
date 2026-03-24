@@ -40,6 +40,9 @@ function normalizeText(value, fallback = '') {
 
 function normalizeBackendName(value) {
   const normalized = normalizeText(value, 'nanobot').toLowerCase();
+  if (normalized === 'claude code' || normalized === 'claudecode' || normalized === 'claude_code') {
+    return 'claude-code';
+  }
   if (normalized === 'openclaw') {
     return 'nanobot';
   }

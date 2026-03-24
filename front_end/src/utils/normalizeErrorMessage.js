@@ -41,6 +41,21 @@ export function normalizeErrorMessage(error, t) {
   if (code === 'nanobot_unreachable') {
     return t('error.nanobotUnreachable');
   }
+  if (code === 'chat_backend_web_unsupported') {
+    return t('error.chatBackendWebUnsupported');
+  }
+  if (code === 'acp_stream_timeout') {
+    return t('error.acpStreamTimeout');
+  }
+  if (typeof code === 'string' && code.endsWith('_not_enabled')) {
+    return t('error.acpBackendNotEnabled');
+  }
+  if (typeof code === 'string' && code.endsWith('_runner_missing_command')) {
+    return t('error.acpRunnerMissingCommand');
+  }
+  if (typeof code === 'string' && code.endsWith('_runner_not_found')) {
+    return t('error.acpRunnerNotFound');
+  }
   if (code === 'chat_backend_test_timeout' || code === 'nanobot_test_timeout') {
     return t('error.chatBackendTestTimeout');
   }

@@ -186,6 +186,11 @@ test('office state store applies office conversation events', () => {
 });
 
 test('office state store reduces scene-intent and execution-fact into effective business state', () => {
+  const baseTimestampMs = Date.now();
+  const intentTimestamp = new Date(baseTimestampMs).toISOString();
+  const factTimestamp = new Date(baseTimestampMs + 1000).toISOString();
+  const clearFactTimestamp = new Date(baseTimestampMs + 2000).toISOString();
+
   const store = createOfficeStateStore({
     initialState: {
       revision: 0,
@@ -202,7 +207,7 @@ test('office state store reduces scene-intent and execution-fact into effective 
   const intentResult = store.applyConversationEvent({
     channel: 'office',
     type: 'scene-intent',
-    timestamp: '2026-03-23T10:00:00.000Z',
+    timestamp: intentTimestamp,
     payload: {
       agentId: 'main',
       intent: {
@@ -223,7 +228,7 @@ test('office state store reduces scene-intent and execution-fact into effective 
   const factResult = store.applyConversationEvent({
     channel: 'office',
     type: 'execution-fact',
-    timestamp: '2026-03-23T10:00:01.000Z',
+    timestamp: factTimestamp,
     payload: {
       agentId: 'main',
       fact: {
@@ -242,7 +247,7 @@ test('office state store reduces scene-intent and execution-fact into effective 
   const clearFactResult = store.applyConversationEvent({
     channel: 'office',
     type: 'execution-fact',
-    timestamp: '2026-03-23T10:00:02.000Z',
+    timestamp: clearFactTimestamp,
     payload: {
       agentId: 'main',
       clearFact: true,

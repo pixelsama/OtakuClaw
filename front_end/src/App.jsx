@@ -118,9 +118,16 @@ function AppContent({ desktopMode }) {
         setPendingCaptureDraft(null);
       }
 
-      await _startStreaming(sessionId, content, extras);
+      const mergedExtras = {
+        ...(extras && typeof extras === 'object' ? extras : {}),
+        backend:
+          typeof extras?.backend === 'string' && extras.backend.trim()
+            ? extras.backend
+            : chatBackendSettings.chatBackend,
+      };
+      await _startStreaming(sessionId, content, mergedExtras);
     },
-    [_startStreaming, addUserMessage, startAiMessage],
+    [_startStreaming, addUserMessage, chatBackendSettings.chatBackend, startAiMessage],
   );
 
   // Track AI streaming response into chat history
@@ -184,6 +191,7 @@ function AppContent({ desktopMode }) {
     onChatBackendChange,
     onOpenClawSettingChange,
     onNanobotSettingChange,
+    onAcpBackendSettingChange,
     onPickNanobotWorkspace,
     onOpenNanobotWorkspace,
     onTestChatBackendSettings,
@@ -1241,6 +1249,7 @@ function AppContent({ desktopMode }) {
         onChatBackendChange={onChatBackendChange}
         onOpenClawSettingChange={onOpenClawSettingChange}
         onNanobotSettingChange={onNanobotSettingChange}
+        onAcpBackendSettingChange={onAcpBackendSettingChange}
         onPickNanobotWorkspace={onPickNanobotWorkspace}
         onTestChatBackendSettings={onTestChatBackendSettings}
         onClearSavedToken={onClearSavedToken}
@@ -1280,6 +1289,7 @@ function AppContent({ desktopMode }) {
         onChatBackendChange={onChatBackendChange}
         onOpenClawSettingChange={onOpenClawSettingChange}
         onNanobotSettingChange={onNanobotSettingChange}
+        onAcpBackendSettingChange={onAcpBackendSettingChange}
         onPickNanobotWorkspace={onPickNanobotWorkspace}
         onTestChatBackendSettings={onTestChatBackendSettings}
         voiceDownloadTasks={taskMap}

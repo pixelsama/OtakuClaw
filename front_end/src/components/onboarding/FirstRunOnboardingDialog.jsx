@@ -420,8 +420,8 @@ export default function FirstRunOnboardingDialog({
   settingsFeedback = '',
   settingsError = '',
   onChatBackendChange,
-  onOpenClawSettingChange,
   onNanobotSettingChange,
+  onAcpBackendSettingChange,
   onPickNanobotWorkspace,
   onTestChatBackendSettings,
   voiceDownloadTasks = {},
@@ -512,9 +512,12 @@ export default function FirstRunOnboardingDialog({
     ? t(VOICE_SUB_STEP_LABEL_KEYS[ttsSubStep + 1])
     : '';
 
-  const selectedBackend = 'nanobot';
-  const openClawSettings = chatBackendSettings?.openclaw || {};
+  const selectedBackend = chatBackendSettings?.chatBackend || 'nanobot';
   const nanobotSettings = chatBackendSettings?.nanobot || {};
+  const claudeCodeSettings = chatBackendSettings?.claudeCode || {};
+  const codexSettings = chatBackendSettings?.codex || {};
+  const activeAcpSettings = selectedBackend === 'codex' ? codexSettings : claudeCodeSettings;
+  const activeAcpRunner = activeAcpSettings?.runner || {};
   const nanobotProviderOptions = useMemo(
     () => extendNanobotProviderOptionsWithLegacy(NANOBOT_PROVIDER_OPTIONS, nanobotSettings.provider || ''),
     [nanobotSettings.provider],
@@ -1390,6 +1393,8 @@ export default function FirstRunOnboardingDialog({
         fullWidth
       >
         <MenuItem value="nanobot">{t('app.backend.nanobot')}</MenuItem>
+        <MenuItem value="claude-code">{t('app.backend.claudeCode')}</MenuItem>
+        <MenuItem value="codex">{t('app.backend.codex')}</MenuItem>
       </TextField>
 
       {selectedBackend === 'nanobot' && (
@@ -1413,30 +1418,48 @@ export default function FirstRunOnboardingDialog({
 
   const renderBackendConfigSubStep = () => (
     <Stack spacing={1.5}>
-      {selectedBackend === 'openclaw' ? (
+      {selectedBackend !== 'nanobot' ? (
         <Stack spacing={1}>
           <TextField
-            label={t('onboarding.backend.openclawBaseUrl')}
-            value={openClawSettings.baseUrl || ''}
-            onChange={(event) => onOpenClawSettingChange?.('baseUrl', event.target.value)}
-            placeholder="http://127.0.0.1:18789"
+            label={t('app.acpRunnerCommand')}
+            value={activeAcpRunner.command || ''}
+            onChange={(event) =>
+              onAcpBackendSettingChange?.(selectedBackend, 'runner.command', event.target.value)}
+            placeholder={selectedBackend === 'codex' ? 'codex-acp' : 'claude-agent-acp'}
             fullWidth
           />
           <TextField
-            label={t('onboarding.backend.agentId')}
-            value={openClawSettings.agentId || ''}
-            onChange={(event) => onOpenClawSettingChange?.('agentId', event.target.value)}
-            placeholder="main"
+            label={t('app.acpRunnerArgs')}
+            value={(activeAcpRunner.args || []).join(' ')}
+            onChange={(event) =>
+              onAcpBackendSettingChange?.(
+                selectedBackend,
+                'runner.args',
+                event.target.value.split(/\s+/).map((item) => item.trim()).filter(Boolean),
+              )}
+            placeholder="--workspace /path/to/workspace"
             fullWidth
           />
           <TextField
-            label={t('onboarding.backend.token')}
-            value={openClawSettings.token || ''}
-            onChange={(event) => onOpenClawSettingChange?.('token', event.target.value)}
-            type="password"
-            autoComplete="off"
+            label={t('app.acpRunnerCwd')}
+            value={activeAcpRunner.cwd || ''}
+            onChange={(event) =>
+              onAcpBackendSettingChange?.(selectedBackend, 'runner.cwd', event.target.value)}
+            placeholder={t('onboarding.optional')}
             fullWidth
           />
+          <TextField
+            select
+            label={t('app.acpPermissionMode')}
+            value={activeAcpSettings.permissionMode || 'deny'}
+            onChange={(event) =>
+              onAcpBackendSettingChange?.(selectedBackend, 'permissionMode', event.target.value)}
+            fullWidth
+          >
+            <MenuItem value="deny">{t('app.acpPermissionDeny')}</MenuItem>
+            <MenuItem value="allow">{t('app.acpPermissionAllow')}</MenuItem>
+            <MenuItem value="ask">{t('app.acpPermissionAsk')}</MenuItem>
+          </TextField>
         </Stack>
       ) : (
         <Stack spacing={1}>
@@ -1502,9 +1525,29 @@ export default function FirstRunOnboardingDialog({
     if (selectedBackend !== 'nanobot') {
       return (
         <Stack spacing={1.5}>
-          <Alert severity="info">
-            {t('onboarding.backend.openclawReady')}
-          </Alert>
+          <TextField
+            select
+            label={t('app.acpEnabled')}
+            value={activeAcpSettings.enabled ? 'enabled' : 'disabled'}
+            onChange={(event) => onAcpBackendSettingChange?.(
+              selectedBackend,
+              'enabled',
+              event.target.value === 'enabled',
+            )}
+            fullWidth
+          >
+            <MenuItem value="enabled">{t('common.enabled')}</MenuItem>
+            <MenuItem value="disabled">{t('common.disabled')}</MenuItem>
+          </TextField>
+          <Stack direction="row" spacing={1}>
+            <Button
+              variant="contained"
+              disabled={settingsSaving || settingsTesting || !activeAcpSettings.enabled}
+              onClick={() => onTestChatBackendSettings?.()}
+            >
+              {settingsTesting ? t('app.testingConnection') : t('app.connectionTest')}
+            </Button>
+          </Stack>
         </Stack>
       );
     }

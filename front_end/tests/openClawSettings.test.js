@@ -82,6 +82,27 @@ describe('buildChatBackendSettingsPayload', () => {
     expect(payload.nanobot.allowHighRiskTools).toBe(true);
     expect(payload.nanobot.maxTokens).toBe(2048);
   });
+
+  it('preserves codex backend and acp runner config', () => {
+    const payload = buildChatBackendSettingsPayload({
+      chatBackend: 'codex',
+      codex: {
+        enabled: true,
+        permissionMode: 'allow',
+        runner: {
+          command: 'codex-acp',
+          args: ['--workspace', '/tmp/workspace'],
+          cwd: '/tmp/workspace',
+        },
+      },
+    });
+
+    expect(payload.chatBackend).toBe('codex');
+    expect(payload.codex.enabled).toBe(true);
+    expect(payload.codex.permissionMode).toBe('allow');
+    expect(payload.codex.runner.command).toBe('codex-acp');
+    expect(payload.codex.runner.args).toEqual(['--workspace', '/tmp/workspace']);
+  });
 });
 
 describe('formatChatBackendSettingsError', () => {
