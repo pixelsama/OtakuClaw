@@ -73,3 +73,26 @@
 ## 备注
 
 - 同步记录：新增回归脚本位于 `tests/e2e/phase3/run_real_device_regression.js`，用于后续发版前复跑。
+
+## 修复后复测（2026-03-24）
+
+### 复测背景
+
+- 已修复跨后端 latest-wins 问题（4.2）。
+- 已修正 3.5 权限队列用例时序断言，并强制该用例走真实后端流，避免被 synthetic fast-path 干扰。
+
+### 复测结果
+
+| 指标 | 值 |
+|---|---|
+| 总用例数 | 19 |
+| Pass | 19 |
+| Fail | 0 |
+| 结论 | 通过 |
+
+### 关键项状态
+
+| ID | 项目 | 状态 |
+|---|---|---|
+| 3.5 | Permission queue sequential handling | Pass |
+| 4.2 | Cross-backend switch long->short latest-wins | Pass |

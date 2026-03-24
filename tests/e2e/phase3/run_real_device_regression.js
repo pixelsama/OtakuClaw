@@ -446,8 +446,21 @@ async function main() {
             permissionEndpoint: '',
           },
         },
+        fastPersona: {
+          ...(settings.fastPersona || {}),
+          enabled: true,
+          configMode: 'custom',
+          provider: 'openai',
+          model: '',
+          apiBase: '',
+          clearApiKey: true,
+        },
         chatBackend: 'codex',
       });
+
+      const updatedSettings = await api.getSettings();
+      assert.equal(updatedSettings.codex?.runner?.transport, 'stdio');
+      assert.equal((updatedSettings.codex?.runner?.args || [])[1], 'permission-queue');
 
       await api.clearEvents();
       const start = await api.submit({
@@ -456,16 +469,24 @@ async function main() {
         backend: 'codex',
         policy: 'latest-wins',
       });
+      assert.equal(Boolean(start?.synthetic), false, '3.5 must run through backend stream, not synthetic fast-path.');
 
-      const permissionEvents = await api.waitForEvents(
-        (event) => event.streamId === start.streamId && event.type === 'permission-request',
-        2,
-        10000,
-      );
-      assert.equal(permissionEvents.length >= 2, true);
+      const waitForDialogText = async (needle, timeoutMs = 10000) => {
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < timeoutMs) {
+          const text = await api.dialogText();
+          if (String(text || '').includes(needle)) {
+            return text;
+          }
+          await sleep(80);
+        }
+        throw new Error(`Timed out waiting for permission dialog text: ${needle}`);
+      };
 
+      await waitForDialogText('Queue test request #1', 10000);
       await api.clickAllow();
-      await sleep(250);
+
+      await waitForDialogText('Queue test request #2', 10000);
       await api.clickAllow();
 
       await api.waitForEvent(
@@ -473,7 +494,7 @@ async function main() {
         8000,
       );
       await api.waitForEvent((event) => event.streamId === start.streamId && event.type === 'done', 8000);
-      return `stream=${start.streamId} requests=${permissionEvents.length}`;
+      return `stream=${start.streamId} requests=2`;
     });
 
     await runCase('3.6', 'Pending permission cleared after stream end/abort', async () => {
