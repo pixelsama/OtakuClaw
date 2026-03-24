@@ -226,6 +226,8 @@
 - When changing `VoiceSettingsPanel` or voice renderer hooks, run:
   - `pnpm run test:frontend`
   - `cd front_end && pnpm run lint`
+- Phase 3 + ask 权限闭环实机回归脚本在 `tests/e2e/phase3/run_real_device_regression.js`（命令：`pnpm run test:regression:phase3-real-device`）。
+- ACP mock 夹具在 `tests/e2e/phase3/fixtures/`（`stdio/http/websocket`），最近一轮结果记录在 `docs/test-errors/phase3-ask-permission-loop-2026-03-24.md`。
 
 ## GUI Real-Device Download Regression (Installed App)
 - Scope:
