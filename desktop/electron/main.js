@@ -775,6 +775,14 @@ function registerModelProtocol() {
 async function createMainWindow() {
   mainWindow = new BrowserWindow(createWindowOptions());
   windowModeManager.attachWindow(mainWindow);
+  let hasShownMainWindow = false;
+  const showMainWindow = () => {
+    if (hasShownMainWindow || !mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+    hasShownMainWindow = true;
+    mainWindow.show();
+  };
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (isAllowedExternalUrl(url)) {
@@ -791,6 +799,8 @@ async function createMainWindow() {
     }
   });
 
+  mainWindow.once('ready-to-show', showMainWindow);
+
   if (app.isPackaged) {
     const indexFile = path.join(app.getAppPath(), 'front_end', 'dist', 'index.html');
     await mainWindow.loadFile(indexFile);
@@ -798,10 +808,7 @@ async function createMainWindow() {
     await mainWindow.loadURL(getRendererDevUrl());
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
-
-  mainWindow.once('ready-to-show', () => {
-    mainWindow?.show();
-  });
+  showMainWindow();
 
   mainWindow.on('close', (event) => {
     if (isQuitting) {

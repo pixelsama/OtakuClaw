@@ -92,6 +92,35 @@ function AppContent({ desktopMode }) {
     },
     [desktopMode],
   );
+  const normalizeError = useCallback((error) => normalizeErrorMessage(error, t), [t]);
+  const {
+    chatBackendSettings,
+    settingsSaving,
+    settingsTesting,
+    settingsFeedback,
+    settingsError,
+    onChatBackendChange,
+    onOpenClawSettingChange,
+    onNanobotSettingChange,
+    onAcpBackendSettingChange,
+    onPickNanobotWorkspace,
+    onOpenNanobotWorkspace,
+    onTestChatBackendSettings,
+    onClearSavedToken,
+    nanobotRuntimeStatus,
+    nanobotRuntimeInstalling,
+    onInstallNanobotRuntime,
+    nanobotSkills,
+    nanobotSkillsLoading,
+    nanobotSkillsImporting,
+    nanobotSkillsDeletingName,
+    onImportNanobotSkillsZip,
+    onDeleteNanobotSkill,
+    onOpenNanobotSkillsLibrary,
+  } = useChatBackendSettings({
+    t,
+    normalizeError,
+  });
 
   // Wrapped startStreaming that also tracks chat history
   const startStreaming = useCallback(
@@ -159,8 +188,6 @@ function AppContent({ desktopMode }) {
       detachError();
     };
   }, [appendAiDelta, cancelAiMessage, finalizeAiMessage, onDelta, onDone, onError]);
-
-  const normalizeError = useCallback((error) => normalizeErrorMessage(error, t), [t]);
   const {
     taskMap,
     activeTask,
@@ -181,35 +208,6 @@ function AppContent({ desktopMode }) {
       }),
     [taskMap],
   );
-
-  const {
-    chatBackendSettings,
-    settingsSaving,
-    settingsTesting,
-    settingsFeedback,
-    settingsError,
-    onChatBackendChange,
-    onOpenClawSettingChange,
-    onNanobotSettingChange,
-    onAcpBackendSettingChange,
-    onPickNanobotWorkspace,
-    onOpenNanobotWorkspace,
-    onTestChatBackendSettings,
-    onClearSavedToken,
-    nanobotRuntimeStatus,
-    nanobotRuntimeInstalling,
-    onInstallNanobotRuntime,
-    nanobotSkills,
-    nanobotSkillsLoading,
-    nanobotSkillsImporting,
-    nanobotSkillsDeletingName,
-    onImportNanobotSkillsZip,
-    onDeleteNanobotSkill,
-    onOpenNanobotSkillsLibrary,
-  } = useChatBackendSettings({
-    t,
-    normalizeError,
-  });
   const {
     releaseCapture,
     startScreenCapture,
