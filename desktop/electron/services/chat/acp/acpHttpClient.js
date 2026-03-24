@@ -68,6 +68,89 @@ function createPermissionDecision(mode) {
   };
 }
 
+function normalizePermissionDecisionResult(value, fallbackReason = 'policy_ask_timeout') {
+  if (value && typeof value === 'object') {
+    const normalizedDecision = normalizeText(value.decision).toLowerCase();
+    if (normalizedDecision === 'allow' || normalizedDecision === 'deny') {
+      return {
+        decision: normalizedDecision,
+        reason: normalizeText(value.reason, normalizedDecision === 'allow' ? 'user_allow' : 'user_deny'),
+      };
+    }
+  }
+
+  const normalizedText = normalizeText(value).toLowerCase();
+  if (normalizedText === 'allow' || normalizedText === 'deny') {
+    return {
+      decision: normalizedText,
+      reason: normalizedText === 'allow' ? 'user_allow' : 'user_deny',
+    };
+  }
+
+  return {
+    decision: 'deny',
+    reason: fallbackReason,
+  };
+}
+
+async function resolveAskDecision({
+  request = {},
+  backend = 'acp',
+  transport = 'http',
+  sessionId = '',
+  turnId = '',
+  askTimeoutMs = 8_000,
+  resolvePermissionRequest,
+} = {}) {
+  if (typeof resolvePermissionRequest !== 'function') {
+    await new Promise((resolve) => setTimeout(resolve, askTimeoutMs));
+    return {
+      decision: 'deny',
+      reason: 'policy_ask_timeout',
+    };
+  }
+
+  let timeoutId = null;
+  try {
+    const resolverResult = await Promise.race([
+      Promise.resolve(
+        resolvePermissionRequest({
+          backend,
+          transport,
+          sessionId,
+          turnId,
+          askTimeoutMs,
+          request: {
+            requestId: normalizeText(request.requestId),
+            permission: normalizeText(request.permission),
+            toolName: normalizeText(request.toolName),
+            reason: normalizeText(request.reason),
+          },
+        }),
+      ),
+      new Promise((resolve) => {
+        timeoutId = setTimeout(() => {
+          resolve({
+            decision: 'deny',
+            reason: 'policy_ask_timeout',
+          });
+        }, askTimeoutMs);
+      }),
+    ]);
+
+    return normalizePermissionDecisionResult(resolverResult, 'policy_ask_timeout');
+  } catch {
+    return {
+      decision: 'deny',
+      reason: 'policy_ask_failed',
+    };
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 async function sendPermissionDecision({
   endpoint,
   headers,
@@ -150,6 +233,7 @@ async function runAcpHttpStream({
   signal,
   onEvent,
   emitDebugLog,
+  resolvePermissionRequest,
 } = {}) {
   const normalizedSettings = normalizeAcpBackendSettings(settings);
   const runner = normalizedSettings.runner || {};
@@ -175,7 +259,6 @@ async function runAcpHttpStream({
   let abortedByUser = false;
   let permissionRequests = 0;
   let permissionDeniedCount = 0;
-  let pendingAskTimers = new Map();
   const controller = new AbortController();
 
   if (signal?.aborted) {
@@ -215,7 +298,18 @@ async function runAcpHttpStream({
     }
 
     const resolveDecision = async () => {
-      const decisionPayload = createPermissionDecision(permissionMode);
+      const decisionPayload =
+        permissionMode === 'ask'
+          ? await resolveAskDecision({
+              request,
+              backend,
+              transport: 'http',
+              sessionId,
+              turnId,
+              askTimeoutMs,
+              resolvePermissionRequest,
+            })
+          : createPermissionDecision(permissionMode);
       if (decisionPayload.decision !== 'allow') {
         permissionDeniedCount += 1;
       }
@@ -244,15 +338,6 @@ async function runAcpHttpStream({
         emitDebugLog,
       });
     };
-
-    if (permissionMode === 'ask') {
-      const timer = setTimeout(() => {
-        pendingAskTimers.delete(requestId);
-        void resolveDecision();
-      }, askTimeoutMs);
-      pendingAskTimers.set(requestId, timer);
-      return;
-    }
 
     void resolveDecision();
   };
@@ -300,11 +385,6 @@ async function runAcpHttpStream({
       clearTimeout(timeoutId);
     }
     timeoutId = null;
-
-    for (const timer of pendingAskTimers.values()) {
-      clearTimeout(timer);
-    }
-    pendingAskTimers = new Map();
 
     debugLogger(
       emitDebugLog,

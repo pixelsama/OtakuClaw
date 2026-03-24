@@ -121,3 +121,61 @@ test('acp http client sends permission response to permission endpoint', async (
     assert.equal(permissionResponses[0].decision, 'deny');
   });
 });
+
+test('acp http client uses ask resolver decision when provided', async () => {
+  const permissionResponses = [];
+
+  await withHttpServer(async (req, res) => {
+    if (req.method === 'POST' && req.url === '/acp') {
+      await readRequestBody(req);
+      res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+      res.write(`${JSON.stringify({
+        type: 'permission-request',
+        payload: {
+          requestId: 'perm-allow',
+          permission: 'exec',
+          toolName: 'exec',
+        },
+      })}\n`);
+      res.end(`${JSON.stringify({ type: 'done', payload: { finishReason: 'completed' } })}\n`);
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/permission') {
+      const raw = await readRequestBody(req);
+      permissionResponses.push(JSON.parse(raw));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    res.writeHead(404);
+    res.end('not found');
+  }, async ({ endpoint }) => {
+    await runAcpHttpStream({
+      backend: 'codex',
+      settings: {
+        runner: {
+          transport: 'http',
+          endpoint: `${endpoint}/acp`,
+          permissionEndpoint: `${endpoint}/permission`,
+        },
+        timeoutMs: 2000,
+        permissionMode: 'ask',
+        askTimeoutMs: 3000,
+      },
+      sessionId: 's1',
+      content: 'hello',
+      onEvent: () => {},
+      resolvePermissionRequest: async () => ({
+        decision: 'allow',
+        reason: 'user_allow',
+      }),
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(permissionResponses.length, 1);
+    assert.equal(permissionResponses[0].decision, 'allow');
+    assert.equal(permissionResponses[0].reason, 'user_allow');
+  });
+});

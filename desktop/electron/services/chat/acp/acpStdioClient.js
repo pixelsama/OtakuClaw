@@ -90,7 +90,6 @@ function writeJsonLine(stream, payload = {}) {
 
 function createPermissionDecision({
   mode,
-  request,
 }) {
   if (mode === 'allow') {
     return {
@@ -105,6 +104,89 @@ function createPermissionDecision({
   };
 }
 
+function normalizePermissionDecisionResult(value, fallbackReason = 'policy_ask_timeout') {
+  if (value && typeof value === 'object') {
+    const normalizedDecision = normalizeText(value.decision).toLowerCase();
+    if (normalizedDecision === 'allow' || normalizedDecision === 'deny') {
+      return {
+        decision: normalizedDecision,
+        reason: normalizeText(value.reason, normalizedDecision === 'allow' ? 'user_allow' : 'user_deny'),
+      };
+    }
+  }
+
+  const normalizedText = normalizeText(value).toLowerCase();
+  if (normalizedText === 'allow' || normalizedText === 'deny') {
+    return {
+      decision: normalizedText,
+      reason: normalizedText === 'allow' ? 'user_allow' : 'user_deny',
+    };
+  }
+
+  return {
+    decision: 'deny',
+    reason: fallbackReason,
+  };
+}
+
+async function resolveAskDecision({
+  request = {},
+  backend = 'acp',
+  transport = 'stdio',
+  sessionId = '',
+  turnId = '',
+  askTimeoutMs = 8_000,
+  resolvePermissionRequest,
+} = {}) {
+  if (typeof resolvePermissionRequest !== 'function') {
+    await new Promise((resolve) => setTimeout(resolve, askTimeoutMs));
+    return {
+      decision: 'deny',
+      reason: 'policy_ask_timeout',
+    };
+  }
+
+  let timeoutId = null;
+  try {
+    const resolverResult = await Promise.race([
+      Promise.resolve(
+        resolvePermissionRequest({
+          backend,
+          transport,
+          sessionId,
+          turnId,
+          askTimeoutMs,
+          request: {
+            requestId: normalizeText(request.requestId),
+            permission: normalizeText(request.permission),
+            toolName: normalizeText(request.toolName),
+            reason: normalizeText(request.reason),
+          },
+        }),
+      ),
+      new Promise((resolve) => {
+        timeoutId = setTimeout(() => {
+          resolve({
+            decision: 'deny',
+            reason: 'policy_ask_timeout',
+          });
+        }, askTimeoutMs);
+      }),
+    ]);
+
+    return normalizePermissionDecisionResult(resolverResult, 'policy_ask_timeout');
+  } catch {
+    return {
+      decision: 'deny',
+      reason: 'policy_ask_failed',
+    };
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 async function runAcpStdioStream({
   backend = 'acp',
   settings = {},
@@ -115,6 +197,7 @@ async function runAcpStdioStream({
   onEvent,
   emitDebugLog,
   spawnFn = spawn,
+  resolvePermissionRequest,
 } = {}) {
   const normalizedSettings = normalizeAcpBackendSettings(settings);
   const runner = normalizedSettings.runner || {};
@@ -154,7 +237,6 @@ async function runAcpStdioStream({
     let aborted = false;
     let timedOut = false;
     let timeoutId = null;
-    let askTimerByRequestId = new Map();
     let stderrLines = [];
     let permissionRequests = 0;
     let permissionDeniedCount = 0;
@@ -169,11 +251,6 @@ async function runAcpStdioStream({
         clearTimeout(timeoutId);
       }
       timeoutId = null;
-
-      for (const timer of askTimerByRequestId.values()) {
-        clearTimeout(timer);
-      }
-      askTimerByRequestId = new Map();
 
       if (stdoutRl) {
         stdoutRl.close();
@@ -270,11 +347,21 @@ async function runAcpStdioStream({
         return;
       }
 
-      const sendDecision = () => {
-        const decisionPayload = createPermissionDecision({
-          mode: permissionMode,
-          request,
-        });
+      const sendDecision = async () => {
+        const decisionPayload =
+          permissionMode === 'ask'
+            ? await resolveAskDecision({
+                request,
+                backend,
+                transport: 'stdio',
+                sessionId,
+                turnId,
+                askTimeoutMs,
+                resolvePermissionRequest,
+              })
+            : createPermissionDecision({
+                mode: permissionMode,
+              });
 
         debugLogger(
           emitDebugLog,
@@ -295,6 +382,10 @@ async function runAcpStdioStream({
           permissionDeniedCount += 1;
         }
 
+        if (!child || child.killed || !child.stdin || child.stdin.destroyed) {
+          return;
+        }
+
         writeJsonLine(child.stdin, {
           protocolVersion: 'acp.v1',
           type: 'permission-response',
@@ -305,16 +396,7 @@ async function runAcpStdioStream({
         });
       };
 
-      if (permissionMode === 'ask') {
-        const timer = setTimeout(() => {
-          askTimerByRequestId.delete(requestId);
-          sendDecision();
-        }, askTimeoutMs);
-        askTimerByRequestId.set(requestId, timer);
-        return;
-      }
-
-      sendDecision();
+      void sendDecision();
     };
 
     let stdoutRl = null;

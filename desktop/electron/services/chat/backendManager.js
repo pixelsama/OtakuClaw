@@ -113,7 +113,16 @@ class ChatBackendManager {
     return this.backends.get(normalized);
   }
 
-  async startStream({ backend, settings, sessionId, content, options = {}, signal, onEvent }) {
+  async startStream({
+    backend,
+    settings,
+    sessionId,
+    content,
+    options = {},
+    signal,
+    onEvent,
+    resolvePermissionRequest,
+  }) {
     const adapter = this.getBackend(backend);
     adapter.validateSettings(settings);
 
@@ -124,6 +133,7 @@ class ChatBackendManager {
       options,
       signal,
       onEvent,
+      resolvePermissionRequest,
     });
   }
 

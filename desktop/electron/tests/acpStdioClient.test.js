@@ -183,3 +183,60 @@ test('acp stdio client maps upstream error payloads', async () => {
   assert.equal(error?.payload?.code, 'upstream_failed');
   assert.equal(error?.payload?.status, 500);
 });
+
+test('acp stdio client uses ask resolver decision when provided', async () => {
+  const { child, spawnFn } = createSpawnHarness();
+  const events = [];
+
+  setTimeout(() => {
+    child.stdout.write(`${JSON.stringify({
+      type: 'permission-request',
+      payload: {
+        requestId: 'perm-allow',
+        permission: 'exec',
+        toolName: 'exec',
+      },
+    })}\n`);
+    setTimeout(() => {
+      child.stdout.write(`${JSON.stringify({ type: 'done', payload: { finishReason: 'completed' } })}\n`);
+    }, 40);
+  }, 10);
+
+  await runAcpStdioStream({
+    backend: 'codex',
+    settings: {
+      runner: {
+        command: 'fake-codex-acp',
+      },
+      timeoutMs: 2000,
+      permissionMode: 'ask',
+      askTimeoutMs: 3000,
+    },
+    sessionId: 's1',
+    content: 'hello',
+    onEvent: (event) => events.push(event),
+    spawnFn,
+    resolvePermissionRequest: async () => ({
+      decision: 'allow',
+      reason: 'user_allow',
+    }),
+  });
+
+  const lines = await collectStdinLines(child.stdin, 20);
+  const responses = lines
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .filter((payload) => payload.type === 'permission-response');
+  assert.equal(responses.length, 1);
+  assert.equal(responses[0].decision, 'allow');
+  assert.equal(responses[0].reason, 'user_allow');
+
+  const done = events.find((event) => event.type === 'done');
+  assert.equal(Boolean(done), true);
+});

@@ -136,3 +136,58 @@ test('acp websocket connection test succeeds after handshake', async () => {
     assert.equal(typeof result.latencyMs, 'number');
   });
 });
+
+test('acp websocket client uses ask resolver decision when provided', async () => {
+  let receivedDecision = '';
+  let receivedReason = '';
+
+  await withWebSocketServer((socket) => {
+    socket.on('message', (raw) => {
+      const message = JSON.parse(raw.toString('utf-8'));
+
+      if (message.type === 'start-turn') {
+        socket.send(JSON.stringify({
+          type: 'permission-request',
+          payload: {
+            requestId: 'perm-allow',
+            permission: 'exec',
+            toolName: 'exec',
+          },
+        }));
+        return;
+      }
+
+      if (message.type === 'permission-response') {
+        receivedDecision = message.decision;
+        receivedReason = message.reason;
+        socket.send(JSON.stringify({
+          type: 'done',
+          payload: { finishReason: 'completed' },
+        }));
+      }
+    });
+  }, async ({ url }) => {
+    await runAcpWebSocketStream({
+      backend: 'codex',
+      settings: {
+        runner: {
+          transport: 'websocket',
+          url,
+        },
+        timeoutMs: 2000,
+        permissionMode: 'ask',
+        askTimeoutMs: 3000,
+      },
+      sessionId: 's1',
+      content: 'hello',
+      onEvent: () => {},
+      resolvePermissionRequest: async () => ({
+        decision: 'allow',
+        reason: 'user_allow',
+      }),
+    });
+
+    assert.equal(receivedDecision, 'allow');
+    assert.equal(receivedReason, 'user_allow');
+  });
+});

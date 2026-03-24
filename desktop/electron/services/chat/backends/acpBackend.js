@@ -153,7 +153,15 @@ class AcpBackendAdapter extends ChatBackendAdapter {
     });
   }
 
-  async startStream({ settings, sessionId, content, options = {}, signal, onEvent }) {
+  async startStream({
+    settings,
+    sessionId,
+    content,
+    options = {},
+    signal,
+    onEvent,
+    resolvePermissionRequest,
+  }) {
     const resolved = this.validateSettings(settings);
     this.debug('start-request', 'Starting ACP backend stream.', {
       backend: this.name,
@@ -179,6 +187,7 @@ class AcpBackendAdapter extends ChatBackendAdapter {
       options,
       signal,
       onEvent,
+      resolvePermissionRequest,
       emitDebugLog: (payload = {}) => {
         this.debug(payload.stage || 'stream', payload.message || '', payload.details);
       },

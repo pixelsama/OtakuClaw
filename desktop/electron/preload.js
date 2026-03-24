@@ -44,6 +44,9 @@ const conversation = {
   abortActive(request) {
     return ipcRenderer.invoke('conversation:abort-active', request);
   },
+  resolvePermissionRequest(request) {
+    return ipcRenderer.invoke('conversation:permission:resolve', request);
+  },
   onEvent(handler) {
     return onChannel('conversation:event', handler);
   },

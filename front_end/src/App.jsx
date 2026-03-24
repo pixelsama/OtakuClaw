@@ -3,6 +3,7 @@ import { Box, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import ConfigDrawer from './components/config/ConfigDrawer.jsx';
 import ChatSidebar from './components/chat/ChatSidebar.jsx';
+import PermissionRequestDialog from './components/chat/PermissionRequestDialog.jsx';
 import UnifiedDownloadDialog from './components/download/UnifiedDownloadDialog.jsx';
 import FirstRunOnboardingDialog from './components/onboarding/FirstRunOnboardingDialog.jsx';
 import { useScreenCaptureController } from './hooks/chat/useScreenCaptureController.js';
@@ -79,6 +80,8 @@ function AppContent({ desktopMode }) {
   const activeAiMsgIdRef = useRef(null);
   const [pendingCaptureDraft, setPendingCaptureDraft] = useState(null);
   const pendingCaptureDraftRef = useRef(null);
+  const [permissionRequestQueue, setPermissionRequestQueue] = useState([]);
+  const [permissionDecisionSubmitting, setPermissionDecisionSubmitting] = useState(false);
 
   const { subtitleText, appendDelta, setSegmentText, finishStream, clearSubtitle, beginStream } = useSubtitleFeed();
   const { startStreaming: _startStreaming, cancelStreaming, onDelta, onSegmentReady, onDone, onError, isStreaming } =
@@ -623,6 +626,7 @@ function AppContent({ desktopMode }) {
   });
   const voicePermissionWarningText = t('voice.permissionDeniedBanner');
   const showVoicePermissionWarning = Boolean(voiceMicToggle.microphonePermissionDenied);
+  const activePermissionRequest = permissionRequestQueue[0] || null;
 
   useEffect(() => {
     if (voiceMicToggle.microphonePermissionDenied) {
@@ -743,6 +747,103 @@ function AppContent({ desktopMode }) {
       setOfficeActivityHint((current) => reduceOfficeActivityHint(current, event));
     });
   }, [desktopMode]);
+
+  useEffect(() => {
+    if (!desktopMode) {
+      setPermissionRequestQueue([]);
+      setPermissionDecisionSubmitting(false);
+      return () => {};
+    }
+
+    return desktopBridge.conversation.onEvent((event = {}) => {
+      if (event?.channel !== 'chat') {
+        return;
+      }
+
+      if (event.type === 'permission-request') {
+        const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
+        const permissionRequestId =
+          typeof payload.permissionRequestId === 'string' ? payload.permissionRequestId.trim() : '';
+        if (!permissionRequestId) {
+          return;
+        }
+
+        setPermissionRequestQueue((currentQueue) => {
+          if (currentQueue.some((item) => item.permissionRequestId === permissionRequestId)) {
+            return currentQueue;
+          }
+
+          return [
+            ...currentQueue,
+            {
+              permissionRequestId,
+              streamId: typeof event.streamId === 'string' ? event.streamId.trim() : '',
+              backend:
+                typeof payload.backend === 'string' && payload.backend.trim()
+                  ? payload.backend.trim()
+                  : typeof event.backend === 'string'
+                    ? event.backend.trim()
+                    : '',
+              transport: typeof payload.transport === 'string' ? payload.transport.trim() : '',
+              requestId: typeof payload.requestId === 'string' ? payload.requestId.trim() : '',
+              permission: typeof payload.permission === 'string' ? payload.permission.trim() : '',
+              toolName: typeof payload.toolName === 'string' ? payload.toolName.trim() : '',
+              reason: typeof payload.reason === 'string' ? payload.reason.trim() : '',
+              askTimeoutMs:
+                Number.isFinite(payload.askTimeoutMs) && payload.askTimeoutMs > 0
+                  ? Math.min(Math.floor(payload.askTimeoutMs), 60_000)
+                  : 8_000,
+            },
+          ];
+        });
+        return;
+      }
+
+      if (event.type === 'done' || event.type === 'error') {
+        const streamId = typeof event.streamId === 'string' ? event.streamId.trim() : '';
+        if (!streamId) {
+          return;
+        }
+
+        setPermissionRequestQueue((currentQueue) =>
+          currentQueue.filter((item) => item.streamId !== streamId));
+      }
+    });
+  }, [desktopMode]);
+
+  const handlePermissionDecision = useCallback(
+    async (decision) => {
+      if (!activePermissionRequest || permissionDecisionSubmitting) {
+        return;
+      }
+
+      setPermissionDecisionSubmitting(true);
+      try {
+        await desktopBridge.conversation.resolvePermissionRequest({
+          permissionRequestId: activePermissionRequest.permissionRequestId,
+          decision,
+          reason: decision === 'allow' ? 'user_allow' : 'user_deny',
+        });
+      } catch (error) {
+        console.warn('Failed to resolve ACP permission request:', error);
+      } finally {
+        setPermissionRequestQueue((currentQueue) =>
+          currentQueue.filter(
+            (item) => item.permissionRequestId !== activePermissionRequest.permissionRequestId,
+          ));
+        setPermissionDecisionSubmitting(false);
+      }
+    },
+    [activePermissionRequest, permissionDecisionSubmitting],
+  );
+
+  const handleAllowPermission = useCallback(() => {
+    void handlePermissionDecision('allow');
+  }, [handlePermissionDecision]);
+
+  const handleDenyPermission = useCallback(() => {
+    void handlePermissionDecision('deny');
+  }, [handlePermissionDecision]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1303,6 +1404,14 @@ function AppContent({ desktopMode }) {
         detailsOpen={downloadDetailsOpen}
         onToggleDetails={() => setDownloadDetailsOpen((prev) => !prev)}
         onClose={closeDownloadDialog}
+      />
+      <PermissionRequestDialog
+        open={Boolean(activePermissionRequest)}
+        request={activePermissionRequest}
+        pendingCount={permissionRequestQueue.length}
+        submitting={permissionDecisionSubmitting}
+        onAllow={handleAllowPermission}
+        onDeny={handleDenyPermission}
       />
     </Box>
   );

@@ -1254,6 +1254,16 @@ export const desktopBridge = {
       }
       return Promise.resolve({ ok: false, reason: 'desktop_conversation_unavailable' });
     },
+    resolvePermissionRequest(request = {}) {
+      const api = getDesktopApi();
+      if (api?.conversation?.resolvePermissionRequest) {
+        return api.conversation.resolvePermissionRequest(request);
+      }
+      return Promise.resolve({
+        ok: false,
+        reason: 'desktop_permission_resolver_unavailable',
+      });
+    },
     onEvent(handler) {
       const api = getDesktopApi();
       if (!api?.conversation?.onEvent || typeof handler !== 'function') {

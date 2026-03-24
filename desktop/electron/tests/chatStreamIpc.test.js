@@ -276,3 +276,58 @@ test('chat stream forwards structured non-text backend activity events', async (
   assert.equal(emitted[0].payload.sessionId, 'nanobot-session');
   assert.equal(emitted[0].payload.turnId, emitted[0].streamId);
 });
+
+test('chat stream emits permission-request and accepts renderer decision', async () => {
+  const ipcMain = createIpcMainMock();
+  const emitted = [];
+  let resolvedDecision = '';
+  let resolvedReason = '';
+
+  const control = registerChatStreamIpc({
+    ipcMain,
+    getSettings: () => ({ chatBackend: 'codex' }),
+    emitEvent: (event) => emitted.push(event),
+    startStream: async ({ resolvePermissionRequest, onEvent }) => {
+      const permissionResult = await resolvePermissionRequest({
+        backend: 'codex',
+        transport: 'stdio',
+        askTimeoutMs: 3_000,
+        request: {
+          requestId: 'perm-1',
+          permission: 'exec',
+          toolName: 'exec',
+          reason: 'Need to run a command',
+        },
+      });
+      resolvedDecision = permissionResult.decision;
+      resolvedReason = permissionResult.reason;
+      onEvent({ type: 'done', payload: { source: 'codex' } });
+    },
+  });
+
+  await ipcMain.invoke('chat:stream:start', {
+    sessionId: 's1',
+    content: 'hello',
+    backend: 'codex',
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const permissionEvent = emitted.find((event) => event.type === 'permission-request');
+  assert.ok(permissionEvent);
+  assert.equal(permissionEvent.payload.permission, 'exec');
+  assert.equal(permissionEvent.payload.toolName, 'exec');
+  assert.equal(permissionEvent.payload.requestId, 'perm-1');
+  assert.ok(permissionEvent.payload.permissionRequestId);
+
+  const resolveResult = await control.resolvePermissionRequest({
+    permissionRequestId: permissionEvent.payload.permissionRequestId,
+    decision: 'allow',
+    reason: 'user_allow',
+  });
+  assert.equal(resolveResult.ok, true);
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(resolvedDecision, 'allow');
+  assert.equal(resolvedReason, 'user_allow');
+  assert.ok(emitted.some((event) => event.type === 'done'));
+});

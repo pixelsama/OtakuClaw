@@ -11,6 +11,8 @@ function registerChatStreamIpc({
   backendManager = createChatBackendManager(),
 }) {
   const streamMap = new Map();
+  const permissionPendingMap = new Map();
+  const permissionRequestIdsByStreamId = new Map();
   const debug = (payload = {}) => {
     if (typeof emitDebugLog !== 'function') {
       return;
@@ -28,6 +30,63 @@ function registerChatStreamIpc({
     return normalized || 'text-composer';
   };
 
+  const normalizePermissionDecision = (value, fallback = 'deny') => {
+    if (typeof value !== 'string') {
+      return fallback;
+    }
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'allow' || normalized === 'deny') {
+      return normalized;
+    }
+    return fallback;
+  };
+
+  const normalizePermissionText = (value, fallback = '') =>
+    typeof value === 'string' && value.trim() ? value.trim() : fallback;
+
+  const settlePermissionRequest = (permissionRequestId, decision, reason) => {
+    const pending = permissionPendingMap.get(permissionRequestId);
+    if (!pending) {
+      return false;
+    }
+
+    permissionPendingMap.delete(permissionRequestId);
+    const streamRequestIds = permissionRequestIdsByStreamId.get(pending.streamId);
+    if (streamRequestIds) {
+      streamRequestIds.delete(permissionRequestId);
+      if (streamRequestIds.size === 0) {
+        permissionRequestIdsByStreamId.delete(pending.streamId);
+      }
+    }
+
+    if (pending.timerId) {
+      clearTimeout(pending.timerId);
+    }
+
+    pending.resolve({
+      decision: normalizePermissionDecision(decision, 'deny'),
+      reason: normalizePermissionText(reason, decision === 'allow' ? 'user_allow' : 'user_deny'),
+    });
+    return true;
+  };
+
+  const clearPermissionRequestsForStream = (streamId, reason = 'stream_settled') => {
+    if (!streamId || typeof streamId !== 'string') {
+      return;
+    }
+
+    const permissionRequestIds = permissionRequestIdsByStreamId.get(streamId);
+    if (!permissionRequestIds || permissionRequestIds.size === 0) {
+      permissionRequestIdsByStreamId.delete(streamId);
+      return;
+    }
+
+    for (const permissionRequestId of [...permissionRequestIds]) {
+      settlePermissionRequest(permissionRequestId, 'deny', reason);
+    }
+    permissionRequestIdsByStreamId.delete(streamId);
+  };
+
   const sendEvent = (streamId, type, payload = {}) => {
     emitEvent({
       streamId,
@@ -43,6 +102,7 @@ function registerChatStreamIpc({
     }
 
     state.settled = true;
+    clearPermissionRequestsForStream(streamId, 'stream_done');
     sendEvent(streamId, 'done', payload);
   };
 
@@ -53,8 +113,68 @@ function registerChatStreamIpc({
     }
 
     state.settled = true;
+    clearPermissionRequestsForStream(streamId, 'stream_error');
     sendEvent(streamId, 'error', errorPayload);
   };
+
+  const createPermissionRequestResolver = ({
+    streamId,
+    sessionId,
+    inputSource,
+    backend,
+  }) =>
+    async (permissionPayload = {}) => {
+      const source =
+        permissionPayload && typeof permissionPayload === 'object'
+          ? permissionPayload
+          : {};
+      const request =
+        source.request && typeof source.request === 'object'
+          ? source.request
+          : source;
+
+      const requestId = normalizePermissionText(request.requestId);
+      const permissionRequestId = randomUUID();
+      const askTimeoutMs = Number.isFinite(source.askTimeoutMs) && source.askTimeoutMs > 0
+        ? Math.min(Math.floor(source.askTimeoutMs), 60_000)
+        : 8_000;
+
+      const streamRequestIds = permissionRequestIdsByStreamId.get(streamId) || new Set();
+      streamRequestIds.add(permissionRequestId);
+      permissionRequestIdsByStreamId.set(streamId, streamRequestIds);
+
+      const result = await new Promise((resolve) => {
+        const timerId = setTimeout(() => {
+          settlePermissionRequest(permissionRequestId, 'deny', 'user_timeout');
+        }, askTimeoutMs);
+
+        permissionPendingMap.set(permissionRequestId, {
+          streamId,
+          requestId,
+          resolve,
+          timerId,
+        });
+
+        sendEvent(streamId, 'permission-request', {
+          sessionId,
+          turnId: streamId,
+          inputSource,
+          backend: normalizePermissionText(source.backend, backend),
+          transport: normalizePermissionText(source.transport),
+          permissionRequestId,
+          requestId,
+          permission: normalizePermissionText(request.permission),
+          toolName: normalizePermissionText(request.toolName),
+          reason: normalizePermissionText(request.reason),
+          askTimeoutMs,
+        });
+      });
+
+      return {
+        decision: normalizePermissionDecision(result?.decision, 'deny'),
+        reason: normalizePermissionText(result?.reason, 'user_deny'),
+      };
+    };
 
   const runStream = async (streamId, request, state) => {
     let source = 'nanobot';
@@ -114,6 +234,12 @@ function registerChatStreamIpc({
         content: request.content,
         options: request.options || {},
         signal: state.controller.signal,
+        resolvePermissionRequest: createPermissionRequestResolver({
+          streamId,
+          sessionId: request.sessionId,
+          inputSource,
+          backend,
+        }),
         onEvent: (event) => {
           if (state.settled) {
             return;
@@ -284,6 +410,7 @@ function registerChatStreamIpc({
         );
       }
     } finally {
+      clearPermissionRequestsForStream(streamId, 'stream_disposed');
       streamMap.delete(streamId);
     }
   };
@@ -373,6 +500,11 @@ function registerChatStreamIpc({
       state.aborted = true;
       state.controller.abort();
     }
+    for (const permissionRequestId of [...permissionPendingMap.keys()]) {
+      settlePermissionRequest(permissionRequestId, 'deny', 'stream_disposed');
+    }
+    permissionPendingMap.clear();
+    permissionRequestIdsByStreamId.clear();
     streamMap.clear();
   };
 
@@ -389,6 +521,27 @@ function registerChatStreamIpc({
 
     state.aborted = true;
     state.controller.abort();
+    return { ok: true };
+  };
+  dispose.resolvePermissionRequest = async ({
+    permissionRequestId,
+    decision,
+    reason,
+  } = {}) => {
+    const normalizedPermissionRequestId = normalizePermissionText(permissionRequestId);
+    if (!normalizedPermissionRequestId) {
+      return { ok: false, reason: 'permission_request_id_required' };
+    }
+
+    const accepted = settlePermissionRequest(
+      normalizedPermissionRequestId,
+      normalizePermissionDecision(decision, 'deny'),
+      normalizePermissionText(reason, normalizePermissionDecision(decision, 'deny') === 'allow' ? 'user_allow' : 'user_deny'),
+    );
+    if (!accepted) {
+      return { ok: false, reason: 'permission_request_not_found' };
+    }
+
     return { ok: true };
   };
 

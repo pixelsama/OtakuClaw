@@ -1449,6 +1449,10 @@ async function bootstrap() {
   disposeConversationHandlers = registerConversationIpc({
     ipcMain,
     conversationRuntime,
+    resolvePermissionRequest:
+      typeof chatStreamControl?.resolvePermissionRequest === 'function'
+        ? chatStreamControl.resolvePermissionRequest
+        : null,
   });
 
   disposeVoiceSessionHandlers = registerVoiceSessionIpc({

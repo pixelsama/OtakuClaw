@@ -57,6 +57,89 @@ function createPermissionDecision(mode) {
   };
 }
 
+function normalizePermissionDecisionResult(value, fallbackReason = 'policy_ask_timeout') {
+  if (value && typeof value === 'object') {
+    const normalizedDecision = normalizeText(value.decision).toLowerCase();
+    if (normalizedDecision === 'allow' || normalizedDecision === 'deny') {
+      return {
+        decision: normalizedDecision,
+        reason: normalizeText(value.reason, normalizedDecision === 'allow' ? 'user_allow' : 'user_deny'),
+      };
+    }
+  }
+
+  const normalizedText = normalizeText(value).toLowerCase();
+  if (normalizedText === 'allow' || normalizedText === 'deny') {
+    return {
+      decision: normalizedText,
+      reason: normalizedText === 'allow' ? 'user_allow' : 'user_deny',
+    };
+  }
+
+  return {
+    decision: 'deny',
+    reason: fallbackReason,
+  };
+}
+
+async function resolveAskDecision({
+  request = {},
+  backend = 'acp',
+  transport = 'websocket',
+  sessionId = '',
+  turnId = '',
+  askTimeoutMs = 8_000,
+  resolvePermissionRequest,
+} = {}) {
+  if (typeof resolvePermissionRequest !== 'function') {
+    await new Promise((resolve) => setTimeout(resolve, askTimeoutMs));
+    return {
+      decision: 'deny',
+      reason: 'policy_ask_timeout',
+    };
+  }
+
+  let timeoutId = null;
+  try {
+    const resolverResult = await Promise.race([
+      Promise.resolve(
+        resolvePermissionRequest({
+          backend,
+          transport,
+          sessionId,
+          turnId,
+          askTimeoutMs,
+          request: {
+            requestId: normalizeText(request.requestId),
+            permission: normalizeText(request.permission),
+            toolName: normalizeText(request.toolName),
+            reason: normalizeText(request.reason),
+          },
+        }),
+      ),
+      new Promise((resolve) => {
+        timeoutId = setTimeout(() => {
+          resolve({
+            decision: 'deny',
+            reason: 'policy_ask_timeout',
+          });
+        }, askTimeoutMs);
+      }),
+    ]);
+
+    return normalizePermissionDecisionResult(resolverResult, 'policy_ask_timeout');
+  } catch {
+    return {
+      decision: 'deny',
+      reason: 'policy_ask_failed',
+    };
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 function resolveWebSocketCtor() {
   if (typeof WebSocket === 'function') {
     return WebSocket;
@@ -166,6 +249,7 @@ async function runAcpWebSocketStream({
   signal,
   onEvent,
   emitDebugLog,
+  resolvePermissionRequest,
 } = {}) {
   const normalizedSettings = normalizeAcpBackendSettings(settings);
   const runner = normalizedSettings.runner || {};
@@ -202,7 +286,6 @@ async function runAcpWebSocketStream({
     let lastError = null;
     let permissionRequests = 0;
     let permissionDeniedCount = 0;
-    let askTimerByRequestId = new Map();
     let unsubscribeHandlers = [];
 
     const finalize = () => {
@@ -210,11 +293,6 @@ async function runAcpWebSocketStream({
         clearTimeout(timeoutId);
       }
       timeoutId = null;
-
-      for (const timer of askTimerByRequestId.values()) {
-        clearTimeout(timer);
-      }
-      askTimerByRequestId = new Map();
 
       for (const dispose of unsubscribeHandlers) {
         try {
@@ -281,8 +359,19 @@ async function runAcpWebSocketStream({
         return;
       }
 
-      const sendDecision = () => {
-        const decisionPayload = createPermissionDecision(permissionMode);
+      const sendDecision = async () => {
+        const decisionPayload =
+          permissionMode === 'ask'
+            ? await resolveAskDecision({
+                request,
+                backend,
+                transport: 'websocket',
+                sessionId,
+                turnId,
+                askTimeoutMs,
+                resolvePermissionRequest,
+              })
+            : createPermissionDecision(permissionMode);
         if (decisionPayload.decision !== 'allow') {
           permissionDeniedCount += 1;
         }
@@ -312,16 +401,7 @@ async function runAcpWebSocketStream({
         });
       };
 
-      if (permissionMode === 'ask') {
-        const timer = setTimeout(() => {
-          askTimerByRequestId.delete(requestId);
-          sendDecision();
-        }, askTimeoutMs);
-        askTimerByRequestId.set(requestId, timer);
-        return;
-      }
-
-      sendDecision();
+      void sendDecision();
     };
 
     const handleIncomingPayload = (payload = {}) => {
