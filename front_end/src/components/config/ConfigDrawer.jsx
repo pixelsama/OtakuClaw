@@ -20,6 +20,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import Live2DControls from '../controls/Live2DControls.jsx';
+import StaticAvatarControls from '../avatar/StaticAvatarControls.jsx';
 import VoiceSettingsPanel from './VoiceSettingsPanel.jsx';
 import { desktopBridge } from '../../services/desktopBridge.js';
 import {
@@ -159,6 +160,15 @@ export default function ConfigDrawer({
   modelLoaded = false,
   desktopMode = false,
   live2dViewerRef,
+  avatarRenderMode = 'live2d',
+  selectedStaticAvatarId = '',
+  staticAvatarScale = 1,
+  staticAvatarHitTest = null,
+  onAvatarRenderModeChange,
+  onSelectedStaticAvatarChange,
+  onStaticAvatarScaleChange,
+  onStaticAvatarHitTestChange,
+  onStaticAvatarPacksChange,
   onModelChange,
   onMotionsUpdate,
   onExpressionsUpdate,
@@ -236,6 +246,7 @@ export default function ConfigDrawer({
   const updaterSupportReason = typeof appUpdaterState?.supportReason === 'string'
     ? appUpdaterState.supportReason
     : '';
+  const effectiveAvatarMode = avatarRenderMode === 'static' ? 'static' : 'live2d';
   const updaterIsDownloading = updaterStatus === 'downloading';
   const updaterHasAvailable = Boolean(appUpdaterState?.available);
   const updaterDownloaded = Boolean(appUpdaterState?.downloaded);
@@ -390,7 +401,7 @@ export default function ConfigDrawer({
         <Box sx={{ flex: 1, overflowY: 'auto', px: 2, py: 2 }}>
           <Stack spacing={2}>
             <Tabs value={activeConfigTab} onChange={(_event, tab) => setActiveConfigTab(tab)} variant="fullWidth">
-              <Tab label={t('app.tab.live2d')} />
+              <Tab label={t('app.tab.avatar')} />
               <Tab label={t('app.tab.chatBackend')} />
               <Tab label={t('app.tab.voice')} />
               <Tab label={t('app.tab.preferences')} />
@@ -398,39 +409,56 @@ export default function ConfigDrawer({
             <Divider />
 
             {activeConfigTab === 0 && (
-              <Live2DControls
-                live2dViewerRef={live2dViewerRef}
-                modelLoaded={modelLoaded}
-                isPetMode={isPetMode}
-                onModelChange={onModelChange}
-                onMotionsUpdate={onMotionsUpdate}
-                onExpressionsUpdate={onExpressionsUpdate}
-                onAutoEyeBlinkChange={(enabled) => {
-                  live2dViewerRef.current?.getManager?.()?.setAutoEyeBlinkEnable(enabled);
-                }}
-                onAutoBreathChange={(enabled) => {
-                  live2dViewerRef.current?.getManager?.()?.setAutoBreathEnable(enabled);
-                }}
-                onEyeTrackingChange={(enabled) => {
-                  live2dViewerRef.current?.getManager?.()?.setEyeTracking(enabled);
-                }}
-                onModelScaleChange={(scale) => {
-                  live2dViewerRef.current?.getManager?.()?.setModelScale(scale);
-                }}
-                onBackgroundChange={(backgroundConfig) => {
-                  const manager = live2dViewerRef.current?.getManager?.();
-                  if (!manager) {
-                    return;
-                  }
+              <Stack spacing={2}>
+                <StaticAvatarControls
+                  desktopMode={desktopMode}
+                  renderMode={effectiveAvatarMode}
+                  onRenderModeChange={onAvatarRenderModeChange}
+                  selectedPackId={selectedStaticAvatarId}
+                  onSelectedPackIdChange={onSelectedStaticAvatarChange}
+                  staticScale={staticAvatarScale}
+                  onStaticScaleChange={onStaticAvatarScaleChange}
+                  staticHitTest={staticAvatarHitTest}
+                  onStaticHitTestChange={onStaticAvatarHitTestChange}
+                  onPacksChange={onStaticAvatarPacksChange}
+                />
 
-                  if (!backgroundConfig.hasBackground) {
-                    manager.clearBackground();
-                    return;
-                  }
+                {effectiveAvatarMode === 'live2d' ? (
+                  <Live2DControls
+                    live2dViewerRef={live2dViewerRef}
+                    modelLoaded={modelLoaded}
+                    isPetMode={isPetMode}
+                    onModelChange={onModelChange}
+                    onMotionsUpdate={onMotionsUpdate}
+                    onExpressionsUpdate={onExpressionsUpdate}
+                    onAutoEyeBlinkChange={(enabled) => {
+                      live2dViewerRef.current?.getManager?.()?.setAutoEyeBlinkEnable(enabled);
+                    }}
+                    onAutoBreathChange={(enabled) => {
+                      live2dViewerRef.current?.getManager?.()?.setAutoBreathEnable(enabled);
+                    }}
+                    onEyeTrackingChange={(enabled) => {
+                      live2dViewerRef.current?.getManager?.()?.setEyeTracking(enabled);
+                    }}
+                    onModelScaleChange={(scale) => {
+                      live2dViewerRef.current?.getManager?.()?.setModelScale(scale);
+                    }}
+                    onBackgroundChange={(backgroundConfig) => {
+                      const manager = live2dViewerRef.current?.getManager?.();
+                      if (!manager) {
+                        return;
+                      }
 
-                  manager.setBackgroundOpacity(backgroundConfig.opacity ?? 1);
-                }}
-              />
+                      if (!backgroundConfig.hasBackground) {
+                        manager.clearBackground();
+                        return;
+                      }
+
+                      manager.setBackgroundOpacity(backgroundConfig.opacity ?? 1);
+                    }}
+                  />
+                ) : null}
+              </Stack>
             )}
 
             {activeConfigTab === 1 && (

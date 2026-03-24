@@ -17,6 +17,7 @@ const { registerConversationIpc } = require('./ipc/conversation');
 const { registerOfficeStateIpc } = require('./ipc/officeState');
 const { registerValueStateIpc } = require('./ipc/valueState');
 const { registerLive2DModelsIpc } = require('./ipc/live2dModels');
+const { registerStaticAvatarsIpc } = require('./ipc/staticAvatars');
 const { registerAppUpdaterIpc } = require('./ipc/appUpdater');
 const { registerNanobotSkillsIpc } = require('./ipc/nanobotSkills');
 const { registerNanobotRuntimeIpc } = require('./ipc/nanobotRuntime');
@@ -33,6 +34,7 @@ const { CodexBackendAdapter } = require('./services/chat/backends/codexBackend')
 const { NanobotRuntimeManager } = require('./services/chat/nanobot/nanobotRuntimeManager');
 const { NanobotSkillsLibrary } = require('./services/chat/nanobot/nanobotSkillsLibrary');
 const { Live2DModelLibrary, MODEL_PROTOCOL } = require('./services/live2dModelLibrary');
+const { StaticAvatarLibrary, AVATAR_PROTOCOL } = require('./services/staticAvatarLibrary');
 const { createOfficePresenceProducer } = require('./services/officePresenceProducer');
 const { PythonEnvManager } = require('./services/python/pythonEnvManager');
 const { PythonRuntimeManager } = require('./services/python/pythonRuntimeManager');
@@ -63,6 +65,16 @@ protocol.registerSchemesAsPrivileged([
       stream: true,
     },
   },
+  {
+    scheme: AVATAR_PROTOCOL,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
 ]);
 
 let mainWindow = null;
@@ -72,6 +84,7 @@ let disposeOfficeStateHandlers = null;
 let disposeValueStateHandlers = null;
 let disposeModeHandlers = null;
 let disposeLive2DModelsHandlers = null;
+let disposeStaticAvatarsHandlers = null;
 let disposeAppUpdaterHandlers = null;
 let disposeNanobotRuntimeHandlers = null;
 let disposeNanobotSkillsHandlers = null;
@@ -92,6 +105,7 @@ let settingsStore = null;
 let windowModeManager = null;
 let trayManager = null;
 let live2dModelLibrary = null;
+let staticAvatarLibrary = null;
 let screenshotCaptureService = null;
 let screenshotSelectionService = null;
 let pythonRuntimeManager = null;
@@ -784,6 +798,23 @@ function registerModelProtocol() {
   });
 }
 
+function registerAvatarProtocol() {
+  protocol.handle(AVATAR_PROTOCOL, async (request) => {
+    try {
+      const { buffer, mimeType } = await staticAvatarLibrary.readAssetFromProtocolUrl(request.url);
+      return new Response(buffer, {
+        status: 200,
+        headers: {
+          'content-type': mimeType,
+          'cache-control': 'no-store',
+        },
+      });
+    } catch (error) {
+      return new Response('Not Found', { status: 404 });
+    }
+  });
+}
+
 async function createMainWindow() {
   mainWindow = new BrowserWindow(createWindowOptions());
   windowModeManager.attachWindow(mainWindow);
@@ -842,6 +873,8 @@ async function bootstrap() {
   await settingsStore.init();
   live2dModelLibrary = new Live2DModelLibrary(app);
   await live2dModelLibrary.init();
+  staticAvatarLibrary = new StaticAvatarLibrary(app);
+  await staticAvatarLibrary.init();
   screenshotCaptureService = new ScreenshotCaptureService(app);
   await screenshotCaptureService.init();
   screenshotSelectionService = new ScreenshotSelectionService(app, {
@@ -918,6 +951,7 @@ async function bootstrap() {
     ],
   });
   registerModelProtocol();
+  registerAvatarProtocol();
   registerDisplayMediaHandler();
   registerMediaPermissionHandlers();
 
@@ -986,6 +1020,11 @@ async function bootstrap() {
     ipcMain,
     getWindow: () => mainWindow,
     modelLibrary: live2dModelLibrary,
+  });
+  disposeStaticAvatarsHandlers = registerStaticAvatarsIpc({
+    ipcMain,
+    getWindow: () => mainWindow,
+    avatarLibrary: staticAvatarLibrary,
   });
   disposeScreenshotCaptureHandlers = registerScreenshotCaptureIpc({
     ipcMain,
@@ -1626,6 +1665,9 @@ app.on('before-quit', () => {
   if (disposeLive2DModelsHandlers) {
     disposeLive2DModelsHandlers();
   }
+  if (disposeStaticAvatarsHandlers) {
+    disposeStaticAvatarsHandlers();
+  }
   if (disposeAppUpdaterHandlers) {
     disposeAppUpdaterHandlers();
   }
@@ -1685,6 +1727,7 @@ app.on('before-quit', () => {
   voiceModelLibrary = null;
   nanobotRuntimeManager = null;
   nanobotSkillsLibrary = null;
+  staticAvatarLibrary = null;
   screenshotCaptureService = null;
   screenshotSelectionService = null;
 
@@ -1705,6 +1748,11 @@ app.on('before-quit', () => {
   ipcMain.removeHandler('value-state:apply-interaction');
   try {
     protocol.unhandle(MODEL_PROTOCOL);
+  } catch {
+    // noop
+  }
+  try {
+    protocol.unhandle(AVATAR_PROTOCOL);
   } catch {
     // noop
   }

@@ -6,7 +6,7 @@ import { normalizeOfficeState, resolveOfficeSceneState } from '../src/components
 
 globalThis.React = React;
 
-vi.mock('../src/components/live2d/Live2DViewer.jsx', () => ({
+vi.mock('../src/components/avatar/AvatarRenderer.jsx', () => ({
   default: () => React.createElement('div', { 'data-testid': 'live2d-viewer-mock' }),
 }));
 

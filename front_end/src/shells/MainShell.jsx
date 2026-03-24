@@ -4,7 +4,7 @@ import TuneIcon from '@mui/icons-material/Tune';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import ChatIcon from '@mui/icons-material/Chat';
 import HomeRepairServiceRoundedIcon from '@mui/icons-material/HomeRepairServiceRounded';
-import Live2DViewer from '../components/live2d/Live2DViewer.jsx';
+import AvatarRenderer from '../components/avatar/AvatarRenderer.jsx';
 import SubtitleBar from '../components/subtitle/SubtitleBar.jsx';
 import WindowTitleBar from '../components/window/WindowTitleBar.jsx';
 import OfficeScene from '../components/office/OfficeScene.jsx';
@@ -23,6 +23,11 @@ export default function MainShell({
   desktopMode,
   platform,
   live2dViewerRef,
+  avatarRenderMode = 'live2d',
+  selectedStaticAvatar = null,
+  staticAvatarScale = 1,
+  staticAvatarHitTest = null,
+  avatarBusinessState = 'idle',
   currentModelPath,
   motions,
   expressions,
@@ -132,11 +137,16 @@ export default function MainShell({
 
       {!showOfficeView && !showOfficeEditView && !showImmersiveView ? (
         <Box className="live2d-hitbox">
-          <Live2DViewer
+          <AvatarRenderer
             ref={live2dViewerRef}
+            renderMode={avatarRenderMode}
             modelPath={currentModelPath}
             motions={motions}
             expressions={expressions}
+            staticPack={selectedStaticAvatar}
+            staticBusinessState={avatarBusinessState}
+            staticScale={staticAvatarScale}
+            staticHitTest={staticAvatarHitTest}
             width={400}
             height={600}
             onModelLoaded={onModelLoaded}
@@ -170,6 +180,11 @@ export default function MainShell({
           desktopMode={desktopMode}
           platform={platform}
           live2dViewerRef={live2dViewerRef}
+          avatarRenderMode={avatarRenderMode}
+          selectedStaticAvatar={selectedStaticAvatar}
+          staticAvatarScale={staticAvatarScale}
+          staticAvatarHitTest={staticAvatarHitTest}
+          avatarBusinessState={avatarBusinessState}
           currentModelPath={currentModelPath}
           motions={motions}
           expressions={expressions}

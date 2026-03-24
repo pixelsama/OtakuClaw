@@ -271,6 +271,18 @@ const live2dModels = {
   },
 };
 
+const staticAvatars = {
+  list() {
+    return ipcRenderer.invoke('static-avatars:list');
+  },
+  importZip() {
+    return ipcRenderer.invoke('static-avatars:import-zip');
+  },
+  remove(payload) {
+    return ipcRenderer.invoke('static-avatars:remove', payload);
+  },
+};
+
 const capture = {
   beginWindowCapture() {
     return ipcRenderer.invoke('capture:window:begin');
@@ -340,6 +352,7 @@ contextBridge.exposeInMainWorld('desktop', {
   windowControls,
   voice,
   live2dModels,
+  staticAvatars,
   voiceModels,
   capture,
   captureOverlay,

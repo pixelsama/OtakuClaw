@@ -8,7 +8,7 @@ import MicOffIcon from '@mui/icons-material/MicOff';
 import ContentCutIcon from '@mui/icons-material/ContentCut';
 import CloseIcon from '@mui/icons-material/Close';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
-import Live2DViewer from '../components/live2d/Live2DViewer.jsx';
+import AvatarRenderer from '../components/avatar/AvatarRenderer.jsx';
 import SubtitleBar from '../components/subtitle/SubtitleBar.jsx';
 import { usePetDraggable } from '../hooks/pet/usePetDraggable.js';
 import { useI18n } from '../i18n/I18nContext.jsx';
@@ -163,6 +163,11 @@ export default function PetShell({
   desktopMode,
   platform,
   live2dViewerRef,
+  avatarRenderMode = 'live2d',
+  selectedStaticAvatar = null,
+  staticAvatarScale = 1,
+  staticAvatarHitTest = null,
+  avatarBusinessState = 'idle',
   currentModelPath,
   motions,
   expressions,
@@ -406,11 +411,16 @@ export default function PetShell({
         {...dragBindings}
       >
         <div className="pet-render-shell">
-          <Live2DViewer
+          <AvatarRenderer
             ref={live2dViewerRef}
+            renderMode={avatarRenderMode}
             modelPath={currentModelPath}
             motions={motions}
             expressions={expressions}
+            staticPack={selectedStaticAvatar}
+            staticBusinessState={avatarBusinessState}
+            staticScale={staticAvatarScale}
+            staticHitTest={staticAvatarHitTest}
             width={400}
             height={600}
             onModelLoaded={handlePetModelLoaded}

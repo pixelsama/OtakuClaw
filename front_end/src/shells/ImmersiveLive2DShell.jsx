@@ -4,7 +4,7 @@ import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded';
 import ChatBubbleOutlineRoundedIcon from '@mui/icons-material/ChatBubbleOutlineRounded';
 import RestaurantOutlinedIcon from '@mui/icons-material/RestaurantOutlined';
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
-import Live2DViewer from '../components/live2d/Live2DViewer.jsx';
+import AvatarRenderer from '../components/avatar/AvatarRenderer.jsx';
 import { resolveOfficeSceneAsset } from '../components/office/officeSceneAssets.js';
 import './ImmersiveLive2DShell.css';
 
@@ -200,6 +200,11 @@ export default function ImmersiveLive2DShell({
   desktopMode = false,
   platform = '',
   live2dViewerRef = null,
+  avatarRenderMode = 'live2d',
+  selectedStaticAvatar = null,
+  staticAvatarScale = 1,
+  staticAvatarHitTest = null,
+  avatarBusinessState = 'idle',
   currentModelPath = '',
   motions = [],
   expressions = [],
@@ -279,11 +284,16 @@ export default function ImmersiveLive2DShell({
         <div className="immersive-live2d-shell__content">
           <div className="immersive-live2d-shell__stage">
             <div className="immersive-live2d-shell__viewer-shell">
-              <Live2DViewer
+              <AvatarRenderer
                 ref={live2dViewerRef}
+                renderMode={avatarRenderMode}
                 modelPath={currentModelPath}
                 motions={motions}
                 expressions={expressions}
+                staticPack={selectedStaticAvatar}
+                staticBusinessState={avatarBusinessState}
+                staticScale={staticAvatarScale}
+                staticHitTest={staticAvatarHitTest}
                 width={560}
                 height={760}
                 onModelLoaded={onModelLoaded}

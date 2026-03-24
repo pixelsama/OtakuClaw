@@ -42,6 +42,56 @@ import { normalizeErrorMessage } from './utils/normalizeErrorMessage.js';
 
 const DEFAULT_MODEL = '';
 const CONFIG_DRAWER_WIDTH = 420;
+const DEFAULT_AVATAR_SETTINGS = {
+  renderMode: 'live2d',
+  live2d: {
+    selectedModelPath: '',
+  },
+  static: {
+    selectedPackId: '',
+    scale: 1,
+    hitTest: {
+      mode: 'alpha',
+      alphaThreshold: 10,
+    },
+  },
+};
+
+function normalizeAvatarRenderMode(value) {
+  return typeof value === 'string' && value.trim().toLowerCase() === 'static' ? 'static' : 'live2d';
+}
+
+function normalizeAvatarSettings(source = {}) {
+  const avatar = source && typeof source === 'object' ? source : {};
+  const live2d = avatar.live2d && typeof avatar.live2d === 'object' ? avatar.live2d : {};
+  const staticAvatar = avatar.static && typeof avatar.static === 'object' ? avatar.static : {};
+  const hitTest = staticAvatar.hitTest && typeof staticAvatar.hitTest === 'object' ? staticAvatar.hitTest : {};
+
+  return {
+    renderMode: normalizeAvatarRenderMode(avatar.renderMode),
+    live2d: {
+      selectedModelPath:
+        typeof live2d.selectedModelPath === 'string'
+          ? live2d.selectedModelPath.trim()
+          : DEFAULT_AVATAR_SETTINGS.live2d.selectedModelPath,
+    },
+    static: {
+      selectedPackId:
+        typeof staticAvatar.selectedPackId === 'string'
+          ? staticAvatar.selectedPackId.trim()
+          : DEFAULT_AVATAR_SETTINGS.static.selectedPackId,
+      scale: Number.isFinite(staticAvatar.scale)
+        ? Math.max(0.1, Math.min(3, staticAvatar.scale))
+        : DEFAULT_AVATAR_SETTINGS.static.scale,
+      hitTest: {
+        mode: hitTest.mode === 'rect' ? 'rect' : 'alpha',
+        alphaThreshold: Number.isFinite(hitTest.alphaThreshold)
+          ? Math.max(0, Math.min(255, hitTest.alphaThreshold))
+          : DEFAULT_AVATAR_SETTINGS.static.hitTest.alphaThreshold,
+      },
+    },
+  };
+}
 
 function AppContent({ desktopMode }) {
   const live2dViewerRef = useRef(null);
@@ -52,6 +102,11 @@ function AppContent({ desktopMode }) {
 
   const [modelLoaded, setModelLoaded] = useState(false);
   const [currentModelPath, setCurrentModelPath] = useState(DEFAULT_MODEL);
+  const [avatarRenderMode, setAvatarRenderMode] = useState(DEFAULT_AVATAR_SETTINGS.renderMode);
+  const [staticAvatarPacks, setStaticAvatarPacks] = useState([]);
+  const [selectedStaticAvatarId, setSelectedStaticAvatarId] = useState('');
+  const [staticAvatarScale, setStaticAvatarScale] = useState(DEFAULT_AVATAR_SETTINGS.static.scale);
+  const [staticAvatarHitTest, setStaticAvatarHitTest] = useState(DEFAULT_AVATAR_SETTINGS.static.hitTest);
   const [motions, setMotions] = useState([]);
   const [expressions, setExpressions] = useState([]);
   const [officeStateSnapshot, setOfficeStateSnapshot] = useState(() => normalizeOfficeState());
@@ -65,6 +120,7 @@ function AppContent({ desktopMode }) {
   const [firstRunOnboardingOpen, setFirstRunOnboardingOpen] = useState(false);
   const [officeLayoutLoaded, setOfficeLayoutLoaded] = useState(!desktopMode);
   const savedOfficeLayoutSnapshotRef = useRef(JSON.stringify(normalizeOfficeSceneLayout()));
+  const savedAvatarSettingsSnapshotRef = useRef(JSON.stringify(normalizeAvatarSettings(DEFAULT_AVATAR_SETTINGS)));
   const platform = usePlatformInfo({ desktopMode });
 
   // Chat history — persists to localStorage
@@ -435,6 +491,131 @@ function AppContent({ desktopMode }) {
     let cancelled = false;
 
     if (!desktopMode) {
+      const normalizedDefaults = normalizeAvatarSettings(DEFAULT_AVATAR_SETTINGS);
+      setAvatarRenderMode(normalizedDefaults.renderMode);
+      setCurrentModelPath(normalizedDefaults.live2d.selectedModelPath);
+      setStaticAvatarPacks([]);
+      setSelectedStaticAvatarId(normalizedDefaults.static.selectedPackId);
+      setStaticAvatarScale(normalizedDefaults.static.scale);
+      setStaticAvatarHitTest(normalizedDefaults.static.hitTest);
+      savedAvatarSettingsSnapshotRef.current = JSON.stringify(normalizedDefaults);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const loadAvatarSettings = async () => {
+      try {
+        const [settings, packResult] = await Promise.all([
+          desktopBridge.settings.get(),
+          desktopBridge.staticAvatars.list().catch(() => ({ ok: false, packs: [] })),
+        ]);
+        if (cancelled) {
+          return;
+        }
+
+        const normalizedAvatar = normalizeAvatarSettings(settings?.ui?.avatar || {});
+        const packs = Array.isArray(packResult?.packs) ? packResult.packs : [];
+        const selectedPackId = packs.some((item) => item.packId === normalizedAvatar.static.selectedPackId)
+          ? normalizedAvatar.static.selectedPackId
+          : packs[0]?.packId || '';
+
+        setAvatarRenderMode(normalizedAvatar.renderMode);
+        setCurrentModelPath(normalizedAvatar.live2d.selectedModelPath || '');
+        setStaticAvatarPacks(packs);
+        setSelectedStaticAvatarId(selectedPackId);
+        setStaticAvatarScale(normalizedAvatar.static.scale);
+        setStaticAvatarHitTest(normalizedAvatar.static.hitTest);
+
+        savedAvatarSettingsSnapshotRef.current = JSON.stringify({
+          ...normalizedAvatar,
+          static: {
+            ...normalizedAvatar.static,
+            selectedPackId,
+          },
+        });
+      } catch (error) {
+        console.warn('Failed to load avatar settings:', error);
+      }
+    };
+
+    void loadAvatarSettings();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [desktopMode]);
+
+  useEffect(() => {
+    if (!desktopMode) {
+      return () => {};
+    }
+
+    const snapshot = JSON.stringify(normalizeAvatarSettings({
+      renderMode: avatarRenderMode,
+      live2d: {
+        selectedModelPath: currentModelPath,
+      },
+      static: {
+        selectedPackId: selectedStaticAvatarId,
+        scale: staticAvatarScale,
+        hitTest: staticAvatarHitTest,
+      },
+    }));
+    if (snapshot === savedAvatarSettingsSnapshotRef.current) {
+      return () => {};
+    }
+
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const saved = await desktopBridge.settings.save({
+            ui: {
+              avatar: {
+                renderMode: avatarRenderMode,
+                live2d: {
+                  selectedModelPath: currentModelPath,
+                },
+                static: {
+                  selectedPackId: selectedStaticAvatarId,
+                  scale: staticAvatarScale,
+                  hitTest: staticAvatarHitTest,
+                },
+              },
+            },
+          });
+          const normalizedSaved = normalizeAvatarSettings(saved?.ui?.avatar || {});
+          setAvatarRenderMode(normalizedSaved.renderMode);
+          setCurrentModelPath(normalizedSaved.live2d.selectedModelPath || '');
+          setStaticAvatarScale(normalizedSaved.static.scale);
+          setStaticAvatarHitTest(normalizedSaved.static.hitTest);
+          setSelectedStaticAvatarId((current) => {
+            const nextId = normalizedSaved.static.selectedPackId;
+            return nextId || current;
+          });
+          savedAvatarSettingsSnapshotRef.current = JSON.stringify(normalizedSaved);
+        } catch (error) {
+          console.warn('Failed to persist avatar settings:', error);
+        }
+      })();
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    avatarRenderMode,
+    currentModelPath,
+    desktopMode,
+    selectedStaticAvatarId,
+    staticAvatarHitTest,
+    staticAvatarScale,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!desktopMode) {
       setFirstRunOnboardingOpen(false);
       return () => {
         cancelled = true;
@@ -661,8 +842,10 @@ function AppContent({ desktopMode }) {
 
   const handleModelLoaded = useCallback(() => {
     setModelLoaded(true);
-    live2dViewerRef.current?.initAudioContext?.();
-  }, []);
+    if (avatarRenderMode === 'live2d') {
+      live2dViewerRef.current?.initAudioContext?.();
+    }
+  }, [avatarRenderMode]);
 
   const handleModelError = useCallback((error) => {
     setModelLoaded(false);
@@ -717,6 +900,21 @@ function AppContent({ desktopMode }) {
       subtitleText,
     ],
   );
+
+  const selectedStaticAvatar = useMemo(
+    () => staticAvatarPacks.find((pack) => pack.packId === selectedStaticAvatarId) || null,
+    [selectedStaticAvatarId, staticAvatarPacks],
+  );
+
+  const avatarBusinessState = useMemo(() => {
+    if (typeof officeActivityHint?.businessState === 'string' && officeActivityHint.businessState.trim()) {
+      return officeActivityHint.businessState.trim();
+    }
+    if (typeof primaryOfficeAgent?.businessState === 'string' && primaryOfficeAgent.businessState.trim()) {
+      return primaryOfficeAgent.businessState.trim();
+    }
+    return 'idle';
+  }, [officeActivityHint?.businessState, primaryOfficeAgent?.businessState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1259,6 +1457,48 @@ function AppContent({ desktopMode }) {
     setModelLoaded(false);
   }, []);
 
+  const handleAvatarRenderModeChange = useCallback((nextMode) => {
+    setAvatarRenderMode(normalizeAvatarRenderMode(nextMode));
+    setModelLoaded(false);
+  }, []);
+
+  const handleSelectedStaticAvatarChange = useCallback((nextPackId) => {
+    setSelectedStaticAvatarId(typeof nextPackId === 'string' ? nextPackId : '');
+    setModelLoaded(false);
+  }, []);
+
+  const handleStaticAvatarScaleChange = useCallback((nextScale) => {
+    setStaticAvatarScale(Math.max(0.1, Math.min(3, Number(nextScale) || 1)));
+  }, []);
+
+  const handleStaticAvatarHitTestChange = useCallback((patch = {}) => {
+    setStaticAvatarHitTest((current) => ({
+      mode: patch.mode === 'rect' ? 'rect' : (current?.mode === 'rect' ? 'rect' : 'alpha'),
+      alphaThreshold: Number.isFinite(patch.alphaThreshold)
+        ? Math.max(0, Math.min(255, Number(patch.alphaThreshold)))
+        : Number.isFinite(current?.alphaThreshold)
+          ? Math.max(0, Math.min(255, Number(current.alphaThreshold)))
+          : 10,
+    }));
+  }, []);
+
+  const handleStaticAvatarPacksChange = useCallback((nextPacks = []) => {
+    const normalizedPacks = Array.isArray(nextPacks) ? nextPacks : [];
+    setStaticAvatarPacks(normalizedPacks);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedStaticAvatarId && staticAvatarPacks.length === 0) {
+      return;
+    }
+
+    if (staticAvatarPacks.some((item) => item.packId === selectedStaticAvatarId)) {
+      return;
+    }
+
+    setSelectedStaticAvatarId(staticAvatarPacks[0]?.packId || '');
+  }, [selectedStaticAvatarId, staticAvatarPacks]);
+
   useEffect(() => {
     setModelLoaded(false);
   }, [isPetMode]);
@@ -1276,6 +1516,11 @@ function AppContent({ desktopMode }) {
           desktopMode={desktopMode}
           platform={platform}
           live2dViewerRef={live2dViewerRef}
+          avatarRenderMode={avatarRenderMode}
+          selectedStaticAvatar={selectedStaticAvatar}
+          staticAvatarScale={staticAvatarScale}
+          staticAvatarHitTest={staticAvatarHitTest}
+          avatarBusinessState={avatarBusinessState}
           currentModelPath={currentModelPath}
           motions={motions}
           expressions={expressions}
@@ -1303,6 +1548,11 @@ function AppContent({ desktopMode }) {
           platform={platform}
           isNarrowViewport={isNarrowViewport}
           live2dViewerRef={live2dViewerRef}
+          avatarRenderMode={avatarRenderMode}
+          selectedStaticAvatar={selectedStaticAvatar}
+          staticAvatarScale={staticAvatarScale}
+          staticAvatarHitTest={staticAvatarHitTest}
+          avatarBusinessState={avatarBusinessState}
           currentModelPath={currentModelPath}
           motions={motions}
           expressions={expressions}
@@ -1337,6 +1587,15 @@ function AppContent({ desktopMode }) {
         modelLoaded={modelLoaded}
         desktopMode={desktopMode}
         live2dViewerRef={live2dViewerRef}
+        avatarRenderMode={avatarRenderMode}
+        selectedStaticAvatarId={selectedStaticAvatarId}
+        staticAvatarScale={staticAvatarScale}
+        staticAvatarHitTest={staticAvatarHitTest}
+        onAvatarRenderModeChange={handleAvatarRenderModeChange}
+        onSelectedStaticAvatarChange={handleSelectedStaticAvatarChange}
+        onStaticAvatarScaleChange={handleStaticAvatarScaleChange}
+        onStaticAvatarHitTestChange={handleStaticAvatarHitTestChange}
+        onStaticAvatarPacksChange={handleStaticAvatarPacksChange}
         onModelChange={handleControlModelChange}
         onMotionsUpdate={setMotions}
         onExpressionsUpdate={setExpressions}
