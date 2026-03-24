@@ -41,6 +41,52 @@ test('conversation runtime latest-wins aborts previous active stream in same ses
   assert.equal(startedRequests.length, 2);
 });
 
+test('conversation runtime latest-wins aborts previous active stream across backend switches', async () => {
+  const startedRequests = [];
+  const aborted = [];
+  let streamSeq = 0;
+  const runtime = createConversationRuntime({
+    startChatStream: async (request = {}) => {
+      streamSeq += 1;
+      startedRequests.push(request);
+      return {
+        ok: true,
+        streamId: `stream-${streamSeq}`,
+        backend: request.backend,
+      };
+    },
+    abortChatStream: async ({ streamId }) => {
+      aborted.push(streamId);
+      return { ok: true };
+    },
+    emitConversationEvent: () => {},
+  });
+
+  const first = await runtime.submitUserText({
+    sessionId: 's-cross',
+    agentId: 'main',
+    backend: 'nanobot',
+    content: 'long request',
+    policy: 'latest-wins',
+  });
+  assert.equal(first.ok, true);
+  assert.equal(first.streamId, 'stream-1');
+
+  const second = await runtime.submitUserText({
+    sessionId: 's-cross',
+    agentId: 'main',
+    backend: 'codex',
+    content: 'short request',
+    policy: 'latest-wins',
+  });
+  assert.equal(second.ok, true);
+  assert.equal(second.streamId, 'stream-2');
+
+  assert.equal(startedRequests.length, 2);
+  assert.notEqual(startedRequests[0].routeKey, startedRequests[1].routeKey);
+  assert.deepEqual(aborted, ['stream-1']);
+});
+
 test('conversation runtime queue policy starts next request after terminal event', async () => {
   const started = [];
   let streamSeq = 0;
