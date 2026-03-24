@@ -12,13 +12,15 @@
     "desktop:dev": "concurrently -k \"pnpm run desktop:dev:renderer\" \"pnpm run desktop:dev:electron\"",
     "desktop:build": "pnpm run frontend:build && electron-builder",
     "test:frontend": "pnpm --dir front_end exec vitest --run",
-    "test:desktop": "node --test desktop/electron/tests/*.test.js"
+    "test:desktop": "node --test desktop/electron/tests/*.test.js",
+    "test:e2e:electron:mode-handshake": "node desktop/electron/scripts/playwrightModeHandshakeSmoke.js"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
     "cross-env": "^7.0.3",
     "electron": "^36.2.1",
-    "electron-builder": "^26.0.12"
+    "electron-builder": "^26.0.12",
+    "playwright": "^1.58.2"
   },
   "optionalDependencies": {
     "keytar": "^7.9.0",
