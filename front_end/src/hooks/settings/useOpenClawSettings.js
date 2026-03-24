@@ -26,6 +26,20 @@ function normalizePermissionMode(value, fallback = 'deny') {
   return fallback;
 }
 
+function normalizeAcpTransport(value, fallback = 'stdio') {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (normalized === 'stdio') {
+    return normalized;
+  }
+  if (normalized === 'http') {
+    return normalized;
+  }
+  if (normalized === 'websocket' || normalized === 'ws') {
+    return 'websocket';
+  }
+  return fallback;
+}
+
 function normalizeRunnerArgs(value) {
   if (Array.isArray(value)) {
     return value
@@ -52,6 +66,17 @@ function normalizeRunnerEnv(value) {
   );
 }
 
+function normalizeRunnerHeaders(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, item]) => [String(key || '').trim(), typeof item === 'string' ? item.trim() : ''])
+      .filter(([key]) => Boolean(key)),
+  );
+}
+
 function normalizeAcpBackendForState(settings = {}, fallbackCommand = '') {
   const source = settings && typeof settings === 'object' ? settings : {};
   const runner = source.runner && typeof source.runner === 'object' ? source.runner : {};
@@ -62,10 +87,14 @@ function normalizeAcpBackendForState(settings = {}, fallbackCommand = '') {
     permissionMode: normalizePermissionMode(source.permissionMode, 'deny'),
     runner: {
       protocol: 'acp',
-      transport: 'stdio',
+      transport: normalizeAcpTransport(runner.transport, 'stdio'),
       command: typeof runner.command === 'string' && runner.command.trim() ? runner.command.trim() : fallbackCommand,
       args: normalizeRunnerArgs(runner.args),
       cwd: typeof runner.cwd === 'string' ? runner.cwd.trim() : '',
+      endpoint: typeof runner.endpoint === 'string' ? runner.endpoint.trim() : '',
+      url: typeof runner.url === 'string' ? runner.url.trim() : '',
+      permissionEndpoint: typeof runner.permissionEndpoint === 'string' ? runner.permissionEndpoint.trim() : '',
+      headers: normalizeRunnerHeaders(runner.headers),
       env: normalizeRunnerEnv(runner.env),
     },
   };
@@ -159,9 +188,14 @@ function buildComparableSettingsSnapshot(settings = {}) {
       askTimeoutMs: Number.isFinite(normalized.claudeCode?.askTimeoutMs) ? normalized.claudeCode.askTimeoutMs : 8000,
       permissionMode: normalizePermissionMode(normalized.claudeCode?.permissionMode, 'deny'),
       runner: {
+        transport: normalizeAcpTransport(normalized.claudeCode?.runner?.transport, 'stdio'),
         command: normalized.claudeCode?.runner?.command || '',
         args: normalizeRunnerArgs(normalized.claudeCode?.runner?.args),
         cwd: normalized.claudeCode?.runner?.cwd || '',
+        endpoint: normalized.claudeCode?.runner?.endpoint || '',
+        url: normalized.claudeCode?.runner?.url || '',
+        permissionEndpoint: normalized.claudeCode?.runner?.permissionEndpoint || '',
+        headers: normalizeRunnerHeaders(normalized.claudeCode?.runner?.headers),
       },
     },
     codex: {
@@ -170,9 +204,14 @@ function buildComparableSettingsSnapshot(settings = {}) {
       askTimeoutMs: Number.isFinite(normalized.codex?.askTimeoutMs) ? normalized.codex.askTimeoutMs : 8000,
       permissionMode: normalizePermissionMode(normalized.codex?.permissionMode, 'deny'),
       runner: {
+        transport: normalizeAcpTransport(normalized.codex?.runner?.transport, 'stdio'),
         command: normalized.codex?.runner?.command || '',
         args: normalizeRunnerArgs(normalized.codex?.runner?.args),
         cwd: normalized.codex?.runner?.cwd || '',
+        endpoint: normalized.codex?.runner?.endpoint || '',
+        url: normalized.codex?.runner?.url || '',
+        permissionEndpoint: normalized.codex?.runner?.permissionEndpoint || '',
+        headers: normalizeRunnerHeaders(normalized.codex?.runner?.headers),
       },
     },
   };
@@ -242,12 +281,20 @@ export function buildChatBackendSettingsPayload(settings) {
       askTimeoutMs: Number.isFinite(claudeCodeSource?.askTimeoutMs) ? claudeCodeSource.askTimeoutMs : 8000,
       permissionMode: normalizePermissionMode(claudeCodeSource?.permissionMode, 'deny'),
       runner: {
+        transport: normalizeAcpTransport(claudeCodeSource?.runner?.transport, 'stdio'),
         command:
           typeof claudeCodeSource?.runner?.command === 'string' && claudeCodeSource.runner.command.trim()
             ? claudeCodeSource.runner.command.trim()
             : 'claude-agent-acp',
         args: normalizeRunnerArgs(claudeCodeSource?.runner?.args),
         cwd: typeof claudeCodeSource?.runner?.cwd === 'string' ? claudeCodeSource.runner.cwd.trim() : '',
+        endpoint: typeof claudeCodeSource?.runner?.endpoint === 'string' ? claudeCodeSource.runner.endpoint.trim() : '',
+        url: typeof claudeCodeSource?.runner?.url === 'string' ? claudeCodeSource.runner.url.trim() : '',
+        permissionEndpoint:
+          typeof claudeCodeSource?.runner?.permissionEndpoint === 'string'
+            ? claudeCodeSource.runner.permissionEndpoint.trim()
+            : '',
+        headers: normalizeRunnerHeaders(claudeCodeSource?.runner?.headers),
         env: normalizeRunnerEnv(claudeCodeSource?.runner?.env),
       },
     },
@@ -257,12 +304,20 @@ export function buildChatBackendSettingsPayload(settings) {
       askTimeoutMs: Number.isFinite(codexSource?.askTimeoutMs) ? codexSource.askTimeoutMs : 8000,
       permissionMode: normalizePermissionMode(codexSource?.permissionMode, 'deny'),
       runner: {
+        transport: normalizeAcpTransport(codexSource?.runner?.transport, 'stdio'),
         command:
           typeof codexSource?.runner?.command === 'string' && codexSource.runner.command.trim()
             ? codexSource.runner.command.trim()
             : 'codex-acp',
         args: normalizeRunnerArgs(codexSource?.runner?.args),
         cwd: typeof codexSource?.runner?.cwd === 'string' ? codexSource.runner.cwd.trim() : '',
+        endpoint: typeof codexSource?.runner?.endpoint === 'string' ? codexSource.runner.endpoint.trim() : '',
+        url: typeof codexSource?.runner?.url === 'string' ? codexSource.runner.url.trim() : '',
+        permissionEndpoint:
+          typeof codexSource?.runner?.permissionEndpoint === 'string'
+            ? codexSource.runner.permissionEndpoint.trim()
+            : '',
+        headers: normalizeRunnerHeaders(codexSource?.runner?.headers),
         env: normalizeRunnerEnv(codexSource?.runner?.env),
       },
     },

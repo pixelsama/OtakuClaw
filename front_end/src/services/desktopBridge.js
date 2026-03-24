@@ -366,6 +366,20 @@ function normalizeRunnerArgs(value) {
   return [];
 }
 
+function normalizeAcpTransport(value, fallback = 'stdio') {
+  const normalized = normalizeText(value).toLowerCase();
+  if (normalized === 'stdio') {
+    return normalized;
+  }
+  if (normalized === 'http') {
+    return normalized;
+  }
+  if (normalized === 'websocket' || normalized === 'ws') {
+    return 'websocket';
+  }
+  return fallback;
+}
+
 function normalizePermissionMode(value, fallback = 'deny') {
   const normalized = normalizeText(value).toLowerCase();
   if (normalized === 'allow' || normalized === 'ask' || normalized === 'deny') {
@@ -375,6 +389,17 @@ function normalizePermissionMode(value, fallback = 'deny') {
 }
 
 function normalizeRunnerEnv(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, item]) => [normalizeText(key), normalizeText(item)])
+      .filter(([key]) => Boolean(key)),
+  );
+}
+
+function normalizeRunnerHeaders(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
   }
@@ -395,10 +420,14 @@ function normalizeAcpBackendResponse(settings = {}, fallbackCommand = '') {
     permissionMode: normalizePermissionMode(source.permissionMode, 'deny'),
     runner: {
       protocol: 'acp',
-      transport: 'stdio',
+      transport: normalizeAcpTransport(runner.transport, 'stdio'),
       command: normalizeText(runner.command, fallbackCommand),
       args: normalizeRunnerArgs(runner.args),
       cwd: normalizeText(runner.cwd),
+      endpoint: normalizeText(runner.endpoint),
+      url: normalizeText(runner.url),
+      permissionEndpoint: normalizeText(runner.permissionEndpoint),
+      headers: normalizeRunnerHeaders(runner.headers),
       env: normalizeRunnerEnv(runner.env),
     },
   };
@@ -682,11 +711,26 @@ function normalizeSettingsPatch(settings = {}) {
                                 ...(Object.prototype.hasOwnProperty.call(settings.claudeCode.runner, 'command')
                                   ? { command: normalizeText(settings.claudeCode.runner.command) }
                                   : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.claudeCode.runner, 'transport')
+                                  ? { transport: normalizeAcpTransport(settings.claudeCode.runner.transport, 'stdio') }
+                                  : {}),
                                 ...(Object.prototype.hasOwnProperty.call(settings.claudeCode.runner, 'args')
                                   ? { args: normalizeRunnerArgs(settings.claudeCode.runner.args) }
                                   : {}),
                                 ...(Object.prototype.hasOwnProperty.call(settings.claudeCode.runner, 'cwd')
                                   ? { cwd: normalizeText(settings.claudeCode.runner.cwd) }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.claudeCode.runner, 'endpoint')
+                                  ? { endpoint: normalizeText(settings.claudeCode.runner.endpoint) }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.claudeCode.runner, 'url')
+                                  ? { url: normalizeText(settings.claudeCode.runner.url) }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.claudeCode.runner, 'permissionEndpoint')
+                                  ? { permissionEndpoint: normalizeText(settings.claudeCode.runner.permissionEndpoint) }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.claudeCode.runner, 'headers')
+                                  ? { headers: normalizeRunnerHeaders(settings.claudeCode.runner.headers) }
                                   : {}),
                                 ...(Object.prototype.hasOwnProperty.call(settings.claudeCode.runner, 'env')
                                   ? { env: normalizeRunnerEnv(settings.claudeCode.runner.env) }
@@ -725,11 +769,26 @@ function normalizeSettingsPatch(settings = {}) {
                                 ...(Object.prototype.hasOwnProperty.call(settings.codex.runner, 'command')
                                   ? { command: normalizeText(settings.codex.runner.command) }
                                   : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.codex.runner, 'transport')
+                                  ? { transport: normalizeAcpTransport(settings.codex.runner.transport, 'stdio') }
+                                  : {}),
                                 ...(Object.prototype.hasOwnProperty.call(settings.codex.runner, 'args')
                                   ? { args: normalizeRunnerArgs(settings.codex.runner.args) }
                                   : {}),
                                 ...(Object.prototype.hasOwnProperty.call(settings.codex.runner, 'cwd')
                                   ? { cwd: normalizeText(settings.codex.runner.cwd) }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.codex.runner, 'endpoint')
+                                  ? { endpoint: normalizeText(settings.codex.runner.endpoint) }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.codex.runner, 'url')
+                                  ? { url: normalizeText(settings.codex.runner.url) }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.codex.runner, 'permissionEndpoint')
+                                  ? { permissionEndpoint: normalizeText(settings.codex.runner.permissionEndpoint) }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.codex.runner, 'headers')
+                                  ? { headers: normalizeRunnerHeaders(settings.codex.runner.headers) }
                                   : {}),
                                 ...(Object.prototype.hasOwnProperty.call(settings.codex.runner, 'env')
                                   ? { env: normalizeRunnerEnv(settings.codex.runner.env) }
@@ -1048,10 +1107,14 @@ function saveWebSettings(partialSettings = {}) {
           permissionMode: normalizePermissionMode(merged.claudeCode?.permissionMode, 'deny'),
           runner: {
             protocol: 'acp',
-            transport: 'stdio',
+            transport: normalizeAcpTransport(merged.claudeCode?.runner?.transport, 'stdio'),
             command: normalizeText(merged.claudeCode?.runner?.command, 'claude-agent-acp'),
             args: normalizeRunnerArgs(merged.claudeCode?.runner?.args),
             cwd: normalizeText(merged.claudeCode?.runner?.cwd),
+            endpoint: normalizeText(merged.claudeCode?.runner?.endpoint),
+            url: normalizeText(merged.claudeCode?.runner?.url),
+            permissionEndpoint: normalizeText(merged.claudeCode?.runner?.permissionEndpoint),
+            headers: normalizeRunnerHeaders(merged.claudeCode?.runner?.headers),
             env: normalizeRunnerEnv(merged.claudeCode?.runner?.env),
           },
         },
@@ -1062,10 +1125,14 @@ function saveWebSettings(partialSettings = {}) {
           permissionMode: normalizePermissionMode(merged.codex?.permissionMode, 'deny'),
           runner: {
             protocol: 'acp',
-            transport: 'stdio',
+            transport: normalizeAcpTransport(merged.codex?.runner?.transport, 'stdio'),
             command: normalizeText(merged.codex?.runner?.command, 'codex-acp'),
             args: normalizeRunnerArgs(merged.codex?.runner?.args),
             cwd: normalizeText(merged.codex?.runner?.cwd),
+            endpoint: normalizeText(merged.codex?.runner?.endpoint),
+            url: normalizeText(merged.codex?.runner?.url),
+            permissionEndpoint: normalizeText(merged.codex?.runner?.permissionEndpoint),
+            headers: normalizeRunnerHeaders(merged.codex?.runner?.headers),
             env: normalizeRunnerEnv(merged.codex?.runner?.env),
           },
         },

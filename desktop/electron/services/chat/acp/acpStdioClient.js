@@ -147,13 +147,17 @@ async function runAcpStdioStream({
 
   await new Promise((resolve, reject) => {
     const turnId = randomUUID();
+    const startedAt = Date.now();
     let child;
     let settled = false;
     let terminalSeen = false;
     let aborted = false;
+    let timedOut = false;
     let timeoutId = null;
     let askTimerByRequestId = new Map();
     let stderrLines = [];
+    let permissionRequests = 0;
+    let permissionDeniedCount = 0;
 
     const settle = () => {
       if (settled) {
@@ -177,6 +181,24 @@ async function runAcpStdioStream({
       if (stderrRl) {
         stderrRl.close();
       }
+
+      debugLogger(
+        emitDebugLog,
+        'stream-summary',
+        'Completed ACP stdio stream session.',
+        {
+          backend,
+          transport: 'stdio',
+          command,
+          args,
+          latencyMs: Date.now() - startedAt,
+          timedOut,
+          aborted,
+          terminalSeen,
+          permissionRequests,
+          permissionDeniedCount,
+        },
+      );
 
       resolve();
     };
@@ -241,6 +263,7 @@ async function runAcpStdioStream({
     };
 
     const onPermissionRequest = (event = {}) => {
+      permissionRequests += 1;
       const request = extractPermissionRequest(event);
       const requestId = normalizeText(request.requestId);
       if (!requestId) {
@@ -267,6 +290,10 @@ async function runAcpStdioStream({
             reason: decisionPayload.reason,
           },
         );
+
+        if (decisionPayload.decision !== 'allow') {
+          permissionDeniedCount += 1;
+        }
 
         writeJsonLine(child.stdin, {
           protocolVersion: 'acp.v1',
@@ -312,6 +339,7 @@ async function runAcpStdioStream({
     }
 
     timeoutId = setTimeout(() => {
+      timedOut = true;
       debugLogger(emitDebugLog, 'stream-timeout', 'ACP stream timed out.', {
         backend,
         timeoutMs,

@@ -28,6 +28,12 @@ function normalizeAcpTransport(value, fallback = 'stdio') {
   if (normalized === 'stdio') {
     return normalized;
   }
+  if (normalized === 'http') {
+    return normalized;
+  }
+  if (normalized === 'websocket' || normalized === 'ws') {
+    return 'websocket';
+  }
   return fallback;
 }
 
@@ -67,6 +73,17 @@ function normalizeRunnerEnv(value) {
   return Object.fromEntries(entries);
 }
 
+function normalizeRunnerHeaders(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const entries = Object.entries(value)
+    .map(([key, item]) => [normalizeText(key), normalizeText(item)])
+    .filter(([key]) => Boolean(key));
+  return Object.fromEntries(entries);
+}
+
 function normalizeAcpRunner(runner = {}, defaults = {}) {
   const source = runner && typeof runner === 'object' ? runner : {};
   const fallback = defaults && typeof defaults === 'object' ? defaults : {};
@@ -82,6 +99,13 @@ function normalizeAcpRunner(runner = {}, defaults = {}) {
     ),
     cwd: normalizeText(source.cwd, normalizeText(fallback.cwd, '')),
     env: normalizeRunnerEnv(source.env),
+    endpoint: normalizeText(source.endpoint, normalizeText(fallback.endpoint, '')),
+    url: normalizeText(source.url, normalizeText(fallback.url, '')),
+    permissionEndpoint: normalizeText(
+      source.permissionEndpoint,
+      normalizeText(fallback.permissionEndpoint, ''),
+    ),
+    headers: normalizeRunnerHeaders(source.headers),
   };
 }
 

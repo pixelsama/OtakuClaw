@@ -1421,33 +1421,83 @@ export default function FirstRunOnboardingDialog({
       {selectedBackend !== 'nanobot' ? (
         <Stack spacing={1}>
           <TextField
-            label={t('app.acpRunnerCommand')}
-            value={activeAcpRunner.command || ''}
+            select
+            label={t('app.acpRunnerTransport')}
+            value={activeAcpRunner.transport || 'stdio'}
             onChange={(event) =>
-              onAcpBackendSettingChange?.(selectedBackend, 'runner.command', event.target.value)}
-            placeholder={selectedBackend === 'codex' ? 'codex-acp' : 'claude-agent-acp'}
+              onAcpBackendSettingChange?.(selectedBackend, 'runner.transport', event.target.value)}
             fullWidth
-          />
-          <TextField
-            label={t('app.acpRunnerArgs')}
-            value={(activeAcpRunner.args || []).join(' ')}
-            onChange={(event) =>
-              onAcpBackendSettingChange?.(
-                selectedBackend,
-                'runner.args',
-                event.target.value.split(/\s+/).map((item) => item.trim()).filter(Boolean),
-              )}
-            placeholder="--workspace /path/to/workspace"
-            fullWidth
-          />
-          <TextField
-            label={t('app.acpRunnerCwd')}
-            value={activeAcpRunner.cwd || ''}
-            onChange={(event) =>
-              onAcpBackendSettingChange?.(selectedBackend, 'runner.cwd', event.target.value)}
-            placeholder={t('onboarding.optional')}
-            fullWidth
-          />
+          >
+            <MenuItem value="stdio">{t('app.acpRunnerTransportStdio')}</MenuItem>
+            <MenuItem value="http">{t('app.acpRunnerTransportHttp')}</MenuItem>
+            <MenuItem value="websocket">{t('app.acpRunnerTransportWebSocket')}</MenuItem>
+          </TextField>
+
+          {(activeAcpRunner.transport || 'stdio') === 'stdio' && (
+            <>
+              <TextField
+                label={t('app.acpRunnerCommand')}
+                value={activeAcpRunner.command || ''}
+                onChange={(event) =>
+                  onAcpBackendSettingChange?.(selectedBackend, 'runner.command', event.target.value)}
+                placeholder={selectedBackend === 'codex' ? 'codex-acp' : 'claude-agent-acp'}
+                fullWidth
+              />
+              <TextField
+                label={t('app.acpRunnerArgs')}
+                value={(activeAcpRunner.args || []).join(' ')}
+                onChange={(event) =>
+                  onAcpBackendSettingChange?.(
+                    selectedBackend,
+                    'runner.args',
+                    event.target.value.split(/\s+/).map((item) => item.trim()).filter(Boolean),
+                  )}
+                placeholder="--workspace /path/to/workspace"
+                fullWidth
+              />
+              <TextField
+                label={t('app.acpRunnerCwd')}
+                value={activeAcpRunner.cwd || ''}
+                onChange={(event) =>
+                  onAcpBackendSettingChange?.(selectedBackend, 'runner.cwd', event.target.value)}
+                placeholder={t('onboarding.optional')}
+                fullWidth
+              />
+            </>
+          )}
+
+          {(activeAcpRunner.transport || 'stdio') === 'http' && (
+            <>
+              <TextField
+                label={t('app.acpRunnerEndpoint')}
+                value={activeAcpRunner.endpoint || ''}
+                onChange={(event) =>
+                  onAcpBackendSettingChange?.(selectedBackend, 'runner.endpoint', event.target.value)}
+                placeholder="http://127.0.0.1:8787/acp"
+                fullWidth
+              />
+              <TextField
+                label={t('app.acpRunnerPermissionEndpoint')}
+                value={activeAcpRunner.permissionEndpoint || ''}
+                onChange={(event) =>
+                  onAcpBackendSettingChange?.(selectedBackend, 'runner.permissionEndpoint', event.target.value)}
+                placeholder={t('onboarding.optional')}
+                fullWidth
+              />
+            </>
+          )}
+
+          {(activeAcpRunner.transport || 'stdio') === 'websocket' && (
+            <TextField
+              label={t('app.acpRunnerUrl')}
+              value={activeAcpRunner.url || ''}
+              onChange={(event) =>
+                onAcpBackendSettingChange?.(selectedBackend, 'runner.url', event.target.value)}
+              placeholder="ws://127.0.0.1:8787/acp"
+              fullWidth
+            />
+          )}
+
           <TextField
             select
             label={t('app.acpPermissionMode')}

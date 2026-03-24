@@ -574,3 +574,35 @@ test('persists codex backend selection and acp runner settings', async () => {
   assert.equal(mainSettings.chatBackend, 'codex');
   assert.equal(mainSettings.codex.runner.cwd, '/tmp/workspace');
 });
+
+test('persists acp http transport runner fields', async () => {
+  const { store } = await setupTempStore({
+    secretStore: new FakeSecretStore({ available: true }),
+  });
+
+  await store.save({
+    chatBackend: 'claude-code',
+    claudeCode: {
+      enabled: true,
+      permissionMode: 'deny',
+      runner: {
+        transport: 'http',
+        endpoint: 'http://127.0.0.1:8787/acp',
+        permissionEndpoint: 'http://127.0.0.1:8787/permission',
+        headers: {
+          Authorization: 'Bearer token',
+        },
+      },
+    },
+  });
+
+  const publicSettings = store.getPublic();
+  assert.equal(publicSettings.chatBackend, 'claude-code');
+  assert.equal(publicSettings.claudeCode.runner.transport, 'http');
+  assert.equal(publicSettings.claudeCode.runner.endpoint, 'http://127.0.0.1:8787/acp');
+  assert.equal(
+    publicSettings.claudeCode.runner.permissionEndpoint,
+    'http://127.0.0.1:8787/permission',
+  );
+  assert.equal(publicSettings.claudeCode.runner.headers.Authorization, 'Bearer token');
+});

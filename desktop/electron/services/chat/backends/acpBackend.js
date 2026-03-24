@@ -3,10 +3,10 @@ const {
   normalizeAcpBackendSettings,
 } = require('../acp/acpEventMapper');
 const {
-  runAcpStdioStream,
-  testAcpStdioRunner,
+  runAcpStream,
+  testAcpRunner,
   createAcpError,
-} = require('../acp/acpStdioClient');
+} = require('../acp/acpTransportClient');
 
 function normalizeText(value, fallback = '') {
   if (typeof value !== 'string') {
@@ -81,14 +81,6 @@ class AcpBackendAdapter extends ChatBackendAdapter {
       );
     }
 
-    if (!resolved.runner.command) {
-      throw createBackendError(
-        this.codePrefix,
-        'runner_missing_command',
-        `${this.displayName} backend runner command is required.`,
-      );
-    }
-
     if (resolved.runner.protocol !== 'acp') {
       throw createBackendError(
         this.codePrefix,
@@ -97,15 +89,44 @@ class AcpBackendAdapter extends ChatBackendAdapter {
       );
     }
 
-    if (resolved.runner.transport !== 'stdio') {
-      throw createBackendError(
-        this.codePrefix,
-        'runner_transport_unsupported',
-        `${this.displayName} backend supports stdio transport only.`,
-      );
+    if (resolved.runner.transport === 'stdio') {
+      if (!resolved.runner.command) {
+        throw createBackendError(
+          this.codePrefix,
+          'runner_missing_command',
+          `${this.displayName} backend runner command is required for stdio transport.`,
+        );
+      }
+      return resolved;
     }
 
-    return resolved;
+    if (resolved.runner.transport === 'http') {
+      if (!resolved.runner.endpoint) {
+        throw createBackendError(
+          this.codePrefix,
+          'runner_missing_endpoint',
+          `${this.displayName} backend HTTP endpoint is required.`,
+        );
+      }
+      return resolved;
+    }
+
+    if (resolved.runner.transport === 'websocket') {
+      if (!resolved.runner.url) {
+        throw createBackendError(
+          this.codePrefix,
+          'runner_missing_url',
+          `${this.displayName} backend WebSocket URL is required.`,
+        );
+      }
+      return resolved;
+    }
+
+    throw createBackendError(
+      this.codePrefix,
+      'runner_transport_unsupported',
+      `${this.displayName} backend transport is not supported: ${resolved.runner.transport}`,
+    );
   }
 
   async testConnection({ settings, signal }) {
@@ -117,12 +138,14 @@ class AcpBackendAdapter extends ChatBackendAdapter {
         transport: resolved.runner.transport,
         command: resolved.runner.command,
         args: resolved.runner.args,
+        endpoint: resolved.runner.endpoint,
+        url: resolved.runner.url,
       },
       permissionMode: resolved.permissionMode,
       timeoutMs: resolved.timeoutMs,
     });
 
-    return testAcpStdioRunner({
+    return testAcpRunner({
       backend: this.codePrefix,
       settings: resolved,
       signal,
@@ -143,10 +166,12 @@ class AcpBackendAdapter extends ChatBackendAdapter {
         transport: resolved.runner.transport,
         command: resolved.runner.command,
         args: resolved.runner.args,
+        endpoint: resolved.runner.endpoint,
+        url: resolved.runner.url,
       },
     });
 
-    return runAcpStdioStream({
+    return runAcpStream({
       backend: this.name,
       settings: resolved,
       sessionId,

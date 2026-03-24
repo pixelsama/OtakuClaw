@@ -38,6 +38,10 @@ const DEFAULT_ACP_RUNNER_SETTINGS = {
   command: '',
   args: [],
   cwd: '',
+  endpoint: '',
+  url: '',
+  permissionEndpoint: '',
+  headers: {},
   env: {},
 };
 
@@ -157,6 +161,20 @@ function normalizePermissionMode(value, fallback = 'deny') {
   return fallback;
 }
 
+function normalizeAcpTransport(value, fallback = 'stdio') {
+  const normalized = normalizeString(value).toLowerCase();
+  if (normalized === 'stdio') {
+    return normalized;
+  }
+  if (normalized === 'http') {
+    return normalized;
+  }
+  if (normalized === 'websocket' || normalized === 'ws') {
+    return 'websocket';
+  }
+  return fallback;
+}
+
 function normalizeRunnerArgs(value) {
   if (Array.isArray(value)) {
     return value
@@ -183,17 +201,35 @@ function normalizeRunnerEnv(value) {
   );
 }
 
+function normalizeRunnerHeaders(value) {
+  if (!isObject(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, item]) => [normalizeString(key), normalizeString(item)])
+      .filter(([key]) => Boolean(key)),
+  );
+}
+
 function normalizeAcpRunnerSettings(settings = {}, fallback = DEFAULT_ACP_RUNNER_SETTINGS) {
   const source = isObject(settings) ? settings : {};
   const defaults = isObject(fallback) ? fallback : DEFAULT_ACP_RUNNER_SETTINGS;
   return {
     protocol: 'acp',
-    transport: 'stdio',
+    transport: normalizeAcpTransport(source.transport, normalizeAcpTransport(defaults.transport, 'stdio')),
     command: normalizeString(source.command, normalizeString(defaults.command)),
     args: normalizeRunnerArgs(
       Object.prototype.hasOwnProperty.call(source, 'args') ? source.args : defaults.args,
     ),
     cwd: normalizeString(source.cwd, normalizeString(defaults.cwd)),
+    endpoint: normalizeString(source.endpoint, normalizeString(defaults.endpoint)),
+    url: normalizeString(source.url, normalizeString(defaults.url)),
+    permissionEndpoint: normalizeString(
+      source.permissionEndpoint,
+      normalizeString(defaults.permissionEndpoint),
+    ),
+    headers: normalizeRunnerHeaders(source.headers),
     env: normalizeRunnerEnv(source.env),
   };
 }
@@ -220,6 +256,7 @@ function cloneAcpBackendSettings(settings = {}) {
     runner: {
       ...runner,
       args: [...(Array.isArray(runner.args) ? runner.args : [])],
+      headers: { ...(isObject(runner.headers) ? runner.headers : {}) },
       env: { ...(isObject(runner.env) ? runner.env : {}) },
     },
   };
@@ -515,11 +552,31 @@ function normalizePatch(partialSettings = {}) {
   if (Object.prototype.hasOwnProperty.call(claudeCodeRunnerSource, 'command')) {
     claudeCodeRunnerPatch.command = normalizeString(claudeCodeRunnerSource.command);
   }
+  if (Object.prototype.hasOwnProperty.call(claudeCodeRunnerSource, 'transport')) {
+    claudeCodeRunnerPatch.transport = normalizeAcpTransport(
+      claudeCodeRunnerSource.transport,
+      DEFAULT_CLAUDE_CODE_SETTINGS.runner.transport,
+    );
+  }
   if (Object.prototype.hasOwnProperty.call(claudeCodeRunnerSource, 'args')) {
     claudeCodeRunnerPatch.args = normalizeRunnerArgs(claudeCodeRunnerSource.args);
   }
   if (Object.prototype.hasOwnProperty.call(claudeCodeRunnerSource, 'cwd')) {
     claudeCodeRunnerPatch.cwd = normalizeString(claudeCodeRunnerSource.cwd);
+  }
+  if (Object.prototype.hasOwnProperty.call(claudeCodeRunnerSource, 'endpoint')) {
+    claudeCodeRunnerPatch.endpoint = normalizeString(claudeCodeRunnerSource.endpoint);
+  }
+  if (Object.prototype.hasOwnProperty.call(claudeCodeRunnerSource, 'url')) {
+    claudeCodeRunnerPatch.url = normalizeString(claudeCodeRunnerSource.url);
+  }
+  if (Object.prototype.hasOwnProperty.call(claudeCodeRunnerSource, 'permissionEndpoint')) {
+    claudeCodeRunnerPatch.permissionEndpoint = normalizeString(
+      claudeCodeRunnerSource.permissionEndpoint,
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(claudeCodeRunnerSource, 'headers')) {
+    claudeCodeRunnerPatch.headers = normalizeRunnerHeaders(claudeCodeRunnerSource.headers);
   }
   if (Object.prototype.hasOwnProperty.call(claudeCodeRunnerSource, 'env')) {
     claudeCodeRunnerPatch.env = normalizeRunnerEnv(claudeCodeRunnerSource.env);
@@ -550,11 +607,29 @@ function normalizePatch(partialSettings = {}) {
   if (Object.prototype.hasOwnProperty.call(codexRunnerSource, 'command')) {
     codexRunnerPatch.command = normalizeString(codexRunnerSource.command);
   }
+  if (Object.prototype.hasOwnProperty.call(codexRunnerSource, 'transport')) {
+    codexRunnerPatch.transport = normalizeAcpTransport(
+      codexRunnerSource.transport,
+      DEFAULT_CODEX_SETTINGS.runner.transport,
+    );
+  }
   if (Object.prototype.hasOwnProperty.call(codexRunnerSource, 'args')) {
     codexRunnerPatch.args = normalizeRunnerArgs(codexRunnerSource.args);
   }
   if (Object.prototype.hasOwnProperty.call(codexRunnerSource, 'cwd')) {
     codexRunnerPatch.cwd = normalizeString(codexRunnerSource.cwd);
+  }
+  if (Object.prototype.hasOwnProperty.call(codexRunnerSource, 'endpoint')) {
+    codexRunnerPatch.endpoint = normalizeString(codexRunnerSource.endpoint);
+  }
+  if (Object.prototype.hasOwnProperty.call(codexRunnerSource, 'url')) {
+    codexRunnerPatch.url = normalizeString(codexRunnerSource.url);
+  }
+  if (Object.prototype.hasOwnProperty.call(codexRunnerSource, 'permissionEndpoint')) {
+    codexRunnerPatch.permissionEndpoint = normalizeString(codexRunnerSource.permissionEndpoint);
+  }
+  if (Object.prototype.hasOwnProperty.call(codexRunnerSource, 'headers')) {
+    codexRunnerPatch.headers = normalizeRunnerHeaders(codexRunnerSource.headers);
   }
   if (Object.prototype.hasOwnProperty.call(codexRunnerSource, 'env')) {
     codexRunnerPatch.env = normalizeRunnerEnv(codexRunnerSource.env);
