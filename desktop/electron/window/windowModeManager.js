@@ -8,14 +8,26 @@ function isValidMode(mode) {
 }
 
 class WindowModeManager {
-  constructor({ platform = process.platform } = {}) {
+  constructor({
+    platform = process.platform,
+    modeSwitchHandshakeTimeoutMs = 400,
+    modeRenderedFallbackTimeoutMs = 1200,
+  } = {}) {
     this.platform = platform;
     this.isMac = platform === 'darwin';
+    this.modeSwitchHandshakeTimeoutMs = Number.isFinite(modeSwitchHandshakeTimeoutMs)
+      ? Math.max(100, Math.floor(modeSwitchHandshakeTimeoutMs))
+      : 400;
+    this.modeRenderedFallbackTimeoutMs = Number.isFinite(modeRenderedFallbackTimeoutMs)
+      ? Math.max(200, Math.floor(modeRenderedFallbackTimeoutMs))
+      : 1200;
 
     this.window = null;
     this.currentMode = MODE_WINDOW;
     this.pendingMode = null;
     this.pendingTimer = null;
+    this.pendingOpacityRecoveryTimer = null;
+    this.waitingForRenderedAck = false;
 
     this.windowedBounds = null;
     this.hoveringComponents = new Set();
@@ -30,6 +42,8 @@ class WindowModeManager {
   detachWindow() {
     this.window = null;
     this.clearPendingTimer();
+    this.clearPendingOpacityRecoveryTimer();
+    this.waitingForRenderedAck = false;
   }
 
   getMode() {
@@ -59,6 +73,8 @@ class WindowModeManager {
     }
 
     this.pendingMode = mode;
+    this.waitingForRenderedAck = false;
+    this.clearPendingOpacityRecoveryTimer();
     this.window.setOpacity(0);
     this.window.webContents.send('pet:pre-mode-changed', { mode });
 
@@ -68,7 +84,7 @@ class WindowModeManager {
       if (this.pendingMode === mode) {
         this.applyPendingMode(mode);
       }
-    }, 400);
+    }, this.modeSwitchHandshakeTimeoutMs);
 
     return mode;
   }
@@ -93,6 +109,9 @@ class WindowModeManager {
       this.applyWindowMode();
     }
 
+    this.waitingForRenderedAck = true;
+    this.armOpacityRecoveryFallback();
+
     this.emitModeChanged(nextMode);
 
     return nextMode;
@@ -103,6 +122,8 @@ class WindowModeManager {
       return;
     }
 
+    this.waitingForRenderedAck = false;
+    this.clearPendingOpacityRecoveryTimer();
     this.window.setOpacity(1);
   }
 
@@ -254,6 +275,32 @@ class WindowModeManager {
 
     clearTimeout(this.pendingTimer);
     this.pendingTimer = null;
+  }
+
+  armOpacityRecoveryFallback() {
+    this.clearPendingOpacityRecoveryTimer();
+
+    this.pendingOpacityRecoveryTimer = setTimeout(() => {
+      if (!this.waitingForRenderedAck) {
+        return;
+      }
+      if (!this.window || this.window.isDestroyed()) {
+        return;
+      }
+
+      this.window.setOpacity(1);
+      this.waitingForRenderedAck = false;
+      this.pendingOpacityRecoveryTimer = null;
+    }, this.modeRenderedFallbackTimeoutMs);
+  }
+
+  clearPendingOpacityRecoveryTimer() {
+    if (!this.pendingOpacityRecoveryTimer) {
+      return;
+    }
+
+    clearTimeout(this.pendingOpacityRecoveryTimer);
+    this.pendingOpacityRecoveryTimer = null;
   }
 }
 
