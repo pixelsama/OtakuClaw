@@ -21,7 +21,7 @@ function createBackend(name, overrides = {}) {
 
 test('backend manager resolves backend with request precedence', () => {
   const manager = new ChatBackendManager({
-    backends: [createBackend('openclaw'), createBackend('nanobot')],
+    backends: [createBackend('openclaw'), createBackend('nanobot'), createBackend('claude-code'), createBackend('codex')],
   });
 
   assert.equal(manager.resolveBackendName({ settings: {} }), 'nanobot');
@@ -33,6 +33,17 @@ test('backend manager resolves backend with request precedence', () => {
     }),
     'nanobot',
   );
+});
+
+test('backend manager normalizes claude code aliases', () => {
+  const manager = new ChatBackendManager({
+    backends: [createBackend('nanobot'), createBackend('claude-code'), createBackend('codex')],
+  });
+
+  assert.equal(manager.resolveBackendName({ requestBackend: 'claude code' }), 'claude-code');
+  assert.equal(manager.resolveBackendName({ requestBackend: 'claude_code' }), 'claude-code');
+  assert.equal(manager.resolveBackendName({ requestBackend: 'claudecode' }), 'claude-code');
+  assert.equal(manager.resolveBackendName({ requestBackend: 'codex' }), 'codex');
 });
 
 test('backend manager delegates startStream and testConnection to selected backend', async () => {

@@ -334,10 +334,82 @@ function resolvePlatformSyncFromApi(api) {
   return detectPlatformFallback();
 }
 
+function normalizeChatBackend(value) {
+  const normalized = normalizeText(value).toLowerCase();
+  if (normalized === 'nanobot') {
+    return 'nanobot';
+  }
+  if (normalized === 'codex') {
+    return 'codex';
+  }
+  if (normalized === 'claude-code' || normalized === 'claude code' || normalized === 'claudecode' || normalized === 'claude_code') {
+    return 'claude-code';
+  }
+  if (normalized === 'openclaw') {
+    return 'nanobot';
+  }
+  return 'nanobot';
+}
+
+function normalizeRunnerArgs(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeText(item))
+      .filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(/\s+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function normalizePermissionMode(value, fallback = 'deny') {
+  const normalized = normalizeText(value).toLowerCase();
+  if (normalized === 'allow' || normalized === 'ask' || normalized === 'deny') {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeRunnerEnv(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, item]) => [normalizeText(key), normalizeText(item)])
+      .filter(([key]) => Boolean(key)),
+  );
+}
+
+function normalizeAcpBackendResponse(settings = {}, fallbackCommand = '') {
+  const source = settings && typeof settings === 'object' ? settings : {};
+  const runner = source.runner && typeof source.runner === 'object' ? source.runner : {};
+  return {
+    enabled: Boolean(source.enabled),
+    timeoutMs: Number.isFinite(source.timeoutMs) ? source.timeoutMs : 120000,
+    askTimeoutMs: Number.isFinite(source.askTimeoutMs) ? source.askTimeoutMs : 8000,
+    permissionMode: normalizePermissionMode(source.permissionMode, 'deny'),
+    runner: {
+      protocol: 'acp',
+      transport: 'stdio',
+      command: normalizeText(runner.command, fallbackCommand),
+      args: normalizeRunnerArgs(runner.args),
+      cwd: normalizeText(runner.cwd),
+      env: normalizeRunnerEnv(runner.env),
+    },
+  };
+}
+
 function normalizeSettingsResponse(settings = {}) {
-  const chatBackend = 'nanobot';
+  const chatBackend = normalizeChatBackend(settings?.chatBackend);
   const openclaw = settings?.openclaw || {};
   const nanobot = settings?.nanobot || {};
+  const claudeCode = settings?.claudeCode || {};
+  const codex = settings?.codex || {};
   const voice = settings?.voice || {};
   const dashscope = voice?.dashscope || {};
   const hasToken = Boolean(settings?.hasToken || openclaw?.hasToken || (typeof settings?.token === 'string' && settings.token.trim()));
@@ -383,6 +455,8 @@ function normalizeSettingsResponse(settings = {}) {
       reasoningEffort: typeof nanobot.reasoningEffort === 'string' ? nanobot.reasoningEffort.trim() : '',
       hasApiKey: hasNanobotApiKey,
     },
+    claudeCode: normalizeAcpBackendResponse(claudeCode, 'claude-agent-acp'),
+    codex: normalizeAcpBackendResponse(codex, 'codex-acp'),
     voice: {
       asrProvider: voice?.asrProvider === 'dashscope' ? 'dashscope' : 'inherit',
       ttsProvider: voice?.ttsProvider === 'dashscope' ? 'dashscope' : 'inherit',
@@ -439,7 +513,7 @@ function normalizeSettingsResponse(settings = {}) {
 function normalizeSettingsPatch(settings = {}) {
   return {
     ...(Object.prototype.hasOwnProperty.call(settings, 'chatBackend')
-      ? { chatBackend: 'nanobot' }
+      ? { chatBackend: normalizeChatBackend(settings.chatBackend) }
       : {}),
     ...(Object.prototype.hasOwnProperty.call(settings, 'baseUrl')
       || Object.prototype.hasOwnProperty.call(settings, 'agentId')
@@ -576,6 +650,92 @@ function normalizeSettingsPatch(settings = {}) {
                   ...(Object.prototype.hasOwnProperty.call(settings.nanobot, 'clearApiKey')
                     ? {
                         clearApiKey: Boolean(settings.nanobot.clearApiKey),
+                      }
+                    : {}),
+                }
+              : {}),
+          },
+        }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(settings, 'claudeCode')
+      ? {
+          claudeCode: {
+            ...(typeof settings.claudeCode === 'object' && settings.claudeCode
+              ? {
+                  ...(Object.prototype.hasOwnProperty.call(settings.claudeCode, 'enabled')
+                    ? { enabled: Boolean(settings.claudeCode.enabled) }
+                    : {}),
+                  ...(Object.prototype.hasOwnProperty.call(settings.claudeCode, 'timeoutMs')
+                    ? { timeoutMs: Number.isFinite(settings.claudeCode.timeoutMs) ? settings.claudeCode.timeoutMs : 120000 }
+                    : {}),
+                  ...(Object.prototype.hasOwnProperty.call(settings.claudeCode, 'askTimeoutMs')
+                    ? { askTimeoutMs: Number.isFinite(settings.claudeCode.askTimeoutMs) ? settings.claudeCode.askTimeoutMs : 8000 }
+                    : {}),
+                  ...(Object.prototype.hasOwnProperty.call(settings.claudeCode, 'permissionMode')
+                    ? { permissionMode: normalizePermissionMode(settings.claudeCode.permissionMode, 'deny') }
+                    : {}),
+                  ...(Object.prototype.hasOwnProperty.call(settings.claudeCode, 'runner')
+                    ? {
+                        runner:
+                          typeof settings.claudeCode.runner === 'object' && settings.claudeCode.runner
+                            ? {
+                                ...(Object.prototype.hasOwnProperty.call(settings.claudeCode.runner, 'command')
+                                  ? { command: normalizeText(settings.claudeCode.runner.command) }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.claudeCode.runner, 'args')
+                                  ? { args: normalizeRunnerArgs(settings.claudeCode.runner.args) }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.claudeCode.runner, 'cwd')
+                                  ? { cwd: normalizeText(settings.claudeCode.runner.cwd) }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.claudeCode.runner, 'env')
+                                  ? { env: normalizeRunnerEnv(settings.claudeCode.runner.env) }
+                                  : {}),
+                              }
+                            : {},
+                      }
+                    : {}),
+                }
+              : {}),
+          },
+        }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(settings, 'codex')
+      ? {
+          codex: {
+            ...(typeof settings.codex === 'object' && settings.codex
+              ? {
+                  ...(Object.prototype.hasOwnProperty.call(settings.codex, 'enabled')
+                    ? { enabled: Boolean(settings.codex.enabled) }
+                    : {}),
+                  ...(Object.prototype.hasOwnProperty.call(settings.codex, 'timeoutMs')
+                    ? { timeoutMs: Number.isFinite(settings.codex.timeoutMs) ? settings.codex.timeoutMs : 120000 }
+                    : {}),
+                  ...(Object.prototype.hasOwnProperty.call(settings.codex, 'askTimeoutMs')
+                    ? { askTimeoutMs: Number.isFinite(settings.codex.askTimeoutMs) ? settings.codex.askTimeoutMs : 8000 }
+                    : {}),
+                  ...(Object.prototype.hasOwnProperty.call(settings.codex, 'permissionMode')
+                    ? { permissionMode: normalizePermissionMode(settings.codex.permissionMode, 'deny') }
+                    : {}),
+                  ...(Object.prototype.hasOwnProperty.call(settings.codex, 'runner')
+                    ? {
+                        runner:
+                          typeof settings.codex.runner === 'object' && settings.codex.runner
+                            ? {
+                                ...(Object.prototype.hasOwnProperty.call(settings.codex.runner, 'command')
+                                  ? { command: normalizeText(settings.codex.runner.command) }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.codex.runner, 'args')
+                                  ? { args: normalizeRunnerArgs(settings.codex.runner.args) }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.codex.runner, 'cwd')
+                                  ? { cwd: normalizeText(settings.codex.runner.cwd) }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.codex.runner, 'env')
+                                  ? { env: normalizeRunnerEnv(settings.codex.runner.env) }
+                                  : {}),
+                              }
+                            : {},
                       }
                     : {}),
                 }
@@ -794,6 +954,22 @@ function saveWebSettings(partialSettings = {}) {
       ...current.nanobot,
       ...(patch.nanobot || {}),
     },
+    claudeCode: {
+      ...(current.claudeCode || normalizeAcpBackendResponse({}, 'claude-agent-acp')),
+      ...(patch.claudeCode || {}),
+      runner: {
+        ...((current.claudeCode?.runner) || {}),
+        ...((patch.claudeCode?.runner) || {}),
+      },
+    },
+    codex: {
+      ...(current.codex || normalizeAcpBackendResponse({}, 'codex-acp')),
+      ...(patch.codex || {}),
+      runner: {
+        ...((current.codex?.runner) || {}),
+        ...((patch.codex?.runner) || {}),
+      },
+    },
     voice: {
       ...current.voice,
       ...(patch.voice || {}),
@@ -865,6 +1041,34 @@ function saveWebSettings(partialSettings = {}) {
           temperature: merged.nanobot.temperature,
           reasoningEffort: merged.nanobot.reasoningEffort,
         },
+        claudeCode: {
+          enabled: Boolean(merged.claudeCode?.enabled),
+          timeoutMs: Number.isFinite(merged.claudeCode?.timeoutMs) ? merged.claudeCode.timeoutMs : 120000,
+          askTimeoutMs: Number.isFinite(merged.claudeCode?.askTimeoutMs) ? merged.claudeCode.askTimeoutMs : 8000,
+          permissionMode: normalizePermissionMode(merged.claudeCode?.permissionMode, 'deny'),
+          runner: {
+            protocol: 'acp',
+            transport: 'stdio',
+            command: normalizeText(merged.claudeCode?.runner?.command, 'claude-agent-acp'),
+            args: normalizeRunnerArgs(merged.claudeCode?.runner?.args),
+            cwd: normalizeText(merged.claudeCode?.runner?.cwd),
+            env: normalizeRunnerEnv(merged.claudeCode?.runner?.env),
+          },
+        },
+        codex: {
+          enabled: Boolean(merged.codex?.enabled),
+          timeoutMs: Number.isFinite(merged.codex?.timeoutMs) ? merged.codex.timeoutMs : 120000,
+          askTimeoutMs: Number.isFinite(merged.codex?.askTimeoutMs) ? merged.codex.askTimeoutMs : 8000,
+          permissionMode: normalizePermissionMode(merged.codex?.permissionMode, 'deny'),
+          runner: {
+            protocol: 'acp',
+            transport: 'stdio',
+            command: normalizeText(merged.codex?.runner?.command, 'codex-acp'),
+            args: normalizeRunnerArgs(merged.codex?.runner?.args),
+            cwd: normalizeText(merged.codex?.runner?.cwd),
+            env: normalizeRunnerEnv(merged.codex?.runner?.env),
+          },
+        },
         voice: {
           asrProvider: merged.voice.asrProvider,
           ttsProvider: merged.voice.ttsProvider,
@@ -914,9 +1118,25 @@ async function testWebConnection(inputSettings = {}) {
       ...current.nanobot,
       ...(patch.nanobot || {}),
     },
+    claudeCode: {
+      ...(current.claudeCode || {}),
+      ...(patch.claudeCode || {}),
+      runner: {
+        ...((current.claudeCode?.runner) || {}),
+        ...((patch.claudeCode?.runner) || {}),
+      },
+    },
+    codex: {
+      ...(current.codex || {}),
+      ...(patch.codex || {}),
+      runner: {
+        ...((current.codex?.runner) || {}),
+        ...((patch.codex?.runner) || {}),
+      },
+    },
   };
 
-  const chatBackend = 'nanobot';
+  const chatBackend = normalizeChatBackend(settings.chatBackend);
 
   if (settings.openclaw?.clearToken === true) {
     settings.openclaw.token = '';
@@ -936,59 +1156,13 @@ async function testWebConnection(inputSettings = {}) {
     };
   }
 
-  if (!settings.openclaw?.baseUrl || !settings.openclaw?.token || !settings.openclaw?.agentId) {
-    return {
-      ok: false,
-      error: {
-        code: 'openclaw_missing_config',
-        message: '请先填写 OpenClaw Base URL / Token / Agent ID。',
-      },
-    };
-  }
-
-  try {
-    const startAt = Date.now();
-    const response = await fetch(`${settings.openclaw.baseUrl.replace(/\/$/, '')}/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${settings.openclaw.token}`,
-        'Content-Type': 'application/json',
-        accept: 'application/json',
-      },
-      body: JSON.stringify({
-        model: `openclaw:${settings.openclaw.agentId}`,
-        stream: false,
-        max_tokens: 1,
-        messages: [{ role: 'user', content: 'ping' }],
-      }),
-    });
-
-    if (!response.ok) {
-      const detail = await response.text();
-      return {
-        ok: false,
-        error: {
-          code: 'openclaw_upstream_error',
-          message: detail || `连接失败 (${response.status})`,
-        },
-      };
-    }
-
-    await response.text();
-
-    return {
-      ok: true,
-      latencyMs: Date.now() - startAt,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      error: {
-        code: 'openclaw_unreachable',
-        message: error?.message || '无法访问 OpenClaw。',
-      },
-    };
-  }
+  return {
+    ok: false,
+    error: {
+      code: 'chat_backend_web_unsupported',
+      message: 'Web 模式暂不支持该聊天后端。',
+    },
+  };
 }
 
 export const desktopBridge = {

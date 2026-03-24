@@ -1,6 +1,76 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { desktopBridge } from '../../services/desktopBridge.js';
 
+function normalizeBackendName(value) {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (normalized === 'nanobot') {
+    return 'nanobot';
+  }
+  if (normalized === 'codex') {
+    return 'codex';
+  }
+  if (normalized === 'claude-code' || normalized === 'claude code' || normalized === 'claudecode' || normalized === 'claude_code') {
+    return 'claude-code';
+  }
+  if (normalized === 'openclaw') {
+    return 'nanobot';
+  }
+  return 'nanobot';
+}
+
+function normalizePermissionMode(value, fallback = 'deny') {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (normalized === 'allow' || normalized === 'ask' || normalized === 'deny') {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeRunnerArgs(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(/\s+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function normalizeRunnerEnv(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, item]) => [String(key || '').trim(), typeof item === 'string' ? item.trim() : ''])
+      .filter(([key]) => Boolean(key)),
+  );
+}
+
+function normalizeAcpBackendForState(settings = {}, fallbackCommand = '') {
+  const source = settings && typeof settings === 'object' ? settings : {};
+  const runner = source.runner && typeof source.runner === 'object' ? source.runner : {};
+  return {
+    enabled: Boolean(source.enabled),
+    timeoutMs: Number.isFinite(source.timeoutMs) ? source.timeoutMs : 120000,
+    askTimeoutMs: Number.isFinite(source.askTimeoutMs) ? source.askTimeoutMs : 8000,
+    permissionMode: normalizePermissionMode(source.permissionMode, 'deny'),
+    runner: {
+      protocol: 'acp',
+      transport: 'stdio',
+      command: typeof runner.command === 'string' && runner.command.trim() ? runner.command.trim() : fallbackCommand,
+      args: normalizeRunnerArgs(runner.args),
+      cwd: typeof runner.cwd === 'string' ? runner.cwd.trim() : '',
+      env: normalizeRunnerEnv(runner.env),
+    },
+  };
+}
+
 const defaultChatBackendSettings = {
   chatBackend: 'nanobot',
   openclaw: {
@@ -22,6 +92,8 @@ const defaultChatBackendSettings = {
     reasoningEffort: '',
     hasApiKey: false,
   },
+  claudeCode: normalizeAcpBackendForState({}, 'claude-agent-acp'),
+  codex: normalizeAcpBackendForState({}, 'codex-acp'),
   hasSecureStorage: true,
 };
 
@@ -65,7 +137,7 @@ function normalizeNanobotSkillsState(payload = {}) {
 function buildComparableSettingsSnapshot(settings = {}) {
   const normalized = normalizeSettingsForState(settings);
   return {
-    chatBackend: 'nanobot',
+    chatBackend: normalizeBackendName(normalized.chatBackend),
     openclaw: {
       baseUrl: normalized.openclaw?.baseUrl || '',
       agentId: normalized.openclaw?.agentId || '',
@@ -81,6 +153,28 @@ function buildComparableSettingsSnapshot(settings = {}) {
       temperature: Number.isFinite(normalized.nanobot?.temperature) ? normalized.nanobot.temperature : 0.2,
       reasoningEffort: normalized.nanobot?.reasoningEffort || '',
     },
+    claudeCode: {
+      enabled: Boolean(normalized.claudeCode?.enabled),
+      timeoutMs: Number.isFinite(normalized.claudeCode?.timeoutMs) ? normalized.claudeCode.timeoutMs : 120000,
+      askTimeoutMs: Number.isFinite(normalized.claudeCode?.askTimeoutMs) ? normalized.claudeCode.askTimeoutMs : 8000,
+      permissionMode: normalizePermissionMode(normalized.claudeCode?.permissionMode, 'deny'),
+      runner: {
+        command: normalized.claudeCode?.runner?.command || '',
+        args: normalizeRunnerArgs(normalized.claudeCode?.runner?.args),
+        cwd: normalized.claudeCode?.runner?.cwd || '',
+      },
+    },
+    codex: {
+      enabled: Boolean(normalized.codex?.enabled),
+      timeoutMs: Number.isFinite(normalized.codex?.timeoutMs) ? normalized.codex.timeoutMs : 120000,
+      askTimeoutMs: Number.isFinite(normalized.codex?.askTimeoutMs) ? normalized.codex.askTimeoutMs : 8000,
+      permissionMode: normalizePermissionMode(normalized.codex?.permissionMode, 'deny'),
+      runner: {
+        command: normalized.codex?.runner?.command || '',
+        args: normalizeRunnerArgs(normalized.codex?.runner?.args),
+        cwd: normalized.codex?.runner?.cwd || '',
+      },
+    },
   };
 }
 
@@ -93,7 +187,7 @@ function hasPendingSecretChanges(settings = {}) {
 function normalizeSettingsForState(settings = {}) {
   const openclaw = settings?.openclaw || {};
   const nanobot = settings?.nanobot || {};
-  const chatBackend = 'nanobot';
+  const chatBackend = normalizeBackendName(settings?.chatBackend);
 
   return {
     ...defaultChatBackendSettings,
@@ -111,6 +205,8 @@ function normalizeSettingsForState(settings = {}) {
       apiKey: '',
       hasApiKey: Boolean(nanobot.hasApiKey || settings?.hasNanobotApiKey),
     },
+    claudeCode: normalizeAcpBackendForState(settings?.claudeCode, 'claude-agent-acp'),
+    codex: normalizeAcpBackendForState(settings?.codex, 'codex-acp'),
     hasSecureStorage: settings?.hasSecureStorage !== false,
   };
 }
@@ -119,7 +215,9 @@ export function buildChatBackendSettingsPayload(settings) {
   const source = settings || {};
   const openclawSource = source?.openclaw || source;
   const nanobotSource = source?.nanobot || {};
-  const chatBackend = 'nanobot';
+  const claudeCodeSource = source?.claudeCode || {};
+  const codexSource = source?.codex || {};
+  const chatBackend = normalizeBackendName(source?.chatBackend);
 
   const payload = {
     chatBackend,
@@ -137,6 +235,36 @@ export function buildChatBackendSettingsPayload(settings) {
       maxTokens: Number.isFinite(nanobotSource?.maxTokens) ? nanobotSource.maxTokens : 4096,
       temperature: Number.isFinite(nanobotSource?.temperature) ? nanobotSource.temperature : 0.2,
       reasoningEffort: nanobotSource?.reasoningEffort || '',
+    },
+    claudeCode: {
+      enabled: Boolean(claudeCodeSource?.enabled),
+      timeoutMs: Number.isFinite(claudeCodeSource?.timeoutMs) ? claudeCodeSource.timeoutMs : 120000,
+      askTimeoutMs: Number.isFinite(claudeCodeSource?.askTimeoutMs) ? claudeCodeSource.askTimeoutMs : 8000,
+      permissionMode: normalizePermissionMode(claudeCodeSource?.permissionMode, 'deny'),
+      runner: {
+        command:
+          typeof claudeCodeSource?.runner?.command === 'string' && claudeCodeSource.runner.command.trim()
+            ? claudeCodeSource.runner.command.trim()
+            : 'claude-agent-acp',
+        args: normalizeRunnerArgs(claudeCodeSource?.runner?.args),
+        cwd: typeof claudeCodeSource?.runner?.cwd === 'string' ? claudeCodeSource.runner.cwd.trim() : '',
+        env: normalizeRunnerEnv(claudeCodeSource?.runner?.env),
+      },
+    },
+    codex: {
+      enabled: Boolean(codexSource?.enabled),
+      timeoutMs: Number.isFinite(codexSource?.timeoutMs) ? codexSource.timeoutMs : 120000,
+      askTimeoutMs: Number.isFinite(codexSource?.askTimeoutMs) ? codexSource.askTimeoutMs : 8000,
+      permissionMode: normalizePermissionMode(codexSource?.permissionMode, 'deny'),
+      runner: {
+        command:
+          typeof codexSource?.runner?.command === 'string' && codexSource.runner.command.trim()
+            ? codexSource.runner.command.trim()
+            : 'codex-acp',
+        args: normalizeRunnerArgs(codexSource?.runner?.args),
+        cwd: typeof codexSource?.runner?.cwd === 'string' ? codexSource.runner.cwd.trim() : '',
+        env: normalizeRunnerEnv(codexSource?.runner?.env),
+      },
     },
   };
 
@@ -299,10 +427,10 @@ export function useChatBackendSettings({ t, normalizeError }) {
     };
   }, [chatBackendSettings, formatError, savedSettingsSnapshot, settingsLoaded]);
 
-  const onChatBackendChange = useCallback(() => {
+  const onChatBackendChange = useCallback((backend) => {
     setChatBackendSettings((prev) => ({
       ...prev,
-      chatBackend: 'nanobot',
+      chatBackend: normalizeBackendName(backend),
     }));
     setSettingsFeedback('');
     setSettingsError('');
@@ -328,6 +456,36 @@ export function useChatBackendSettings({ t, normalizeError }) {
         [field]: value,
       },
     }));
+    setSettingsFeedback('');
+    setSettingsError('');
+  }, []);
+
+  const onAcpBackendSettingChange = useCallback((backend, field, value) => {
+    const backendKey = normalizeBackendName(backend) === 'codex' ? 'codex' : 'claudeCode';
+    setChatBackendSettings((prev) => {
+      const currentBackendSettings = prev?.[backendKey] || defaultChatBackendSettings[backendKey];
+      const nextBackendSettings = {
+        ...currentBackendSettings,
+        runner: {
+          ...(currentBackendSettings?.runner || {}),
+        },
+      };
+
+      if (field.startsWith('runner.')) {
+        const runnerField = field.slice('runner.'.length);
+        nextBackendSettings.runner = {
+          ...nextBackendSettings.runner,
+          [runnerField]: value,
+        };
+      } else {
+        nextBackendSettings[field] = value;
+      }
+
+      return {
+        ...prev,
+        [backendKey]: nextBackendSettings,
+      };
+    });
     setSettingsFeedback('');
     setSettingsError('');
   }, []);
@@ -593,6 +751,7 @@ export function useChatBackendSettings({ t, normalizeError }) {
     onChatBackendChange,
     onOpenClawSettingChange,
     onNanobotSettingChange,
+    onAcpBackendSettingChange,
     onPickNanobotWorkspace,
     onOpenNanobotWorkspace,
     onTestChatBackendSettings,

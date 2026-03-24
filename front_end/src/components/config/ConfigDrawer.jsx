@@ -168,8 +168,8 @@ export default function ConfigDrawer({
   settingsFeedback = '',
   settingsError = '',
   onChatBackendChange,
-  onOpenClawSettingChange,
   onNanobotSettingChange,
+  onAcpBackendSettingChange,
   onPickNanobotWorkspace,
   onTestChatBackendSettings,
   onClearSavedToken,
@@ -193,16 +193,17 @@ export default function ConfigDrawer({
   const [appUpdaterBusy, setAppUpdaterBusy] = useState(false);
   const [appUpdaterError, setAppUpdaterError] = useState('');
   const [appUpdaterFeedback, setAppUpdaterFeedback] = useState('');
-  const selectedBackend = 'nanobot';
-  const openClawSettings = chatBackendSettings?.openclaw || {};
+  const selectedBackend = chatBackendSettings?.chatBackend || 'nanobot';
   const nanobotSettings = chatBackendSettings?.nanobot || {};
+  const claudeCodeSettings = chatBackendSettings?.claudeCode || {};
+  const codexSettings = chatBackendSettings?.codex || {};
+  const activeAcpSettings = selectedBackend === 'codex' ? codexSettings : claudeCodeSettings;
+  const activeAcpRunner = activeAcpSettings?.runner || {};
   const hasSecureStorage = chatBackendSettings?.hasSecureStorage !== false;
-  const hasBackendSecret = selectedBackend === 'nanobot' ? nanobotSettings.hasApiKey : openClawSettings.hasToken;
+  const hasBackendSecret = selectedBackend === 'nanobot' && nanobotSettings.hasApiKey;
   const nanobotRuntimeInstalled = Boolean(nanobotRuntimeStatus?.installed);
   const nanobotRuntimePath = nanobotRuntimeStatus?.repoPath || '';
-  const openClawTokenSaved = Boolean(openClawSettings.hasToken && !(openClawSettings.token || '').trim());
   const nanobotApiKeySaved = Boolean(nanobotSettings.hasApiKey && !(nanobotSettings.apiKey || '').trim());
-  const openClawTokenValue = openClawTokenSaved ? MASKED_SECRET_VALUE : (openClawSettings.token || '');
   const nanobotApiKeyValue = nanobotApiKeySaved ? MASKED_SECRET_VALUE : (nanobotSettings.apiKey || '');
   const customNanobotSkills = Array.isArray(nanobotSkills?.customSkills) ? nanobotSkills.customSkills : [];
   const builtinNanobotSkills = Array.isArray(nanobotSkills?.builtinSkills) ? nanobotSkills.builtinSkills : [];
@@ -216,7 +217,8 @@ export default function ConfigDrawer({
     && (settingsError.includes('技能') || normalizedSettingsError.includes('skill'));
   const testButtonDisabled = settingsSaving
     || settingsTesting
-    || (selectedBackend === 'nanobot' && !nanobotSettings.enabled);
+    || (selectedBackend === 'nanobot' && !nanobotSettings.enabled)
+    || (selectedBackend !== 'nanobot' && !activeAcpSettings.enabled);
   const nanobotProviderOptions = useMemo(
     () => extendNanobotProviderOptionsWithLegacy(NANOBOT_PROVIDER_OPTIONS, nanobotSettings.provider || ''),
     [nanobotSettings.provider],
@@ -448,39 +450,67 @@ export default function ConfigDrawer({
                     fullWidth
                   >
                     <MenuItem value="nanobot">{t('app.backend.nanobot')}</MenuItem>
+                    <MenuItem value="claude-code">{t('app.backend.claudeCode')}</MenuItem>
+                    <MenuItem value="codex">{t('app.backend.codex')}</MenuItem>
                   </TextField>
 
-                  {selectedBackend === 'openclaw' && (
+                  {selectedBackend !== 'nanobot' && (
                     <>
                       <TextField
-                        label="OpenClaw Base URL"
-                        value={openClawSettings.baseUrl || ''}
-                        onChange={(event) => onOpenClawSettingChange?.('baseUrl', event.target.value)}
-                        placeholder="http://127.0.0.1:18789"
+                        select
+                        label={t('app.acpEnabled')}
+                        value={activeAcpSettings.enabled ? 'true' : 'false'}
+                        onChange={(event) =>
+                          onAcpBackendSettingChange?.(selectedBackend, 'enabled', event.target.value === 'true')}
+                        fullWidth
+                      >
+                        <MenuItem value="true">{t('common.enabled')}</MenuItem>
+                        <MenuItem value="false">{t('common.disabled')}</MenuItem>
+                      </TextField>
+
+                      <TextField
+                        label={t('app.acpRunnerCommand')}
+                        value={activeAcpRunner.command || ''}
+                        onChange={(event) =>
+                          onAcpBackendSettingChange?.(selectedBackend, 'runner.command', event.target.value)}
+                        placeholder={selectedBackend === 'codex' ? 'codex-acp' : 'claude-agent-acp'}
                         fullWidth
                       />
 
                       <TextField
-                        label="OpenClaw Token"
-                        value={openClawTokenValue}
-                        onChange={(event) => {
-                          const nextToken = normalizeMaskedSecretInput(event.target.value, openClawTokenSaved);
-                          onOpenClawSettingChange?.('token', nextToken);
-                        }}
-                        type="password"
-                        autoComplete="off"
-                        placeholder={openClawSettings.hasToken ? t('app.tokenSavedPlaceholder') : ''}
-                        helperText={openClawTokenSaved ? t('app.tokenSavedPlaceholder') : ''}
+                        label={t('app.acpRunnerArgs')}
+                        value={(activeAcpRunner.args || []).join(' ')}
+                        onChange={(event) =>
+                          onAcpBackendSettingChange?.(
+                            selectedBackend,
+                            'runner.args',
+                            event.target.value.split(/\s+/).map((item) => item.trim()).filter(Boolean),
+                          )}
+                        placeholder="--workspace /path/to/workspace"
                         fullWidth
                       />
 
                       <TextField
-                        label="OpenClaw Agent ID"
-                        value={openClawSettings.agentId || ''}
-                        onChange={(event) => onOpenClawSettingChange?.('agentId', event.target.value)}
-                        placeholder="main"
+                        label={t('app.acpRunnerCwd')}
+                        value={activeAcpRunner.cwd || ''}
+                        onChange={(event) =>
+                          onAcpBackendSettingChange?.(selectedBackend, 'runner.cwd', event.target.value)}
+                        placeholder={t('onboarding.optional')}
                         fullWidth
                       />
+
+                      <TextField
+                        select
+                        label={t('app.acpPermissionMode')}
+                        value={activeAcpSettings.permissionMode || 'deny'}
+                        onChange={(event) =>
+                          onAcpBackendSettingChange?.(selectedBackend, 'permissionMode', event.target.value)}
+                        fullWidth
+                      >
+                        <MenuItem value="deny">{t('app.acpPermissionDeny')}</MenuItem>
+                        <MenuItem value="allow">{t('app.acpPermissionAllow')}</MenuItem>
+                        <MenuItem value="ask">{t('app.acpPermissionAsk')}</MenuItem>
+                      </TextField>
                     </>
                   )}
 
@@ -801,14 +831,16 @@ export default function ConfigDrawer({
                     >
                       {settingsTesting ? t('app.testingConnection') : t('app.connectionTest')}
                     </Button>
-                    <Button
-                      variant="text"
-                      color="warning"
-                      onClick={onClearSavedToken}
-                      disabled={settingsSaving || settingsTesting || !hasBackendSecret}
-                    >
-                      {t('app.clearToken')}
-                    </Button>
+                    {selectedBackend === 'nanobot' && (
+                      <Button
+                        variant="text"
+                        color="warning"
+                        onClick={onClearSavedToken}
+                        disabled={settingsSaving || settingsTesting || !hasBackendSecret}
+                      >
+                        {t('app.clearToken')}
+                      </Button>
+                    )}
                   </Stack>
 
                   {settingsError && <Alert severity="error">{settingsError}</Alert>}

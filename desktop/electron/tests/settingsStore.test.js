@@ -539,3 +539,38 @@ test('merge keeps existing office scene layout and applies override patch', asyn
     },
   });
 });
+
+test('persists codex backend selection and acp runner settings', async () => {
+  const { store } = await setupTempStore({
+    secretStore: new FakeSecretStore({ available: true }),
+  });
+
+  await store.save({
+    chatBackend: 'codex',
+    codex: {
+      enabled: true,
+      permissionMode: 'allow',
+      timeoutMs: 180000,
+      askTimeoutMs: 12000,
+      runner: {
+        command: '/usr/local/bin/codex-acp',
+        args: ['--workspace', '/tmp/workspace'],
+        cwd: '/tmp/workspace',
+        env: {
+          NODE_ENV: 'development',
+        },
+      },
+    },
+  });
+
+  const publicSettings = store.getPublic();
+  assert.equal(publicSettings.chatBackend, 'codex');
+  assert.equal(publicSettings.codex.enabled, true);
+  assert.equal(publicSettings.codex.permissionMode, 'allow');
+  assert.equal(publicSettings.codex.runner.command, '/usr/local/bin/codex-acp');
+  assert.deepEqual(publicSettings.codex.runner.args, ['--workspace', '/tmp/workspace']);
+
+  const mainSettings = store.getForMain();
+  assert.equal(mainSettings.chatBackend, 'codex');
+  assert.equal(mainSettings.codex.runner.cwd, '/tmp/workspace');
+});

@@ -28,6 +28,8 @@ const { registerVoiceSessionIpc } = require('./ipc/voiceSession');
 const { createConversationRuntime } = require('./services/chat/conversationRuntime');
 const { createChatBackendManager } = require('./services/chat/backendManager');
 const { NanobotBackendAdapter } = require('./services/chat/backends/nanobotBackend');
+const { ClaudeCodeBackendAdapter } = require('./services/chat/backends/claudeCodeBackend');
+const { CodexBackendAdapter } = require('./services/chat/backends/codexBackend');
 const { NanobotRuntimeManager } = require('./services/chat/nanobot/nanobotRuntimeManager');
 const { NanobotSkillsLibrary } = require('./services/chat/nanobot/nanobotSkillsLibrary');
 const { Live2DModelLibrary, MODEL_PROTOCOL } = require('./services/live2dModelLibrary');
@@ -281,6 +283,10 @@ function normalizeMainBackendName(value) {
   const normalized = normalizeMainText(value).toLowerCase();
   if (!normalized) {
     return 'nanobot';
+  }
+
+  if (normalized === 'claude code' || normalized === 'claudecode' || normalized === 'claude_code') {
+    return 'claude-code';
   }
 
   if (normalized === 'openclaw') {
@@ -888,6 +894,8 @@ async function bootstrap() {
         }),
         resolveCapture: (captureId) => screenshotCaptureService?.resolveCapture(captureId) || null,
       }),
+      new ClaudeCodeBackendAdapter(),
+      new CodexBackendAdapter(),
     ],
   });
   registerModelProtocol();
