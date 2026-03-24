@@ -13,6 +13,7 @@
     "desktop:build": "pnpm run frontend:build && electron-builder",
     "test:frontend": "pnpm --dir front_end exec vitest --run",
     "test:desktop": "node --test desktop/electron/tests/*.test.js",
+    "test:regression:backend-switch": "node docs/scripts/regression_backend_switch_and_abort.js",
     "test:e2e:electron:mode-handshake": "node desktop/electron/scripts/playwrightModeHandshakeSmoke.js"
   },
   "devDependencies": {
