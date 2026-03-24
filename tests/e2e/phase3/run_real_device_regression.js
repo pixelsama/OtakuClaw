@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
@@ -11,6 +13,57 @@ const MOCK_HTTP = path.join(ROOT, 'tests/e2e/phase3/fixtures/mock_acp_http_serve
 const MOCK_WS = path.join(ROOT, 'tests/e2e/phase3/fixtures/mock_acp_ws_server.js');
 const DEV_URL = process.env.ELECTRON_DEV_SERVER_URL || 'http://127.0.0.1:3000';
 const STRICT = process.argv.includes('--strict');
+const USE_MAIN_PROFILE = process.argv.includes('--main-profile');
+const KEEP_PROFILE = process.argv.includes('--keep-profile');
+const MAIN_PROFILE_FILES_TO_RESTORE = ['openclaw-settings.json', 'value-state.json'];
+
+function resolveMainUserDataDir() {
+  const envOverride = typeof process.env.OPENCLAW_MAIN_USER_DATA_DIR === 'string'
+    ? process.env.OPENCLAW_MAIN_USER_DATA_DIR.trim()
+    : '';
+  if (envOverride) {
+    return path.resolve(envOverride);
+  }
+
+  const homeDir = process.env.HOME || os.homedir();
+  if (process.platform === 'darwin') {
+    return path.join(homeDir, 'Library', 'Application Support', 'otakuclaw-desktop');
+  }
+  if (process.platform === 'win32') {
+    const appDataDir = process.env.APPDATA || path.join(homeDir, 'AppData', 'Roaming');
+    return path.join(appDataDir, 'otakuclaw-desktop');
+  }
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME || path.join(homeDir, '.config');
+  return path.join(xdgConfigHome, 'otakuclaw-desktop');
+}
+
+function snapshotProfileFiles(baseDir, fileNames) {
+  return fileNames.map((fileName) => {
+    const filePath = path.join(baseDir, fileName);
+    if (!fs.existsSync(filePath)) {
+      return { filePath, existed: false, content: null };
+    }
+    return {
+      filePath,
+      existed: true,
+      content: fs.readFileSync(filePath),
+    };
+  });
+}
+
+function restoreProfileFiles(snapshots = []) {
+  for (const snapshot of snapshots) {
+    if (!snapshot || !snapshot.filePath) {
+      continue;
+    }
+    if (!snapshot.existed) {
+      fs.rmSync(snapshot.filePath, { force: true });
+      continue;
+    }
+    fs.mkdirSync(path.dirname(snapshot.filePath), { recursive: true });
+    fs.writeFileSync(snapshot.filePath, snapshot.content);
+  }
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -182,6 +235,13 @@ function createElectronApi(window) {
 async function main() {
   const results = [];
   const fixtures = [];
+  const mainUserDataDir = resolveMainUserDataDir();
+  const mainProfileSnapshots = USE_MAIN_PROFILE
+    ? snapshotProfileFiles(mainUserDataDir, MAIN_PROFILE_FILES_TO_RESTORE)
+    : [];
+  const isolatedUserDataDir = USE_MAIN_PROFILE
+    ? ''
+    : fs.mkdtempSync(path.join(os.tmpdir(), 'otakuclaw-phase3-'));
 
   const pushResult = ({ id, name, pass, details = '' }) => {
     results.push({ id, name, pass, details });
@@ -206,11 +266,23 @@ async function main() {
       env: {
         ...process.env,
         ELECTRON_DEV_SERVER_URL: DEV_URL,
+        ...(isolatedUserDataDir ? { OPENCLAW_USER_DATA_DIR: isolatedUserDataDir } : {}),
       },
     });
     appWindow = await electronApp.firstWindow();
     api = createElectronApi(appWindow);
     await attachCollector(appWindow);
+    const bootstrapSettings = await api.getSettings();
+    await api.saveSettings({
+      fastPersona: {
+        ...(bootstrapSettings.fastPersona || {}),
+        enabled: true,
+        configMode: 'custom',
+        provider: 'openai',
+        model: '',
+        apiBase: '',
+      },
+    });
 
     await runCase('2.1', 'Nanobot one-turn connectivity', async () => {
       const settings = await api.getSettings();
@@ -453,7 +525,6 @@ async function main() {
           provider: 'openai',
           model: '',
           apiBase: '',
-          clearApiKey: true,
         },
         chatBackend: 'codex',
       });
@@ -990,6 +1061,20 @@ async function main() {
     if (electronApp) {
       await electronApp.close().catch(() => {});
     }
+    if (isolatedUserDataDir && !KEEP_PROFILE) {
+      try {
+        fs.rmSync(isolatedUserDataDir, { recursive: true, force: true });
+      } catch {
+        // ignore cleanup errors for temp profile
+      }
+    }
+    if (USE_MAIN_PROFILE) {
+      try {
+        restoreProfileFiles(mainProfileSnapshots);
+      } catch (error) {
+        console.warn(`Failed to restore main profile snapshots: ${summarizeError(error)}`);
+      }
+    }
   }
 
   const passed = results.filter((item) => item.pass).length;
@@ -1006,6 +1091,11 @@ async function main() {
   }
 
   console.log(`\nSummary: ${passed}/${results.length} passed, ${failed} failed.`);
+  if (isolatedUserDataDir) {
+    console.log(`Profile: isolated (${isolatedUserDataDir})`);
+  } else {
+    console.log(`Profile: main (snapshot-restored: ${mainUserDataDir})`);
+  }
 
   if (STRICT && failed > 0) {
     process.exitCode = 1;

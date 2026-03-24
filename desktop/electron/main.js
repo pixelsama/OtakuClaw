@@ -116,6 +116,18 @@ const legacyConversationMirrorEnabled = (() => {
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 })();
 
+const forcedUserDataDir =
+  typeof process.env.OPENCLAW_USER_DATA_DIR === 'string'
+    ? process.env.OPENCLAW_USER_DATA_DIR.trim()
+    : '';
+if (forcedUserDataDir) {
+  try {
+    app.setPath('userData', path.resolve(forcedUserDataDir));
+  } catch (error) {
+    console.warn('Failed to apply OPENCLAW_USER_DATA_DIR override:', error);
+  }
+}
+
 function normalizeEnvText(value) {
   return typeof value === 'string' ? value.trim() : '';
 }

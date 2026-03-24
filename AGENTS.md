@@ -201,6 +201,9 @@
 - Frameworks:
   - Desktop: Node built-in `node:test`
   - Frontend: `vitest`
+- Isolation iron rule (mandatory):
+  - E2E/real-device automation must not mutate the user's default profile.
+  - Always use isolated `userData` (for example `OPENCLAW_USER_DATA_DIR=<temp-dir>`) or implement strict snapshot/restore in `finally`.
 - Focus regression tests on:
   - conversation runtime policy behavior (`latest-wins`/`queue`) and envelope routing
   - IPC stream event mapping (`text-delta` / `segment-ready` / `done` / `error`)
