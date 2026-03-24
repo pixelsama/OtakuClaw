@@ -20,6 +20,7 @@ const { registerLive2DModelsIpc } = require('./ipc/live2dModels');
 const { registerAppUpdaterIpc } = require('./ipc/appUpdater');
 const { registerNanobotSkillsIpc } = require('./ipc/nanobotSkills');
 const { registerNanobotRuntimeIpc } = require('./ipc/nanobotRuntime');
+const { registerAcpRunnerRuntimeIpc } = require('./ipc/acpRunnerRuntime');
 const { registerSettingsIpc } = require('./ipc/settings');
 const { registerScreenshotCaptureIpc } = require('./ipc/screenshotCapture');
 const { registerVoiceModelsIpc } = require('./ipc/voiceModels');
@@ -30,6 +31,7 @@ const { createChatBackendManager } = require('./services/chat/backendManager');
 const { NanobotBackendAdapter } = require('./services/chat/backends/nanobotBackend');
 const { ClaudeCodeBackendAdapter } = require('./services/chat/backends/claudeCodeBackend');
 const { CodexBackendAdapter } = require('./services/chat/backends/codexBackend');
+const { AcpRunnerRuntimeManager } = require('./services/chat/acp/acpRunnerRuntimeManager');
 const { NanobotRuntimeManager } = require('./services/chat/nanobot/nanobotRuntimeManager');
 const { NanobotSkillsLibrary } = require('./services/chat/nanobot/nanobotSkillsLibrary');
 const { Live2DModelLibrary, MODEL_PROTOCOL } = require('./services/live2dModelLibrary');
@@ -74,6 +76,7 @@ let disposeModeHandlers = null;
 let disposeLive2DModelsHandlers = null;
 let disposeAppUpdaterHandlers = null;
 let disposeNanobotRuntimeHandlers = null;
+let disposeAcpRunnerRuntimeHandlers = null;
 let disposeNanobotSkillsHandlers = null;
 let disposeVoiceModelsHandlers = null;
 let disposeVoiceSessionHandlers = null;
@@ -99,6 +102,7 @@ let pythonEnvManager = null;
 let voiceModelLibrary = null;
 let downloadInstallTaskManager = null;
 let nanobotRuntimeManager = null;
+let acpRunnerRuntimeManager = null;
 let nanobotSkillsLibrary = null;
 let isQuitting = false;
 let chatBackendManager = null;
@@ -130,6 +134,46 @@ if (forcedUserDataDir) {
 
 function normalizeEnvText(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+async function applyManagedAcpRunnerCommands() {
+  if (!settingsStore || !acpRunnerRuntimeManager) {
+    return;
+  }
+
+  const currentSettings = settingsStore.getPublic?.() || {};
+  const updates = {};
+  const mappings = [
+    { backend: 'codex', key: 'codex', defaultCommand: 'codex-acp' },
+    { backend: 'claude-code', key: 'claudeCode', defaultCommand: 'claude-agent-acp' },
+  ];
+
+  for (const mapping of mappings) {
+    const managedCommandPath = acpRunnerRuntimeManager.resolveManagedCommandPath(mapping.backend);
+    if (!managedCommandPath) {
+      continue;
+    }
+    const configuredCommand = normalizeEnvText(currentSettings?.[mapping.key]?.runner?.command);
+    const pointsToManagedRoot =
+      configuredCommand
+      && configuredCommand.includes(`${path.sep}acp-runners${path.sep}`);
+    const shouldUpdateCommand =
+      !configuredCommand
+      || configuredCommand === mapping.defaultCommand
+      || pointsToManagedRoot;
+    if (!shouldUpdateCommand || configuredCommand === managedCommandPath) {
+      continue;
+    }
+    updates[mapping.key] = {
+      runner: {
+        command: managedCommandPath,
+      },
+    };
+  }
+
+  if (Object.keys(updates).length > 0) {
+    await settingsStore.save(updates);
+  }
 }
 
 function prepareQuitForUpdate() {
@@ -900,6 +944,11 @@ async function bootstrap() {
     },
   });
   await nanobotRuntimeManager.init();
+  acpRunnerRuntimeManager = new AcpRunnerRuntimeManager(app, {
+    env: process.env,
+  });
+  await acpRunnerRuntimeManager.init();
+  await applyManagedAcpRunnerCommands();
   nanobotSkillsLibrary = new NanobotSkillsLibrary(app, {
     nanobotRuntimeManager,
   });
@@ -1001,6 +1050,17 @@ async function bootstrap() {
         return;
       }
       mainWindow.webContents.send('nanobot-runtime:progress', payload);
+    },
+  });
+  disposeAcpRunnerRuntimeHandlers = registerAcpRunnerRuntimeIpc({
+    ipcMain,
+    acpRunnerRuntimeManager,
+    settingsStore,
+    emitProgress: (payload) => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+      }
+      mainWindow.webContents.send('acp-runner:progress', payload);
     },
   });
   disposeNanobotSkillsHandlers = registerNanobotSkillsIpc({
@@ -1632,6 +1692,9 @@ app.on('before-quit', () => {
   if (disposeNanobotRuntimeHandlers) {
     disposeNanobotRuntimeHandlers();
   }
+  if (disposeAcpRunnerRuntimeHandlers) {
+    disposeAcpRunnerRuntimeHandlers();
+  }
   if (disposeNanobotSkillsHandlers) {
     disposeNanobotSkillsHandlers();
   }
@@ -1684,6 +1747,7 @@ app.on('before-quit', () => {
   pythonEnvManager = null;
   voiceModelLibrary = null;
   nanobotRuntimeManager = null;
+  acpRunnerRuntimeManager = null;
   nanobotSkillsLibrary = null;
   screenshotCaptureService = null;
   screenshotSelectionService = null;

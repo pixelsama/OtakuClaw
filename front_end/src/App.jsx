@@ -83,6 +83,20 @@ function AppContent({ desktopMode }) {
   const [permissionRequestQueue, setPermissionRequestQueue] = useState([]);
   const [permissionDecisionSubmitting, setPermissionDecisionSubmitting] = useState(false);
 
+  const resolveAcpRunnerTaskMeta = useCallback((backend) => {
+    const normalized = typeof backend === 'string' ? backend.trim().toLowerCase() : '';
+    if (normalized === 'codex') {
+      return {
+        taskId: 'acp-runner:codex',
+        title: t('download.codexRunnerTitle'),
+      };
+    }
+    return {
+      taskId: 'acp-runner:claude-code',
+      title: t('download.claudeRunnerTitle'),
+    };
+  }, [t]);
+
   const { subtitleText, appendDelta, setSegmentText, finishStream, clearSubtitle, beginStream } = useSubtitleFeed();
   const { startStreaming: _startStreaming, cancelStreaming, onDelta, onSegmentReady, onDone, onError, isStreaming } =
     useStreamingChat();
@@ -113,6 +127,9 @@ function AppContent({ desktopMode }) {
     nanobotRuntimeStatus,
     nanobotRuntimeInstalling,
     onInstallNanobotRuntime,
+    acpRunnerStatus,
+    acpRunnerInstallingBackend,
+    onInstallAcpRunner,
     nanobotSkills,
     nanobotSkillsLoading,
     nanobotSkillsImporting,
@@ -319,11 +336,26 @@ function AppContent({ desktopMode }) {
       });
     });
 
+    const offAcpRunnerProgress = desktopBridge.acpRunnerRuntime.onProgress((payload = {}) => {
+      const backend = typeof payload?.backend === 'string' ? payload.backend.trim().toLowerCase() : '';
+      const { taskId, title } = resolveAcpRunnerTaskMeta(backend);
+      handleDownloadProgress({
+        taskId,
+        title,
+        payload: {
+          ...payload,
+          backend,
+        },
+        suppressAutoOpen: firstRunOnboardingOpen,
+      });
+    });
+
     return () => {
       offVoiceModelProgress?.();
       offNanobotRuntimeProgress?.();
+      offAcpRunnerProgress?.();
     };
-  }, [desktopMode, firstRunOnboardingOpen, handleDownloadProgress, t]);
+  }, [desktopMode, firstRunOnboardingOpen, handleDownloadProgress, resolveAcpRunnerTaskMeta, t]);
 
   const syncBuiltinTtsEnabled = useCallback((result = {}) => {
     const selectedTtsBundleId =
@@ -479,6 +511,16 @@ function AppContent({ desktopMode }) {
     });
     await onInstallNanobotRuntime();
   }, [ensureDownloadTask, onInstallNanobotRuntime, t]);
+
+  const handleInstallAcpRunner = useCallback(async (backend) => {
+    const { taskId, title } = resolveAcpRunnerTaskMeta(backend);
+    ensureDownloadTask({
+      taskId,
+      title,
+    });
+    openDownloadTask(taskId);
+    await onInstallAcpRunner(backend);
+  }, [ensureDownloadTask, onInstallAcpRunner, openDownloadTask, resolveAcpRunnerTaskMeta]);
 
   const handleFinishFirstRunOnboarding = useCallback(async () => {
     try {
@@ -1355,6 +1397,9 @@ function AppContent({ desktopMode }) {
         nanobotRuntimeStatus={nanobotRuntimeStatus}
         nanobotRuntimeInstalling={nanobotRuntimeInstalling}
         onInstallNanobotRuntime={handleInstallNanobotRuntime}
+        acpRunnerStatus={acpRunnerStatus}
+        acpRunnerInstallingBackend={acpRunnerInstallingBackend}
+        onInstallAcpRunner={handleInstallAcpRunner}
         nanobotSkills={nanobotSkills}
         nanobotSkillsLoading={nanobotSkillsLoading}
         nanobotSkillsImporting={nanobotSkillsImporting}

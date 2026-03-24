@@ -135,6 +135,31 @@ const defaultNanobotRuntimeStatus = {
   managedByApp: false,
   installing: false,
 };
+const defaultAcpRunnerBackendStatus = {
+  backend: '',
+  displayName: '',
+  installed: false,
+  installing: false,
+  managedByApp: false,
+  commandPath: '',
+  version: '',
+  expectedVersion: '',
+  archiveUrl: '',
+  installedAt: '',
+  rootDir: '',
+};
+const defaultAcpRunnerStatus = {
+  codex: {
+    ...defaultAcpRunnerBackendStatus,
+    backend: 'codex',
+    displayName: 'Codex',
+  },
+  'claude-code': {
+    ...defaultAcpRunnerBackendStatus,
+    backend: 'claude-code',
+    displayName: 'Claude Code',
+  },
+};
 const defaultNanobotSkillsState = {
   libraryPath: '',
   customSkills: [],
@@ -160,6 +185,53 @@ function normalizeNanobotSkillsState(payload = {}) {
     libraryPath: typeof payload?.libraryPath === 'string' ? payload.libraryPath.trim() : '',
     customSkills: Array.isArray(payload?.customSkills) ? payload.customSkills.map(normalizeSkillItem) : [],
     builtinSkills: Array.isArray(payload?.builtinSkills) ? payload.builtinSkills.map(normalizeSkillItem) : [],
+  };
+}
+
+function normalizeAcpRunnerBackendStatus(payload = {}, fallback = {}) {
+  const resolvedBackend = (() => {
+    const normalized = typeof payload?.backend === 'string' ? payload.backend.trim().toLowerCase() : '';
+    if (normalized === 'codex') {
+      return 'codex';
+    }
+    if (normalized === 'claude-code' || normalized === 'claude code' || normalized === 'claudecode' || normalized === 'claude_code') {
+      return 'claude-code';
+    }
+    return fallback.backend || '';
+  })();
+
+  return {
+    ...defaultAcpRunnerBackendStatus,
+    ...fallback,
+    ...(payload && typeof payload === 'object' ? payload : {}),
+    backend: resolvedBackend,
+    displayName: typeof payload?.displayName === 'string' && payload.displayName.trim()
+      ? payload.displayName.trim()
+      : (fallback.displayName || ''),
+    installed: Boolean(payload?.installed),
+    installing: Boolean(payload?.installing),
+    managedByApp: Boolean(payload?.managedByApp),
+    commandPath: typeof payload?.commandPath === 'string' ? payload.commandPath.trim() : '',
+    version: typeof payload?.version === 'string' ? payload.version.trim() : '',
+    expectedVersion: typeof payload?.expectedVersion === 'string' ? payload.expectedVersion.trim() : '',
+    archiveUrl: typeof payload?.archiveUrl === 'string' ? payload.archiveUrl.trim() : '',
+    installedAt: typeof payload?.installedAt === 'string' ? payload.installedAt.trim() : '',
+    rootDir: typeof payload?.rootDir === 'string' ? payload.rootDir.trim() : '',
+  };
+}
+
+function normalizeAcpRunnerStatusState(payload = {}) {
+  const source = payload && typeof payload === 'object' ? payload : {};
+  const backends = source.backends && typeof source.backends === 'object' ? source.backends : {};
+  return {
+    codex: normalizeAcpRunnerBackendStatus(backends.codex, {
+      backend: 'codex',
+      displayName: 'Codex',
+    }),
+    'claude-code': normalizeAcpRunnerBackendStatus(backends['claude-code'], {
+      backend: 'claude-code',
+      displayName: 'Claude Code',
+    }),
   };
 }
 
@@ -379,6 +451,8 @@ export function useChatBackendSettings({ t, normalizeError }) {
   const [settingsError, setSettingsError] = useState('');
   const [nanobotRuntimeStatus, setNanobotRuntimeStatus] = useState(defaultNanobotRuntimeStatus);
   const [nanobotRuntimeInstalling, setNanobotRuntimeInstalling] = useState(false);
+  const [acpRunnerStatus, setAcpRunnerStatus] = useState(defaultAcpRunnerStatus);
+  const [acpRunnerInstallingBackend, setAcpRunnerInstallingBackend] = useState('');
   const [nanobotSkillsState, setNanobotSkillsState] = useState(defaultNanobotSkillsState);
   const [nanobotSkillsLoading, setNanobotSkillsLoading] = useState(true);
   const [nanobotSkillsImporting, setNanobotSkillsImporting] = useState(false);
@@ -418,6 +492,15 @@ export function useChatBackendSettings({ t, normalizeError }) {
     }
   }, []);
 
+  const refreshAcpRunnerStatus = useCallback(async () => {
+    try {
+      const status = await desktopBridge.acpRunnerRuntime.status();
+      setAcpRunnerStatus(normalizeAcpRunnerStatusState(status));
+    } catch {
+      setAcpRunnerStatus(defaultAcpRunnerStatus);
+    }
+  }, []);
+
   useEffect(() => {
     let mounted = true;
 
@@ -439,12 +522,13 @@ export function useChatBackendSettings({ t, normalizeError }) {
 
     void loadSettings();
     void refreshNanobotRuntimeStatus();
+    void refreshAcpRunnerStatus();
     void refreshNanobotSkills();
 
     return () => {
       mounted = false;
     };
-  }, [refreshNanobotRuntimeStatus, refreshNanobotSkills]);
+  }, [refreshAcpRunnerStatus, refreshNanobotRuntimeStatus, refreshNanobotSkills]);
 
   useEffect(() => {
     if (!settingsLoaded) {
@@ -699,6 +783,57 @@ export function useChatBackendSettings({ t, normalizeError }) {
     }
   }, [formatError, refreshNanobotRuntimeStatus, refreshNanobotSkills, t]);
 
+  const onInstallAcpRunner = useCallback(async (backend) => {
+    const normalizedBackend = normalizeBackendName(backend);
+    if (normalizedBackend !== 'codex' && normalizedBackend !== 'claude-code') {
+      return {
+        ok: false,
+        error: {
+          code: 'acp_runner_backend_invalid',
+          message: 'Unsupported ACP backend.',
+        },
+      };
+    }
+
+    setAcpRunnerInstallingBackend(normalizedBackend);
+    setSettingsError('');
+    setSettingsFeedback('');
+
+    try {
+      const result = await desktopBridge.acpRunnerRuntime.install({
+        backend: normalizedBackend,
+      });
+
+      if (!result?.ok) {
+        setSettingsError(formatError(result?.error));
+        return result;
+      }
+
+      await refreshAcpRunnerStatus();
+
+      try {
+        const settings = await desktopBridge.settings.get();
+        const normalized = normalizeSettingsForState(settings);
+        setChatBackendSettings(normalized);
+        setSavedSettingsSnapshot(buildComparableSettingsSnapshot(normalized));
+      } catch (reloadError) {
+        console.warn('Failed to refresh settings after ACP runner install:', reloadError);
+      }
+
+      const backendLabel = normalizedBackend === 'codex' ? t('app.backend.codex') : t('app.backend.claudeCode');
+      setSettingsFeedback(t('app.acpRunnerInstalled', { backend: backendLabel }));
+      return result;
+    } catch (error) {
+      setSettingsError(formatError(error));
+      return {
+        ok: false,
+        error,
+      };
+    } finally {
+      setAcpRunnerInstallingBackend('');
+    }
+  }, [formatError, refreshAcpRunnerStatus, t]);
+
   const onImportNanobotSkillsZip = useCallback(async () => {
     setNanobotSkillsImporting(true);
     setSettingsError('');
@@ -816,6 +951,10 @@ export function useChatBackendSettings({ t, normalizeError }) {
     nanobotRuntimeInstalling,
     onInstallNanobotRuntime,
     refreshNanobotRuntimeStatus,
+    acpRunnerStatus,
+    acpRunnerInstallingBackend,
+    onInstallAcpRunner,
+    refreshAcpRunnerStatus,
     nanobotSkills: nanobotSkillsState,
     nanobotSkillsLoading,
     nanobotSkillsImporting,

@@ -176,6 +176,9 @@ export default function ConfigDrawer({
   nanobotRuntimeStatus = {},
   nanobotRuntimeInstalling = false,
   onInstallNanobotRuntime,
+  acpRunnerStatus = {},
+  acpRunnerInstallingBackend = '',
+  onInstallAcpRunner,
   nanobotSkills = {},
   nanobotSkillsLoading = false,
   nanobotSkillsImporting = false,
@@ -199,6 +202,22 @@ export default function ConfigDrawer({
   const codexSettings = chatBackendSettings?.codex || {};
   const activeAcpSettings = selectedBackend === 'codex' ? codexSettings : claudeCodeSettings;
   const activeAcpRunner = activeAcpSettings?.runner || {};
+  const selectedAcpBackend = selectedBackend === 'codex' ? 'codex' : 'claude-code';
+  const activeAcpRunnerRuntimeStatus = selectedBackend === 'nanobot'
+    ? null
+    : (acpRunnerStatus?.[selectedAcpBackend] || null);
+  const activeAcpRunnerInstalled = Boolean(activeAcpRunnerRuntimeStatus?.installed);
+  const activeAcpRunnerInstalling = selectedBackend !== 'nanobot'
+    && (
+      (typeof acpRunnerInstallingBackend === 'string' && acpRunnerInstallingBackend === selectedAcpBackend)
+      || Boolean(activeAcpRunnerRuntimeStatus?.installing)
+    );
+  const activeAcpRunnerPath = typeof activeAcpRunnerRuntimeStatus?.commandPath === 'string'
+    ? activeAcpRunnerRuntimeStatus.commandPath
+    : '';
+  const selectedAcpBackendLabel = selectedBackend === 'codex'
+    ? t('app.backend.codex')
+    : t('app.backend.claudeCode');
   const hasSecureStorage = chatBackendSettings?.hasSecureStorage !== false;
   const hasBackendSecret = selectedBackend === 'nanobot' && nanobotSettings.hasApiKey;
   const nanobotRuntimeInstalled = Boolean(nanobotRuntimeStatus?.installed);
@@ -483,6 +502,46 @@ export default function ConfigDrawer({
 
                       {(activeAcpRunner.transport || 'stdio') === 'stdio' && (
                         <>
+                          {desktopMode && !activeAcpRunnerInstalled && (
+                            <Alert
+                              severity="warning"
+                              action={(
+                                <Button
+                                  color="inherit"
+                                  size="small"
+                                  disabled={activeAcpRunnerInstalling}
+                                  onClick={() => {
+                                    void onInstallAcpRunner?.(selectedAcpBackend);
+                                  }}
+                                >
+                                  {activeAcpRunnerInstalling ? t('app.acpRunnerInstalling') : t('app.acpRunnerInstall')}
+                                </Button>
+                              )}
+                            >
+                              {t('app.acpRunnerMissing', { backend: selectedAcpBackendLabel })}
+                            </Alert>
+                          )}
+
+                          {desktopMode && activeAcpRunnerInstalled && (
+                            <Alert
+                              severity="success"
+                              action={(
+                                <Button
+                                  color="inherit"
+                                  size="small"
+                                  disabled={activeAcpRunnerInstalling}
+                                  onClick={() => {
+                                    void onInstallAcpRunner?.(selectedAcpBackend);
+                                  }}
+                                >
+                                  {activeAcpRunnerInstalling ? t('app.acpRunnerInstalling') : t('app.acpRunnerReinstall')}
+                                </Button>
+                              )}
+                            >
+                              {t('app.acpRunnerReady', { path: activeAcpRunnerPath })}
+                            </Alert>
+                          )}
+
                           <TextField
                             label={t('app.acpRunnerCommand')}
                             value={activeAcpRunner.command || ''}

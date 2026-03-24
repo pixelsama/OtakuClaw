@@ -100,6 +100,18 @@ const nanobotRuntime = {
   },
 };
 
+const acpRunnerRuntime = {
+  status(payload) {
+    return ipcRenderer.invoke('acp-runner:status', payload);
+  },
+  install(payload) {
+    return ipcRenderer.invoke('acp-runner:install', payload);
+  },
+  onProgress(handler) {
+    return onChannel('acp-runner:progress', handler);
+  },
+};
+
 const nanobotSkills = {
   list() {
     return ipcRenderer.invoke('nanobot-skills:list');
@@ -333,6 +345,7 @@ contextBridge.exposeInMainWorld('desktop', {
   settings,
   appUpdater,
   nanobotRuntime,
+  acpRunnerRuntime,
   nanobotSkills,
   office,
   valueState,

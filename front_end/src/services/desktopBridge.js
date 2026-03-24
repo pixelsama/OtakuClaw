@@ -1698,6 +1698,40 @@ export const desktopBridge = {
       return api.nanobotRuntime.onProgress(handler);
     },
   },
+  acpRunnerRuntime: {
+    async status(payload = {}) {
+      const api = getDesktopApi();
+      if (api?.acpRunnerRuntime?.status) {
+        return api.acpRunnerRuntime.status(payload);
+      }
+      return {
+        ok: false,
+        backend: '',
+        backends: {},
+        status: null,
+      };
+    },
+    async install(payload = {}) {
+      const api = getDesktopApi();
+      if (api?.acpRunnerRuntime?.install) {
+        return api.acpRunnerRuntime.install(payload);
+      }
+      return {
+        ok: false,
+        error: {
+          code: 'acp_runner_not_ready',
+          message: 'Web 模式暂不支持 ACP runner 下载。',
+        },
+      };
+    },
+    onProgress(handler) {
+      const api = getDesktopApi();
+      if (!api?.acpRunnerRuntime?.onProgress || typeof handler !== 'function') {
+        return () => {};
+      }
+      return api.acpRunnerRuntime.onProgress(handler);
+    },
+  },
   nanobotSkills: {
     async list() {
       const api = getDesktopApi();
