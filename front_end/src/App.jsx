@@ -44,6 +44,7 @@ import { normalizeErrorMessage } from './utils/normalizeErrorMessage.js';
 const DEFAULT_MODEL = '';
 const CONFIG_DRAWER_WIDTH = 420;
 const AGENT_ROLE_CONFIG_STORAGE_KEY = 'openclaw.agentRoleConfig.v1';
+const SUPPORTED_AGENT_BACKENDS = new Set(['nanobot', 'claude-code', 'codex']);
 const SUPPORTED_AGENT_ROLE_STATES = new Set([
   'idle',
   'writing',
@@ -53,7 +54,16 @@ const SUPPORTED_AGENT_ROLE_STATES = new Set([
   'error',
 ]);
 
+function normalizeAgentBackend(value, fallback = 'nanobot') {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  return SUPPORTED_AGENT_BACKENDS.has(normalized) ? normalized : fallback;
+}
+
 function normalizeStoredAgentRole(entry = {}, fallbackId = '') {
+  const source = entry && typeof entry === 'object' ? entry : {};
   const normalized = normalizeOfficeAgent(entry, fallbackId);
   const agentId = typeof normalized?.agentId === 'string' ? normalized.agentId.trim() : '';
   if (!agentId || agentId === OFFICE_PRIMARY_AGENT_ID) {
@@ -69,6 +79,8 @@ function normalizeStoredAgentRole(entry = {}, fallbackId = '') {
     role: normalized.role || 'support',
     businessState,
     detail: normalized.detail || '',
+    backend: normalizeAgentBackend(source.backend, 'nanobot'),
+    live2dModelPath: typeof source.live2dModelPath === 'string' ? source.live2dModelPath.trim() : '',
   };
 }
 
@@ -122,7 +134,6 @@ function AppContent({ desktopMode }) {
   const { t } = useI18n();
 
   const [, setModelLoaded] = useState(false);
-  const currentModelPath = DEFAULT_MODEL;
   const [motions] = useState([]);
   const [expressions] = useState([]);
   const [officeStateSnapshot, setOfficeStateSnapshot] = useState(() => normalizeOfficeState());
@@ -215,6 +226,56 @@ function AppContent({ desktopMode }) {
     normalizeError,
   });
 
+  const configuredAgentMap = useMemo(() => {
+    const byId = new Map();
+    const sourceAgents = Array.isArray(agentRoleConfig?.agents) ? agentRoleConfig.agents : [];
+    for (const agent of sourceAgents) {
+      const normalized = normalizeStoredAgentRole(agent, '');
+      if (normalized?.agentId) {
+        byId.set(normalized.agentId, normalized);
+      }
+    }
+    return byId;
+  }, [agentRoleConfig?.agents]);
+
+  const resolvedConversationAgentId = useMemo(() => {
+    const immersiveAgentId =
+      typeof immersiveContext?.agentId === 'string' && immersiveContext.agentId.trim()
+        ? immersiveContext.agentId.trim()
+        : '';
+    if (immersiveAgentId) {
+      return immersiveAgentId;
+    }
+    const officeActiveAgentId =
+      typeof officeStateSnapshot?.activeAgentId === 'string' && officeStateSnapshot.activeAgentId.trim()
+        ? officeStateSnapshot.activeAgentId.trim()
+        : '';
+    if (officeActiveAgentId) {
+      return officeActiveAgentId;
+    }
+    const storedActiveAgentId =
+      typeof agentRoleConfig?.activeAgentId === 'string' && agentRoleConfig.activeAgentId.trim()
+        ? agentRoleConfig.activeAgentId.trim()
+        : '';
+    return storedActiveAgentId || OFFICE_PRIMARY_AGENT_ID;
+  }, [agentRoleConfig?.activeAgentId, immersiveContext?.agentId, officeStateSnapshot?.activeAgentId]);
+
+  const activeConfiguredAgent = useMemo(
+    () => configuredAgentMap.get(resolvedConversationAgentId) || null,
+    [configuredAgentMap, resolvedConversationAgentId],
+  );
+
+  const activeConversationBackend = useMemo(
+    () =>
+      normalizeAgentBackend(
+        activeConfiguredAgent?.backend,
+        normalizeAgentBackend(chatBackendSettings?.chatBackend, 'nanobot'),
+      ),
+    [activeConfiguredAgent?.backend, chatBackendSettings?.chatBackend],
+  );
+
+  const currentModelPath = activeConfiguredAgent?.live2dModelPath || DEFAULT_MODEL;
+
   // Wrapped startStreaming that also tracks chat history
   const startStreaming = useCallback(
     async (sessionId, content, extras) => {
@@ -240,16 +301,28 @@ function AppContent({ desktopMode }) {
         setPendingCaptureDraft(null);
       }
 
+      const safeExtras = extras && typeof extras === 'object' ? extras : {};
+      const options = safeExtras.options && typeof safeExtras.options === 'object' ? safeExtras.options : {};
+      const explicitAgentId =
+        (typeof safeExtras.agentId === 'string' && safeExtras.agentId.trim())
+        || (typeof options.agentId === 'string' && options.agentId.trim())
+        || '';
+      const explicitBackend =
+        typeof safeExtras.backend === 'string' && safeExtras.backend.trim()
+          ? normalizeAgentBackend(safeExtras.backend, '')
+          : '';
+      const mergedOptions = {
+        ...options,
+        ...(explicitAgentId ? { agentId: explicitAgentId } : { agentId: resolvedConversationAgentId }),
+      };
       const mergedExtras = {
-        ...(extras && typeof extras === 'object' ? extras : {}),
-        backend:
-          typeof extras?.backend === 'string' && extras.backend.trim()
-            ? extras.backend
-            : chatBackendSettings.chatBackend,
+        ...safeExtras,
+        backend: explicitBackend || activeConversationBackend,
+        options: mergedOptions,
       };
       await _startStreaming(sessionId, content, mergedExtras);
     },
-    [_startStreaming, addUserMessage, chatBackendSettings.chatBackend, startAiMessage],
+    [_startStreaming, activeConversationBackend, addUserMessage, resolvedConversationAgentId, startAiMessage],
   );
 
   // Track AI streaming response into chat history
@@ -752,7 +825,7 @@ function AppContent({ desktopMode }) {
   const textComposerWithVoiceProps = useMemo(
     () => ({
       ...textComposerProps,
-      canCaptureScreen: desktopMode && chatBackendSettings.chatBackend === 'nanobot',
+      canCaptureScreen: desktopMode && activeConversationBackend === 'nanobot',
       onCaptureScreen: captureScreenToPendingDraft,
       captureDraft: pendingCaptureDraft,
       onClearCaptureDraft: clearPendingCaptureDraft,
@@ -761,7 +834,7 @@ function AppContent({ desktopMode }) {
       onToggleVoice: voiceMicToggle.toggleVoice,
     }),
     [
-      chatBackendSettings.chatBackend,
+      activeConversationBackend,
       clearPendingCaptureDraft,
       captureScreenToPendingDraft,
       desktopMode,
@@ -855,6 +928,23 @@ function AppContent({ desktopMode }) {
   useEffect(() => {
     saveStoredAgentRoleConfig(agentRoleConfig);
   }, [agentRoleConfig]);
+
+  useEffect(() => {
+    const nextActiveAgentId =
+      typeof officeStateSnapshot?.activeAgentId === 'string' && officeStateSnapshot.activeAgentId.trim()
+        ? officeStateSnapshot.activeAgentId.trim()
+        : '';
+    const normalizedActiveAgentId = nextActiveAgentId === OFFICE_PRIMARY_AGENT_ID ? '' : nextActiveAgentId;
+    setAgentRoleConfig((current) => {
+      if ((current?.activeAgentId || '') === normalizedActiveAgentId) {
+        return current;
+      }
+      return {
+        ...(current && typeof current === 'object' ? current : {}),
+        activeAgentId: normalizedActiveAgentId,
+      };
+    });
+  }, [officeStateSnapshot?.activeAgentId]);
 
   useEffect(() => {
     const storedConfig = initialAgentRoleConfigRef.current || {};
@@ -1536,6 +1626,8 @@ function AppContent({ desktopMode }) {
         onClose={closeConfigPanel}
         desktopMode={desktopMode}
         officeState={officeStateSnapshot}
+        agentRoleConfig={agentRoleConfig}
+        defaultChatBackend={chatBackendSettings.chatBackend}
         onUpsertOfficeAgent={handleUpsertOfficeAgent}
         onRemoveOfficeAgent={handleRemoveOfficeAgent}
         onSetActiveOfficeAgent={handleSetActiveOfficeAgent}

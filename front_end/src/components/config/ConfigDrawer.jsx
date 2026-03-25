@@ -157,6 +157,8 @@ export default function ConfigDrawer({
   onClose,
   desktopMode = false,
   officeState = {},
+  agentRoleConfig = {},
+  defaultChatBackend = 'nanobot',
   onUpsertOfficeAgent,
   onRemoveOfficeAgent,
   onSetActiveOfficeAgent,
@@ -416,6 +418,8 @@ export default function ConfigDrawer({
             {activeConfigTab === 0 && (
               <AgentRoleSettingsPanel
                 officeState={officeState}
+                agentRoleConfig={agentRoleConfig}
+                defaultBackend={defaultChatBackend}
                 onUpsertAgent={onUpsertOfficeAgent}
                 onRemoveAgent={onRemoveOfficeAgent}
                 onSetActiveAgent={onSetActiveOfficeAgent}
