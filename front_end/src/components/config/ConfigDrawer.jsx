@@ -6,7 +6,6 @@ import {
   Alert,
   Box,
   Button,
-  Chip,
   Divider,
   Drawer,
   IconButton,
@@ -19,7 +18,7 @@ import {
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import Live2DControls from '../controls/Live2DControls.jsx';
+import AgentRoleSettingsPanel from './AgentRoleSettingsPanel.jsx';
 import VoiceSettingsPanel from './VoiceSettingsPanel.jsx';
 import { desktopBridge } from '../../services/desktopBridge.js';
 import {
@@ -156,12 +155,11 @@ export default function ConfigDrawer({
   isPetMode = false,
   isNarrowViewport = false,
   onClose,
-  modelLoaded = false,
   desktopMode = false,
-  live2dViewerRef,
-  onModelChange,
-  onMotionsUpdate,
-  onExpressionsUpdate,
+  officeState = {},
+  onUpsertOfficeAgent,
+  onRemoveOfficeAgent,
+  onSetActiveOfficeAgent,
   chatBackendSettings = {},
   settingsSaving = false,
   settingsTesting = false,
@@ -402,14 +400,13 @@ export default function ConfigDrawer({
               <CloseIcon />
             </IconButton>
             <span>{t('app.settingsPanel')}</span>
-            {modelLoaded && <Chip color="success" size="small" label={t('app.modelLoaded')} />}
           </Stack>
         </Box>
 
         <Box sx={{ flex: 1, overflowY: 'auto', px: 2, py: 2 }}>
           <Stack spacing={2}>
             <Tabs value={activeConfigTab} onChange={(_event, tab) => setActiveConfigTab(tab)} variant="fullWidth">
-              <Tab label={t('app.tab.live2d')} />
+              <Tab label={t('app.tab.agentRoles')} />
               <Tab label={t('app.tab.chatBackend')} />
               <Tab label={t('app.tab.voice')} />
               <Tab label={t('app.tab.preferences')} />
@@ -417,38 +414,11 @@ export default function ConfigDrawer({
             <Divider />
 
             {activeConfigTab === 0 && (
-              <Live2DControls
-                live2dViewerRef={live2dViewerRef}
-                modelLoaded={modelLoaded}
-                isPetMode={isPetMode}
-                onModelChange={onModelChange}
-                onMotionsUpdate={onMotionsUpdate}
-                onExpressionsUpdate={onExpressionsUpdate}
-                onAutoEyeBlinkChange={(enabled) => {
-                  live2dViewerRef.current?.getManager?.()?.setAutoEyeBlinkEnable(enabled);
-                }}
-                onAutoBreathChange={(enabled) => {
-                  live2dViewerRef.current?.getManager?.()?.setAutoBreathEnable(enabled);
-                }}
-                onEyeTrackingChange={(enabled) => {
-                  live2dViewerRef.current?.getManager?.()?.setEyeTracking(enabled);
-                }}
-                onModelScaleChange={(scale) => {
-                  live2dViewerRef.current?.getManager?.()?.setModelScale(scale);
-                }}
-                onBackgroundChange={(backgroundConfig) => {
-                  const manager = live2dViewerRef.current?.getManager?.();
-                  if (!manager) {
-                    return;
-                  }
-
-                  if (!backgroundConfig.hasBackground) {
-                    manager.clearBackground();
-                    return;
-                  }
-
-                  manager.setBackgroundOpacity(backgroundConfig.opacity ?? 1);
-                }}
+              <AgentRoleSettingsPanel
+                officeState={officeState}
+                onUpsertAgent={onUpsertOfficeAgent}
+                onRemoveAgent={onRemoveOfficeAgent}
+                onSetActiveAgent={onSetActiveOfficeAgent}
               />
             )}
 

@@ -25,6 +25,7 @@ import {
   buildOfficeDisplayState,
   derivePrimaryOfficeAgent,
   getOfficeFurnitureCatalogItem,
+  normalizeOfficeAgent,
   normalizeOfficeSceneLayout,
   normalizeOfficeState,
   OFFICE_PRIMARY_AGENT_ID,
@@ -42,6 +43,76 @@ import { normalizeErrorMessage } from './utils/normalizeErrorMessage.js';
 
 const DEFAULT_MODEL = '';
 const CONFIG_DRAWER_WIDTH = 420;
+const AGENT_ROLE_CONFIG_STORAGE_KEY = 'openclaw.agentRoleConfig.v1';
+const SUPPORTED_AGENT_ROLE_STATES = new Set([
+  'idle',
+  'writing',
+  'researching',
+  'executing',
+  'syncing',
+  'error',
+]);
+
+function normalizeStoredAgentRole(entry = {}, fallbackId = '') {
+  const normalized = normalizeOfficeAgent(entry, fallbackId);
+  const agentId = typeof normalized?.agentId === 'string' ? normalized.agentId.trim() : '';
+  if (!agentId || agentId === OFFICE_PRIMARY_AGENT_ID) {
+    return null;
+  }
+  const businessState = SUPPORTED_AGENT_ROLE_STATES.has(normalized.businessState)
+    ? normalized.businessState
+    : 'idle';
+  return {
+    agentId,
+    id: agentId,
+    displayName: normalized.displayName,
+    role: normalized.role || 'support',
+    businessState,
+    detail: normalized.detail || '',
+  };
+}
+
+function loadStoredAgentRoleConfig() {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return { agents: [], activeAgentId: '' };
+  }
+  try {
+    const raw = window.localStorage.getItem(AGENT_ROLE_CONFIG_STORAGE_KEY);
+    if (!raw) {
+      return { agents: [], activeAgentId: '' };
+    }
+    const parsed = JSON.parse(raw);
+    const sourceAgents = Array.isArray(parsed?.agents) ? parsed.agents : [];
+    const agents = sourceAgents
+      .map((item, index) => normalizeStoredAgentRole(item, `agent-${index + 1}`))
+      .filter(Boolean);
+    const activeAgentId = typeof parsed?.activeAgentId === 'string' ? parsed.activeAgentId.trim() : '';
+    return {
+      agents,
+      activeAgentId: activeAgentId === OFFICE_PRIMARY_AGENT_ID ? '' : activeAgentId,
+    };
+  } catch (error) {
+    console.warn('Failed to parse stored agent role config:', error);
+    return { agents: [], activeAgentId: '' };
+  }
+}
+
+function saveStoredAgentRoleConfig(config = {}) {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(
+      AGENT_ROLE_CONFIG_STORAGE_KEY,
+      JSON.stringify({
+        agents: Array.isArray(config.agents) ? config.agents : [],
+        activeAgentId: typeof config.activeAgentId === 'string' ? config.activeAgentId : '',
+      }),
+    );
+  } catch (error) {
+    console.warn('Failed to persist agent role config:', error);
+  }
+}
 
 function AppContent({ desktopMode }) {
   const live2dViewerRef = useRef(null);
@@ -50,20 +121,22 @@ function AppContent({ desktopMode }) {
   const isNarrowViewport = useMediaQuery('(max-width:900px)');
   const { t } = useI18n();
 
-  const [modelLoaded, setModelLoaded] = useState(false);
-  const [currentModelPath, setCurrentModelPath] = useState(DEFAULT_MODEL);
-  const [motions, setMotions] = useState([]);
-  const [expressions, setExpressions] = useState([]);
+  const [, setModelLoaded] = useState(false);
+  const currentModelPath = DEFAULT_MODEL;
+  const [motions] = useState([]);
+  const [expressions] = useState([]);
   const [officeStateSnapshot, setOfficeStateSnapshot] = useState(() => normalizeOfficeState());
   const [officeSceneLayout, setOfficeSceneLayout] = useState(() => normalizeOfficeSceneLayout());
   const [officeActivityHint, setOfficeActivityHint] = useState(null);
   const [officePreviewMode, setOfficePreviewMode] = useState('live');
+  const [agentRoleConfig, setAgentRoleConfig] = useState(() => loadStoredAgentRoleConfig());
   const [mainWindowViewMode, setMainWindowViewMode] = useState('office');
   const [immersiveContext, setImmersiveContext] = useState(null);
   const [valueStateSnapshot, setValueStateSnapshot] = useState(null);
   const [builtinTtsEnabled, setBuiltinTtsEnabled] = useState(false);
   const [firstRunOnboardingOpen, setFirstRunOnboardingOpen] = useState(false);
   const [officeLayoutLoaded, setOfficeLayoutLoaded] = useState(!desktopMode);
+  const initialAgentRoleConfigRef = useRef(agentRoleConfig);
   const savedOfficeLayoutSnapshotRef = useRef(JSON.stringify(normalizeOfficeSceneLayout()));
   const platform = usePlatformInfo({ desktopMode });
 
@@ -780,6 +853,30 @@ function AppContent({ desktopMode }) {
   }, []);
 
   useEffect(() => {
+    saveStoredAgentRoleConfig(agentRoleConfig);
+  }, [agentRoleConfig]);
+
+  useEffect(() => {
+    const storedConfig = initialAgentRoleConfigRef.current || {};
+    const storedAgents = Array.isArray(storedConfig.agents) ? storedConfig.agents : [];
+    const normalizedActiveAgentId =
+      typeof storedConfig.activeAgentId === 'string' ? storedConfig.activeAgentId.trim() : '';
+    if (storedAgents.length === 0 && !normalizedActiveAgentId) {
+      return;
+    }
+    void desktopBridge.office.publishPresence({
+      source: 'renderer-agent-role-config-bootstrap',
+      agents: storedAgents.map((agent) => ({
+        ...agent,
+        updatedAt: new Date().toISOString(),
+      })),
+      ...(normalizedActiveAgentId ? { activeAgentId: normalizedActiveAgentId } : {}),
+    }).catch((error) => {
+      console.warn('Failed to bootstrap agent role config:', error);
+    });
+  }, []);
+
+  useEffect(() => {
     if (!desktopMode) {
       setOfficeActivityHint(null);
       return () => {};
@@ -852,6 +949,73 @@ function AppContent({ desktopMode }) {
       }
     });
   }, [desktopMode]);
+
+  const handleUpsertOfficeAgent = useCallback(async (inputAgent = {}) => {
+    const fallbackId =
+      typeof inputAgent?.agentId === 'string' && inputAgent.agentId.trim()
+        ? inputAgent.agentId.trim()
+        : (typeof inputAgent?.id === 'string' ? inputAgent.id.trim() : '');
+    const normalized = normalizeStoredAgentRole(inputAgent, fallbackId || 'agent');
+    if (!normalized) {
+      throw new Error('Invalid agent configuration.');
+    }
+
+    await desktopBridge.office.upsertAgent({
+      ...normalized,
+      updatedAt: new Date().toISOString(),
+    }, {
+      source: 'renderer-agent-role-config',
+      activateIfUnset: true,
+    });
+
+    setAgentRoleConfig((current) => {
+      const currentAgents = Array.isArray(current.agents) ? current.agents : [];
+      const currentIndex = currentAgents.findIndex((item) => item.agentId === normalized.agentId);
+      if (currentIndex === -1) {
+        return {
+          ...current,
+          agents: [...currentAgents, normalized],
+        };
+      }
+      const nextAgents = [...currentAgents];
+      nextAgents[currentIndex] = normalized;
+      return {
+        ...current,
+        agents: nextAgents,
+      };
+    });
+  }, []);
+
+  const handleRemoveOfficeAgent = useCallback(async (agentId = '') => {
+    const normalizedAgentId = typeof agentId === 'string' ? agentId.trim() : '';
+    if (!normalizedAgentId || normalizedAgentId === OFFICE_PRIMARY_AGENT_ID) {
+      throw new Error('Primary agent cannot be removed.');
+    }
+
+    await desktopBridge.office.removeAgent(normalizedAgentId);
+    setAgentRoleConfig((current) => {
+      const currentAgents = Array.isArray(current.agents) ? current.agents : [];
+      const nextAgents = currentAgents.filter((item) => item.agentId !== normalizedAgentId);
+      const activeAgentId = current.activeAgentId === normalizedAgentId ? '' : current.activeAgentId;
+      return {
+        ...current,
+        agents: nextAgents,
+        activeAgentId,
+      };
+    });
+  }, []);
+
+  const handleSetActiveOfficeAgent = useCallback(async (agentId = '') => {
+    const normalizedAgentId = typeof agentId === 'string' ? agentId.trim() : '';
+    if (!normalizedAgentId) {
+      throw new Error('Agent id is required.');
+    }
+    await desktopBridge.office.setActiveAgent(normalizedAgentId);
+    setAgentRoleConfig((current) => ({
+      ...current,
+      activeAgentId: normalizedAgentId === OFFICE_PRIMARY_AGENT_ID ? '' : normalizedAgentId,
+    }));
+  }, []);
 
   const handlePermissionDecision = useCallback(
     async (decision) => {
@@ -928,7 +1092,6 @@ function AppContent({ desktopMode }) {
   useEffect(() => {
     void desktopBridge.office.publishPresence({
       source: 'renderer-primary',
-      activeAgentId: OFFICE_PRIMARY_AGENT_ID,
       agents: [primaryOfficeAgent],
     }).catch((error) => {
       console.warn('Failed to sync office state:', error);
@@ -1296,11 +1459,6 @@ function AppContent({ desktopMode }) {
     [isNarrowViewport, isPetMode, muiTheme.palette.mode, showConfigPanel, showChatPanel],
   );
 
-  const handleControlModelChange = useCallback((modelPath) => {
-    setCurrentModelPath(modelPath || '');
-    setModelLoaded(false);
-  }, []);
-
   useEffect(() => {
     setModelLoaded(false);
   }, [isPetMode]);
@@ -1376,12 +1534,11 @@ function AppContent({ desktopMode }) {
         isPetMode={isPetMode}
         isNarrowViewport={isNarrowViewport}
         onClose={closeConfigPanel}
-        modelLoaded={modelLoaded}
         desktopMode={desktopMode}
-        live2dViewerRef={live2dViewerRef}
-        onModelChange={handleControlModelChange}
-        onMotionsUpdate={setMotions}
-        onExpressionsUpdate={setExpressions}
+        officeState={officeStateSnapshot}
+        onUpsertOfficeAgent={handleUpsertOfficeAgent}
+        onRemoveOfficeAgent={handleRemoveOfficeAgent}
+        onSetActiveOfficeAgent={handleSetActiveOfficeAgent}
         chatBackendSettings={chatBackendSettings}
         settingsSaving={settingsSaving}
         settingsTesting={settingsTesting}
