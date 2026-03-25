@@ -462,15 +462,34 @@ describe('resolveOfficeSceneEditorState', () => {
       ruleLabel: 'Always',
       left: 48.5,
       top: 19.4,
+      width: 20,
+      defaultWidth: 20,
+      defaultZIndex: 7,
+      defaultOpacity: 1,
       defaultLeft: 52.3,
       defaultTop: 20,
+      layers: [
+        {
+          id: 'sofa-shadow',
+          assetKey: 'sofaShadow',
+          defaultAssetKey: 'sofaShadow',
+        },
+        {
+          id: 'sofa',
+          assetKey: 'sofa',
+          defaultAssetKey: 'sofa',
+        },
+      ],
     });
     expect(editor.furniture.find((item) => item.id === 'sofa-shadow')).toBeUndefined();
     expect(editor.furniture.find((item) => item.id === 'bug')).toMatchObject({
       ruleLabel: 'Error-only',
+      visibleWhenStates: ['error'],
+      defaultVisibleWhenStates: ['error'],
     });
     expect(editor.furniture.find((item) => item.id === 'cat')).toMatchObject({
       ruleLabel: 'State furniture',
+      variantStates: ['error', 'syncing'],
     });
     expect(editor.catalog.find((item) => item.id === 'serverroom')).toMatchObject({
       category: 'status',
@@ -487,6 +506,14 @@ describe('resolveOfficeSceneEditorState', () => {
     expect(editor.catalogCategories.map((item) => item.id)).toEqual(
       expect.arrayContaining(['all', 'workstation', 'status', 'plants', 'companions']),
     );
+    expect(editor.availableStates).toEqual(
+      expect.arrayContaining(['idle', 'writing', 'researching', 'executing', 'syncing', 'error']),
+    );
+    expect(editor.assetOptions.find((item) => item.assetKey === 'desk')).toMatchObject({
+      assetKey: 'desk',
+      cols: 1,
+      rows: 1,
+    });
   });
 
   it('marks state-variant furniture in the classic theme editor list', () => {

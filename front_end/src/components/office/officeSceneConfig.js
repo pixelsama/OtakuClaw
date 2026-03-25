@@ -601,6 +601,23 @@ const OFFICE_VARIANT_STATE_PRIORITY = [
   'idle',
 ];
 
+function sortBusinessStates(states = []) {
+  const normalizedStates = normalizeUniqueStringList(states)
+    .map((state) => normalizeString(state, '').toLowerCase())
+    .filter(Boolean);
+
+  return [...normalizedStates].sort((left, right) => {
+    const leftPriority = OFFICE_VARIANT_STATE_PRIORITY.indexOf(left);
+    const rightPriority = OFFICE_VARIANT_STATE_PRIORITY.indexOf(right);
+    const normalizedLeftPriority = leftPriority >= 0 ? leftPriority : Number.MAX_SAFE_INTEGER;
+    const normalizedRightPriority = rightPriority >= 0 ? rightPriority : Number.MAX_SAFE_INTEGER;
+    if (normalizedLeftPriority !== normalizedRightPriority) {
+      return normalizedLeftPriority - normalizedRightPriority;
+    }
+    return left.localeCompare(right);
+  });
+}
+
 function normalizeStateVariants(variants = {}) {
   if (!isObject(variants)) {
     return {};
@@ -800,6 +817,45 @@ function normalizeFurnitureOverrides(overrides = {}) {
   );
 }
 
+function normalizeAnimationForEditor(animation = null) {
+  if (!isObject(animation)) {
+    return null;
+  }
+
+  const normalizedAnimation = {
+    ...animation,
+  };
+
+  const normalizedFps = normalizeOptionalNumber(normalizedAnimation.fps);
+  if (normalizedFps === null) {
+    delete normalizedAnimation.fps;
+  } else {
+    normalizedAnimation.fps = normalizedFps;
+  }
+
+  if (Array.isArray(normalizedAnimation.frames)) {
+    const frames = normalizedAnimation.frames
+      .map((frame) => normalizeOptionalNumber(frame))
+      .filter((frame) => Number.isFinite(frame))
+      .map((frame) => Math.round(frame));
+    normalizedAnimation.frames = frames;
+    delete normalizedAnimation.fromFrame;
+    delete normalizedAnimation.toFrame;
+    return frames.length > 0 ? normalizedAnimation : null;
+  }
+
+  const fromFrame = normalizeOptionalNumber(normalizedAnimation.fromFrame);
+  const toFrame = normalizeOptionalNumber(normalizedAnimation.toFrame);
+  if (fromFrame === null || toFrame === null) {
+    return normalizedAnimation.fps ? normalizedAnimation : null;
+  }
+
+  normalizedAnimation.fromFrame = Math.round(fromFrame);
+  normalizedAnimation.toFrame = Math.round(toFrame);
+  delete normalizedAnimation.frames;
+  return normalizedAnimation;
+}
+
 export function normalizeOfficeSceneLayout(layout = {}) {
   const source = isObject(layout) ? layout : {};
   return {
@@ -880,6 +936,40 @@ export function resolveOfficeSceneEditorState({
   });
   const furniture = resolvedFurniture.map((normalized) => {
     const baseItem = getOfficeFurnitureCatalogItem(normalized.id);
+    const baseNormalizedItem = baseItem ? normalizeFurnitureItem(baseItem, activeStates, assetRegistry) : null;
+    const baseNormalizedLayers = baseNormalizedItem
+      ? normalizeFurnitureLayers(baseNormalizedItem, activeStates, assetRegistry)
+      : [];
+    const baseLayerMap = new Map(baseNormalizedLayers.map((layer) => [layer.id, layer]));
+    const layers = (Array.isArray(normalized.layers) ? normalized.layers : []).map((layer, index) => {
+      const baseLayer = baseLayerMap.get(layer.id) || baseNormalizedLayers[index] || null;
+      return {
+        id: layer.id,
+        label: normalizeString(layer.label, layer.id),
+        kind: normalizeString(layer.kind, 'furniture'),
+        assetKey: normalizeString(layer.assetKey, ''),
+        cols: Number.isFinite(layer.cols) ? layer.cols : 1,
+        rows: Number.isFinite(layer.rows) ? layer.rows : 1,
+        width: Number.isFinite(layer.width) ? layer.width : normalized.width,
+        zIndex: Number.isFinite(layer.zIndex) ? layer.zIndex : normalized.zIndex,
+        opacity: Number.isFinite(layer.opacity) ? layer.opacity : 1,
+        frameIndex: Number.isFinite(layer.frameIndex) ? layer.frameIndex : 0,
+        aspectRatio: normalizeString(layer.aspectRatio, normalized.aspectRatio),
+        animation: normalizeAnimationForEditor(layer.animation),
+        variantStates: sortBusinessStates(Object.keys(normalizeStateVariants(layer.stateVariants))),
+        activeVariantState: normalizeString(layer.activeVariantState, '').toLowerCase(),
+        defaultAssetKey: normalizeString(baseLayer?.assetKey, normalizeString(layer.assetKey, '')),
+        defaultWidth: Number.isFinite(baseLayer?.width) ? baseLayer.width : (Number.isFinite(layer.width) ? layer.width : normalized.width),
+        defaultZIndex: Number.isFinite(baseLayer?.zIndex) ? baseLayer.zIndex : (Number.isFinite(layer.zIndex) ? layer.zIndex : normalized.zIndex),
+        defaultOpacity: Number.isFinite(baseLayer?.opacity) ? baseLayer.opacity : (Number.isFinite(layer.opacity) ? layer.opacity : 1),
+        defaultFrameIndex: Number.isFinite(baseLayer?.frameIndex) ? baseLayer.frameIndex : (Number.isFinite(layer.frameIndex) ? layer.frameIndex : 0),
+        defaultAspectRatio: normalizeString(baseLayer?.aspectRatio, normalizeString(layer.aspectRatio, normalized.aspectRatio)),
+        defaultCols: Number.isFinite(baseLayer?.cols) ? baseLayer.cols : (Number.isFinite(layer.cols) ? layer.cols : 1),
+        defaultRows: Number.isFinite(baseLayer?.rows) ? baseLayer.rows : (Number.isFinite(layer.rows) ? layer.rows : 1),
+        defaultAnimation: normalizeAnimationForEditor(baseLayer?.animation),
+      };
+    });
+
     return {
       id: normalized.id,
       label: normalized.label,
@@ -897,12 +987,28 @@ export function resolveOfficeSceneEditorState({
       top: normalized.top,
       width: normalized.width,
       zIndex: normalized.zIndex,
+      opacity: normalized.opacity,
+      frameIndex: normalized.frameIndex,
+      aspectRatio: normalized.aspectRatio,
+      assetKey: normalized.assetKey,
+      cols: normalized.cols,
+      rows: normalized.rows,
+      animation: normalizeAnimationForEditor(normalized.animation),
       visibleWhenStates: normalized.visibleWhenStates,
       hiddenWhenStates: normalized.hiddenWhenStates,
-      variantStates: normalized.variantStates,
+      variantStates: sortBusinessStates(normalized.variantStates),
       activeVariantState: normalized.activeVariantState,
       defaultLeft: Number.isFinite(baseItem?.left) ? baseItem.left : normalized.left,
       defaultTop: Number.isFinite(baseItem?.top) ? baseItem.top : normalized.top,
+      defaultWidth: Number.isFinite(baseItem?.width) ? baseItem.width : normalized.width,
+      defaultZIndex: Number.isFinite(baseItem?.zIndex) ? baseItem.zIndex : normalized.zIndex,
+      defaultOpacity: Number.isFinite(baseItem?.opacity) ? baseItem.opacity : normalized.opacity,
+      defaultFrameIndex: Number.isFinite(baseItem?.frameIndex) ? baseItem.frameIndex : normalized.frameIndex,
+      defaultAspectRatio: normalizeString(baseItem?.aspectRatio, normalized.aspectRatio),
+      defaultAssetKey: normalizeString(baseItem?.assetKey, normalized.assetKey),
+      defaultVisibleWhenStates: sortBusinessStates(baseItem?.visibleWhenStates || []),
+      defaultHiddenWhenStates: sortBusinessStates(baseItem?.hiddenWhenStates || []),
+      layers,
     };
   });
   const catalog = Object.values(OFFICE_FURNITURE_CATALOG)
@@ -932,6 +1038,30 @@ export function resolveOfficeSceneEditorState({
       label: OFFICE_FURNITURE_CATEGORY_LABELS[categoryId] || formatStateLabel(categoryId),
     })),
   ];
+  const availableStates = sortBusinessStates(Object.keys(normalizeStateMap(sceneConfig?.stateMap)));
+  const assetOptions = Object.entries(assetRegistry && typeof assetRegistry === 'object' ? assetRegistry : {})
+    .map(([assetKey, asset]) => {
+      const resolvedAsset = resolveOfficeSceneAsset(assetKey, assetRegistry);
+      const assetUrl = normalizeString(
+        resolvedAsset?.url
+        || asset?.assetUrl
+        || asset?.url
+        || asset?.asset,
+        '',
+      );
+      if (!assetUrl) {
+        return null;
+      }
+
+      return {
+        assetKey,
+        label: normalizeString(asset?.label || asset?.name, assetKey),
+        cols: Number.isFinite(asset?.cols) ? asset.cols : Number.isFinite(resolvedAsset?.cols) ? resolvedAsset.cols : 1,
+        rows: Number.isFinite(asset?.rows) ? asset.rows : Number.isFinite(resolvedAsset?.rows) ? resolvedAsset.rows : 1,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.label.localeCompare(right.label));
 
   return {
     themeId: theme.id,
@@ -940,6 +1070,8 @@ export function resolveOfficeSceneEditorState({
     furniture,
     catalog,
     catalogCategories,
+    availableStates,
+    assetOptions,
   };
 }
 

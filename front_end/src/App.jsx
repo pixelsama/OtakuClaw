@@ -24,7 +24,6 @@ import { buildVoiceStreamRequest } from './hooks/voice/voiceStreamRequest.js';
 import {
   buildOfficeDisplayState,
   derivePrimaryOfficeAgent,
-  getOfficeFurnitureCatalogItem,
   normalizeOfficeSceneLayout,
   normalizeOfficeState,
   OFFICE_PRIMARY_AGENT_ID,
@@ -1046,66 +1045,36 @@ function AppContent({ desktopMode }) {
     });
   }, []);
 
-  const handleOfficeThemeChange = useCallback((themeId) => {
-    updateOfficeSceneLayout((currentLayout) => ({
-      ...currentLayout,
-      themeId,
-    }));
-  }, [updateOfficeSceneLayout]);
+  const normalizeBusinessStates = useCallback((states = []) => {
+    if (!Array.isArray(states)) {
+      return [];
+    }
 
-  const handleOfficeFurnitureHiddenChange = useCallback((furnitureId, hidden) => {
+    return states
+      .map((state) => (typeof state === 'string' ? state.trim().toLowerCase() : ''))
+      .filter(Boolean)
+      .filter((state, index, values) => values.indexOf(state) === index);
+  }, []);
+
+  const updateOfficeFurnitureOverride = useCallback((furnitureId, updater) => {
+    const normalizedFurnitureId = typeof furnitureId === 'string' ? furnitureId.trim() : '';
+    if (!normalizedFurnitureId) {
+      return;
+    }
+
     updateOfficeSceneLayout((currentLayout) => {
-      const currentOverride = currentLayout.furnitureOverrides?.[furnitureId] || {};
-      return {
-        ...currentLayout,
-        furnitureOverrides: {
-          ...(currentLayout.furnitureOverrides || {}),
-          [furnitureId]: {
-            ...currentOverride,
-            hidden: Boolean(hidden),
-          },
-        },
-      };
-    });
-  }, [updateOfficeSceneLayout]);
-
-  const handleOfficeFurniturePositionChange = useCallback((furnitureId, patch = {}) => {
-    updateOfficeSceneLayout((currentLayout) => {
-      const currentOverride = currentLayout.furnitureOverrides?.[furnitureId] || {};
-      return {
-        ...currentLayout,
-        furnitureOverrides: {
-          ...(currentLayout.furnitureOverrides || {}),
-          [furnitureId]: {
-            ...currentOverride,
-            ...(Number.isFinite(patch.left) ? { left: patch.left } : {}),
-            ...(Number.isFinite(patch.top) ? { top: patch.top } : {}),
-          },
-        },
-      };
-    });
-  }, [updateOfficeSceneLayout]);
-
-  const handleOfficeFurnitureReset = useCallback((furnitureId) => {
-    updateOfficeSceneLayout((currentLayout) => {
-      const catalogItem = getOfficeFurnitureCatalogItem(furnitureId);
-      const currentOverride = currentLayout.furnitureOverrides?.[furnitureId] || {};
-      const nextOverride = {
-        ...currentOverride,
-      };
-
-      delete nextOverride.hidden;
-      delete nextOverride.left;
-      delete nextOverride.top;
-
+      const currentOverride = currentLayout.furnitureOverrides?.[normalizedFurnitureId] || {};
+      const nextOverrideRaw = typeof updater === 'function' ? updater(currentOverride, currentLayout) : updater;
       const nextFurnitureOverrides = {
         ...(currentLayout.furnitureOverrides || {}),
       };
 
-      if (catalogItem && Object.keys(nextOverride).length === 0) {
-        delete nextFurnitureOverrides[furnitureId];
+      if (!nextOverrideRaw || typeof nextOverrideRaw !== 'object' || Array.isArray(nextOverrideRaw)) {
+        delete nextFurnitureOverrides[normalizedFurnitureId];
+      } else if (Object.keys(nextOverrideRaw).length === 0) {
+        delete nextFurnitureOverrides[normalizedFurnitureId];
       } else {
-        nextFurnitureOverrides[furnitureId] = nextOverride;
+        nextFurnitureOverrides[normalizedFurnitureId] = nextOverrideRaw;
       }
 
       return {
@@ -1114,6 +1083,108 @@ function AppContent({ desktopMode }) {
       };
     });
   }, [updateOfficeSceneLayout]);
+
+  const handleOfficeThemeChange = useCallback((themeId) => {
+    updateOfficeSceneLayout((currentLayout) => ({
+      ...currentLayout,
+      themeId,
+    }));
+  }, [updateOfficeSceneLayout]);
+
+  const handleOfficeFurniturePatchChange = useCallback((furnitureId, patch = {}) => {
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+      return;
+    }
+
+    updateOfficeFurnitureOverride(furnitureId, (currentOverride) => {
+      const nextOverride = {
+        ...currentOverride,
+      };
+
+      for (const [field, value] of Object.entries(patch)) {
+        if (value === null || typeof value === 'undefined') {
+          delete nextOverride[field];
+          continue;
+        }
+        nextOverride[field] = value;
+      }
+
+      return nextOverride;
+    });
+  }, [updateOfficeFurnitureOverride]);
+
+  const handleOfficeFurnitureHiddenChange = useCallback((furnitureId, hidden) => {
+    handleOfficeFurniturePatchChange(furnitureId, {
+      hidden: Boolean(hidden),
+    });
+  }, [handleOfficeFurniturePatchChange]);
+
+  const handleOfficeFurniturePositionChange = useCallback((furnitureId, patch = {}) => {
+    handleOfficeFurniturePatchChange(furnitureId, {
+      ...(Number.isFinite(patch.left) ? { left: patch.left } : {}),
+      ...(Number.isFinite(patch.top) ? { top: patch.top } : {}),
+    });
+  }, [handleOfficeFurniturePatchChange]);
+
+  const handleOfficeFurnitureStateRulesChange = useCallback((furnitureId, payload = {}) => {
+    handleOfficeFurniturePatchChange(furnitureId, {
+      ...(Array.isArray(payload.visibleWhenStates)
+        ? {
+            visibleWhenStates: (() => {
+              const states = normalizeBusinessStates(payload.visibleWhenStates);
+              return states.length > 0 ? states : null;
+            })(),
+          }
+        : {}),
+      ...(Array.isArray(payload.hiddenWhenStates)
+        ? {
+            hiddenWhenStates: (() => {
+              const states = normalizeBusinessStates(payload.hiddenWhenStates);
+              return states.length > 0 ? states : null;
+            })(),
+          }
+        : {}),
+    });
+  }, [handleOfficeFurniturePatchChange, normalizeBusinessStates]);
+
+  const handleOfficeFurnitureLayersChange = useCallback((furnitureId, layers = []) => {
+    if (!Array.isArray(layers)) {
+      return;
+    }
+
+    const normalizedLayers = layers
+      .map((layer, index) => {
+        if (!layer || typeof layer !== 'object' || Array.isArray(layer)) {
+          return null;
+        }
+
+        const layerId = typeof layer.id === 'string' && layer.id.trim()
+          ? layer.id.trim()
+          : `${furnitureId}-layer-${index + 1}`;
+        const normalizedLayer = {
+          ...layer,
+          id: layerId,
+        };
+        if (!normalizedLayer.assetKey || typeof normalizedLayer.assetKey !== 'string') {
+          delete normalizedLayer.assetKey;
+        } else {
+          normalizedLayer.assetKey = normalizedLayer.assetKey.trim();
+          if (!normalizedLayer.assetKey) {
+            delete normalizedLayer.assetKey;
+          }
+        }
+        return normalizedLayer;
+      })
+      .filter(Boolean);
+
+    handleOfficeFurniturePatchChange(furnitureId, {
+      layers: normalizedLayers.length > 0 ? normalizedLayers : null,
+    });
+  }, [handleOfficeFurniturePatchChange]);
+
+  const handleOfficeFurnitureReset = useCallback((furnitureId) => {
+    updateOfficeFurnitureOverride(furnitureId, null);
+  }, [updateOfficeFurnitureOverride]);
 
   const handleOfficeFurnitureEnabledChange = useCallback((furnitureId, enabled) => {
     updateOfficeSceneLayout((currentLayout) => {
@@ -1174,16 +1245,22 @@ function AppContent({ desktopMode }) {
       previewMode: officePreviewMode,
       onPreviewModeChange: setOfficePreviewMode,
       onThemeChange: handleOfficeThemeChange,
+      onFurniturePatchChange: handleOfficeFurniturePatchChange,
       onFurnitureHiddenChange: handleOfficeFurnitureHiddenChange,
+      onFurnitureStateRulesChange: handleOfficeFurnitureStateRulesChange,
       onFurniturePositionChange: handleOfficeFurniturePositionChange,
+      onFurnitureLayersChange: handleOfficeFurnitureLayersChange,
       onFurnitureReset: handleOfficeFurnitureReset,
       onFurnitureEnabledChange: handleOfficeFurnitureEnabledChange,
     };
   }, [
     handleOfficeFurnitureEnabledChange,
+    handleOfficeFurnitureLayersChange,
     handleOfficeFurnitureHiddenChange,
+    handleOfficeFurniturePatchChange,
     handleOfficeFurniturePositionChange,
     handleOfficeFurnitureReset,
+    handleOfficeFurnitureStateRulesChange,
     handleOfficeThemeChange,
     officeAssetRegistry,
     officeDisplayState,
