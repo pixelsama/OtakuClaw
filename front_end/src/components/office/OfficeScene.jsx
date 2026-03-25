@@ -140,8 +140,8 @@ function OfficeAreaLabel({ area, count }) {
   );
 }
 
-function OfficeOccupant({ occupant, onClick }) {
-  const sprite = resolveOfficeOccupantSprite(occupant);
+function OfficeOccupant({ occupant, assetRegistry = null, onClick }) {
+  const sprite = resolveOfficeOccupantSprite(occupant, assetRegistry);
   const animationFrames = useMemo(() => resolveAnimationFrames(sprite.animation), [sprite.animation]);
   const [displayFrameIndex, setDisplayFrameIndex] = useState(sprite.frameIndex || 0);
 
@@ -245,6 +245,7 @@ export default function OfficeScene({
     : resolvedPresentationMode;
   const isBrowseMode = effectivePresentationMode === 'browse';
   const isWorkspaceMode = effectivePresentationMode === 'workspace';
+  const assetRegistry = scene?.config?.assetRegistry || null;
   const normalizedClassName = [
     'office-room',
     isBrowseMode ? 'office-room--browse' : 'office-room--workspace',
@@ -445,6 +446,7 @@ export default function OfficeScene({
           <OfficeOccupant
             key={occupant.agentId}
             occupant={occupant}
+            assetRegistry={assetRegistry}
             onClick={
               typeof onAgentClick === 'function'
                 ? (event) => {

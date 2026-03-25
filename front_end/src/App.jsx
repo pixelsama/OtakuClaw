@@ -33,6 +33,11 @@ import {
   resolveOfficeSceneEditorState,
   resolveOfficeSceneState,
 } from './components/office/officeSceneConfig.js';
+import { OFFICE_SCENE_ASSET_REGISTRY } from './components/office/officeSceneAssets.js';
+import {
+  buildOfficeSceneAssetRegistry,
+  normalizePixelPackState,
+} from './components/office/pixelPack.js';
 import { ModeProvider, MODE_PET, MODE_WINDOW, useModeContext } from './mode/ModeContext.jsx';
 import MainShell from './shells/MainShell.jsx';
 import PetShell from './shells/PetShell.jsx';
@@ -61,6 +66,10 @@ function AppContent({ desktopMode }) {
   const [mainWindowViewMode, setMainWindowViewMode] = useState('office');
   const [immersiveContext, setImmersiveContext] = useState(null);
   const [valueStateSnapshot, setValueStateSnapshot] = useState(null);
+  const [pixelPackState, setPixelPackState] = useState(() => normalizePixelPackState());
+  const [pixelPackBusyAction, setPixelPackBusyAction] = useState('');
+  const [pixelPackFeedback, setPixelPackFeedback] = useState('');
+  const [pixelPackError, setPixelPackError] = useState('');
   const [builtinTtsEnabled, setBuiltinTtsEnabled] = useState(false);
   const [firstRunOnboardingOpen, setFirstRunOnboardingOpen] = useState(false);
   const [officeLayoutLoaded, setOfficeLayoutLoaded] = useState(!desktopMode);
@@ -360,6 +369,47 @@ function AppContent({ desktopMode }) {
       cancelled = true;
     };
   }, [desktopMode, syncBuiltinTtsEnabled]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!desktopMode) {
+      setPixelPackState(normalizePixelPackState());
+      setPixelPackBusyAction('');
+      setPixelPackFeedback('');
+      setPixelPackError('');
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const loadPixelPackState = async () => {
+      try {
+        const result = await desktopBridge.pixelPack.getState();
+        if (!cancelled) {
+          setPixelPackState(normalizePixelPackState(result?.state || result || {}));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.warn('Failed to load pixel pack state:', error);
+        }
+      }
+    };
+
+    void loadPixelPackState();
+
+    const unsubscribe = desktopBridge.pixelPack.onState((payload = {}) => {
+      if (cancelled) {
+        return;
+      }
+      setPixelPackState(normalizePixelPackState(payload?.state || payload || {}));
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [desktopMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -669,6 +719,73 @@ function AppContent({ desktopMode }) {
     console.error('Model error in App:', error);
   }, []);
 
+  const handlePixelPackAction = useCallback(
+    async (action, payload = {}) => {
+      if (!desktopMode) {
+        const message = 'Pixel packs are available in desktop mode only.';
+        setPixelPackError(message);
+        return { ok: false, reason: 'desktop_pixel_pack_unavailable', error: { message } };
+      }
+
+      setPixelPackBusyAction(action);
+      setPixelPackFeedback('');
+      setPixelPackError('');
+
+      try {
+        const handler = desktopBridge.pixelPack[action];
+        if (typeof handler !== 'function') {
+          const message = 'Pixel pack management is unavailable in this build.';
+          setPixelPackError(message);
+          return { ok: false, reason: 'desktop_pixel_pack_unavailable', error: { message } };
+        }
+
+        const result = await handler(payload);
+        if (result?.state) {
+          setPixelPackState(normalizePixelPackState(result.state));
+        }
+
+        if (!result?.ok) {
+          const message = normalizeErrorMessage(result?.error || result?.reason || result, t);
+          setPixelPackError(message);
+          return result;
+        }
+
+        const message = typeof result?.message === 'string' && result.message.trim()
+          ? result.message.trim()
+          : '';
+        if (message) {
+          setPixelPackFeedback(message);
+        }
+        return result;
+      } catch (error) {
+        const message = normalizeErrorMessage(error, t);
+        setPixelPackError(message);
+        return { ok: false, error: { message } };
+      } finally {
+        setPixelPackBusyAction('');
+      }
+    },
+    [desktopMode, t],
+  );
+
+  const handlePixelPackImport = useCallback(() => handlePixelPackAction('importZip'), [handlePixelPackAction]);
+  const handlePixelPackValidate = useCallback(
+    (packId = '') => handlePixelPackAction('validate', { packId }),
+    [handlePixelPackAction],
+  );
+  const handlePixelPackActivate = useCallback(
+    (packId = '') => handlePixelPackAction('activate', { packId }),
+    [handlePixelPackAction],
+  );
+  const handlePixelPackRemove = useCallback(
+    (packId = '') => handlePixelPackAction('remove', { packId }),
+    [handlePixelPackAction],
+  );
+  const handlePixelPackExport = useCallback(
+    (packId = '') => handlePixelPackAction('export', { packId }),
+    [handlePixelPackAction],
+  );
+
   const latestFailedDownloadTask = useMemo(
     () =>
       Object.values(taskMap)
@@ -683,6 +800,10 @@ function AppContent({ desktopMode }) {
   const officeWorkspacePath = typeof chatBackendSettings?.nanobot?.workspace === 'string'
     ? chatBackendSettings.nanobot.workspace.trim()
     : '';
+  const officeAssetRegistry = useMemo(
+    () => buildOfficeSceneAssetRegistry(OFFICE_SCENE_ASSET_REGISTRY, pixelPackState),
+    [pixelPackState],
+  );
   const officeErrorMessage = textComposerWithVoiceProps.externalError
     || settingsError
     || latestFailedDownloadTask?.logs?.[latestFailedDownloadTask.logs.length - 1]
@@ -1007,18 +1128,20 @@ function AppContent({ desktopMode }) {
     return resolveOfficeSceneState({
       officeState: officeDisplayState,
       sceneConfig: officeSceneLayout,
+      assetRegistry: officeAssetRegistry,
       subtitle: desktopMode ? 'Live local office' : 'Browser preview',
       caption:
         officeWorkspacePath
           ? `Workspace: ${officeWorkspacePath}`
           : 'Single-agent today, multi-agent ready for later.',
     });
-  }, [desktopMode, officeDisplayState, officeSceneLayout, officeWorkspacePath]);
+  }, [desktopMode, officeAssetRegistry, officeDisplayState, officeSceneLayout, officeWorkspacePath]);
 
   const officeEditor = useMemo(() => {
     const editorState = resolveOfficeSceneEditorState({
       sceneConfig: officeSceneLayout,
       officeState: officeDisplayState,
+      assetRegistry: officeAssetRegistry,
     });
 
     return {
@@ -1037,6 +1160,7 @@ function AppContent({ desktopMode }) {
     handleOfficeFurniturePositionChange,
     handleOfficeFurnitureReset,
     handleOfficeThemeChange,
+    officeAssetRegistry,
     officeDisplayState,
     officeSceneLayout,
     officePreviewMode,
@@ -1362,6 +1486,15 @@ function AppContent({ desktopMode }) {
         onImportNanobotSkillsZip={onImportNanobotSkillsZip}
         onDeleteNanobotSkill={onDeleteNanobotSkill}
         onOpenNanobotSkillsLibrary={onOpenNanobotSkillsLibrary}
+        pixelPackState={pixelPackState}
+        pixelPackBusyAction={pixelPackBusyAction}
+        pixelPackFeedback={pixelPackFeedback}
+        pixelPackError={pixelPackError}
+        onPixelPackImport={handlePixelPackImport}
+        onPixelPackValidate={handlePixelPackValidate}
+        onPixelPackActivate={handlePixelPackActivate}
+        onPixelPackRemove={handlePixelPackRemove}
+        onPixelPackExport={handlePixelPackExport}
         onOpenDownloadCenter={openDownloadTask}
         onBuiltinTtsEnabledChange={syncBuiltinTtsEnabled}
       />

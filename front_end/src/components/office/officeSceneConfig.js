@@ -1,4 +1,4 @@
-import { resolveOfficeSceneAsset } from './officeSceneAssets.js';
+import { OFFICE_SCENE_ASSET_REGISTRY, resolveOfficeSceneAsset } from './officeSceneAssets.js';
 
 export const OFFICE_PRIMARY_AGENT_ID = 'main';
 export const DEFAULT_OFFICE_THEME_ID = 'star-office-classic';
@@ -529,10 +529,10 @@ export function resolveOfficeRoomTheme(themeId = DEFAULT_OFFICE_THEME_ID) {
   return OFFICE_ROOM_THEMES[resolvedThemeId] || OFFICE_ROOM_THEMES[DEFAULT_OFFICE_THEME_ID];
 }
 
-function normalizeBackdrop(backdrop = {}) {
+function normalizeBackdrop(backdrop = {}, assetRegistry = OFFICE_SCENE_ASSET_REGISTRY) {
   const source = backdrop && typeof backdrop === 'object' ? backdrop : {};
   const assetKey = normalizeString(source.assetKey, DEFAULT_OFFICE_SCENE_CONFIG.backdrop.assetKey);
-  const asset = resolveOfficeSceneAsset(assetKey);
+  const asset = resolveOfficeSceneAsset(assetKey, assetRegistry);
   return {
     assetKey,
     assetUrl: asset?.url || '',
@@ -669,10 +669,10 @@ function resolveFramePosition(frameIndex = 0, cols = 1, rows = 1) {
   };
 }
 
-function normalizeFurnitureItem(item = {}, activeStates = []) {
+function normalizeFurnitureItem(item = {}, activeStates = [], assetRegistry = OFFICE_SCENE_ASSET_REGISTRY) {
   const source = applyMatchingStateVariant(item, activeStates);
   const assetKey = normalizeString(source.assetKey, '');
-  const asset = resolveOfficeSceneAsset(assetKey);
+  const asset = resolveOfficeSceneAsset(assetKey, assetRegistry);
   const visibleWhenStates = normalizeStringList(source.visibleWhenStates);
   const hiddenWhenStates = normalizeStringList(source.hiddenWhenStates);
   const variantStates = Object.keys(normalizeStateVariants(source.stateVariants));
@@ -713,7 +713,7 @@ function normalizeFurnitureItem(item = {}, activeStates = []) {
   };
 }
 
-function normalizeFurnitureLayers(item = {}, activeStates = []) {
+function normalizeFurnitureLayers(item = {}, activeStates = [], assetRegistry = OFFICE_SCENE_ASSET_REGISTRY) {
   const source = item && typeof item === 'object' ? item : {};
   const itemId = normalizeString(source.id, 'furniture');
   const itemWidth = Number.isFinite(source.width) ? source.width : 10;
@@ -741,7 +741,7 @@ function normalizeFurnitureLayers(item = {}, activeStates = []) {
     .map((layer, index) => {
       const layerSource = applyMatchingStateVariant(layer, activeStates);
       const layerAssetKey = normalizeString(layerSource.assetKey, '');
-      const layerAsset = resolveOfficeSceneAsset(layerAssetKey);
+      const layerAsset = resolveOfficeSceneAsset(layerAssetKey, assetRegistry);
       if (!layerAsset?.url) {
         return null;
       }
@@ -769,11 +769,11 @@ function normalizeFurnitureLayers(item = {}, activeStates = []) {
     .filter(Boolean);
 }
 
-function normalizeFurniture(items = [], activeStates = []) {
+function normalizeFurniture(items = [], activeStates = [], assetRegistry = OFFICE_SCENE_ASSET_REGISTRY) {
   return cloneFurniture(items)
     .map((item) => {
-      const normalizedItem = normalizeFurnitureItem(item, activeStates);
-      const normalizedLayers = normalizeFurnitureLayers(normalizedItem, activeStates);
+      const normalizedItem = normalizeFurnitureItem(item, activeStates, assetRegistry);
+      const normalizedLayers = normalizeFurnitureLayers(normalizedItem, activeStates, assetRegistry);
       return {
         ...normalizedItem,
         assetUrl: normalizedLayers[normalizedLayers.length - 1]?.assetUrl || normalizedItem.assetUrl,
@@ -828,9 +828,10 @@ function resolveThemeFurniture({
   enabledFurnitureIds = [],
   disabledFurnitureIds = [],
   activeStates = [],
+  assetRegistry = OFFICE_SCENE_ASSET_REGISTRY,
 } = {}) {
   if (Array.isArray(furniture) && furniture.length > 0) {
-    return normalizeFurniture(furniture, activeStates);
+    return normalizeFurniture(furniture, activeStates, assetRegistry);
   }
 
   const theme = resolveOfficeRoomTheme(themeId);
@@ -856,12 +857,13 @@ function resolveThemeFurniture({
     })
     .filter(Boolean);
 
-  return normalizeFurniture(items, activeStates);
+  return normalizeFurniture(items, activeStates, assetRegistry);
 }
 
 export function resolveOfficeSceneEditorState({
   sceneConfig = DEFAULT_OFFICE_SCENE_CONFIG,
   officeState = {},
+  assetRegistry = OFFICE_SCENE_ASSET_REGISTRY,
 } = {}) {
   const normalizedLayout = normalizeOfficeSceneLayout(sceneConfig);
   const normalizedState = normalizeOfficeState(officeState);
@@ -874,6 +876,7 @@ export function resolveOfficeSceneEditorState({
     enabledFurnitureIds: normalizedLayout.enabledFurnitureIds,
     disabledFurnitureIds: normalizedLayout.disabledFurnitureIds,
     activeStates,
+    assetRegistry,
   });
   const furniture = resolvedFurniture.map((normalized) => {
     const baseItem = getOfficeFurnitureCatalogItem(normalized.id);
@@ -1213,6 +1216,7 @@ export function resolveOfficeSceneState({
   sceneConfig = DEFAULT_OFFICE_SCENE_CONFIG,
   subtitle = '',
   caption = '',
+  assetRegistry = OFFICE_SCENE_ASSET_REGISTRY,
 } = {}) {
   const normalizedState = normalizeOfficeState(officeState);
   const normalizedLabels = normalizeLabels(labels);
@@ -1221,7 +1225,7 @@ export function resolveOfficeSceneState({
   const config = {
     themeId: theme.id,
     themeLabel: theme.label,
-    backdrop: normalizeBackdrop(sceneConfig?.backdrop || theme.backdrop || DEFAULT_OFFICE_SCENE_CONFIG.backdrop),
+    backdrop: normalizeBackdrop(sceneConfig?.backdrop || theme.backdrop || DEFAULT_OFFICE_SCENE_CONFIG.backdrop, assetRegistry),
     areas: sceneConfig?.areas || DEFAULT_OFFICE_SCENE_CONFIG.areas,
     furniture: resolveThemeFurniture({
       themeId: sceneConfig?.themeId || DEFAULT_OFFICE_SCENE_CONFIG.themeId,
@@ -1230,8 +1234,10 @@ export function resolveOfficeSceneState({
       enabledFurnitureIds: sceneConfig?.enabledFurnitureIds || DEFAULT_OFFICE_SCENE_CONFIG.enabledFurnitureIds,
       disabledFurnitureIds: sceneConfig?.disabledFurnitureIds || DEFAULT_OFFICE_SCENE_CONFIG.disabledFurnitureIds,
       activeStates,
+      assetRegistry,
     }),
     stateMap: normalizeStateMap(sceneConfig?.stateMap),
+    assetRegistry,
   };
   const occupants = buildOccupants({
     agents: normalizedState.agents,

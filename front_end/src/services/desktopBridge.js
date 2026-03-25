@@ -3,6 +3,7 @@ import {
   normalizeOfficeState,
   OFFICE_PRIMARY_AGENT_ID,
 } from '../components/office/officeSceneConfig.js';
+import { normalizePixelPackState } from '../components/office/pixelPack.js';
 
 const SETTINGS_STORAGE_KEY = 'openclaw.settings';
 let webOfficeState = normalizeOfficeState();
@@ -17,6 +18,13 @@ let webValueState = {
   lastEvent: null,
 };
 const webValueListeners = new Set();
+const DEFAULT_PIXEL_PACK_STATE = normalizePixelPackState({
+  supported: false,
+  packs: [],
+  activePackId: '',
+  activePack: null,
+  error: '',
+});
 
 function normalizeText(value, fallback = '') {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
@@ -332,6 +340,13 @@ function resolvePlatformSyncFromApi(api) {
   }
 
   return detectPlatformFallback();
+}
+
+function normalizePixelPackActionError(reason = 'desktop_pixel_pack_unavailable', message = '') {
+  return {
+    code: normalizeText(reason, 'desktop_pixel_pack_unavailable'),
+    message: normalizeText(message, 'Pixel pack management is unavailable in this environment.'),
+  };
 }
 
 function normalizeChatBackend(value) {
@@ -1606,6 +1621,110 @@ export const desktopBridge = {
           message: '当前环境不支持打开 Nanobot 工作区。',
         },
       };
+    },
+  },
+  pixelPack: {
+    async getState() {
+      const api = getDesktopApi();
+      if (api?.pixelPack?.getState) {
+        const result = await api.pixelPack.getState();
+        const normalizedState = normalizePixelPackState(result?.state || result || {});
+        if (result?.ok === false) {
+          const error = normalizePixelPackActionError(result?.reason || result?.error?.code || 'desktop_pixel_pack_unavailable', result?.error?.message || result?.message || '');
+          return {
+            ok: false,
+            reason: result?.reason || error.code,
+            error,
+            state: {
+              ...normalizedState,
+              supported: false,
+              error: error.message,
+            },
+          };
+        }
+        return {
+          ok: true,
+          state: normalizedState,
+        };
+      }
+
+      return {
+        ok: true,
+        state: normalizePixelPackState(DEFAULT_PIXEL_PACK_STATE),
+      };
+    },
+    async importZip(payload = {}) {
+      const api = getDesktopApi();
+      if (api?.pixelPack?.importZip) {
+        return api.pixelPack.importZip(payload);
+      }
+
+      return {
+        ok: false,
+        reason: 'desktop_pixel_pack_unavailable',
+        error: normalizePixelPackActionError(),
+      };
+    },
+    async validate(payload = {}) {
+      const api = getDesktopApi();
+      if (api?.pixelPack?.validate) {
+        return api.pixelPack.validate(payload);
+      }
+
+      return {
+        ok: false,
+        reason: 'desktop_pixel_pack_unavailable',
+        error: normalizePixelPackActionError(),
+      };
+    },
+    async activate(payload = {}) {
+      const api = getDesktopApi();
+      if (api?.pixelPack?.activate) {
+        return api.pixelPack.activate(payload);
+      }
+
+      return {
+        ok: false,
+        reason: 'desktop_pixel_pack_unavailable',
+        error: normalizePixelPackActionError(),
+      };
+    },
+    async remove(payload = {}) {
+      const api = getDesktopApi();
+      if (api?.pixelPack?.remove) {
+        return api.pixelPack.remove(payload);
+      }
+
+      return {
+        ok: false,
+        reason: 'desktop_pixel_pack_unavailable',
+        error: normalizePixelPackActionError(),
+      };
+    },
+    async export(payload = {}) {
+      const api = getDesktopApi();
+      if (api?.pixelPack?.export) {
+        return api.pixelPack.export(payload);
+      }
+
+      return {
+        ok: false,
+        reason: 'desktop_pixel_pack_unavailable',
+        error: normalizePixelPackActionError(),
+      };
+    },
+    onState(handler) {
+      const api = getDesktopApi();
+      if (api?.pixelPack?.onState && typeof handler === 'function') {
+        return api.pixelPack.onState((event = {}) => {
+          handler({
+            ...event,
+            state: normalizePixelPackState(event?.state || event || {}),
+          });
+        });
+      }
+
+      return () => {};
     },
   },
   appUpdater: {

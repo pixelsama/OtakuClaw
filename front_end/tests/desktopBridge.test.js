@@ -576,3 +576,42 @@ describe('desktopBridge app updater bridge', () => {
     expect(check).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('desktopBridge pixel pack bridge', () => {
+  it('returns a safe default pack state when the API is unavailable', async () => {
+    globalThis.window = {
+      desktop: {
+        isElectron: true,
+      },
+    };
+
+    const result = await desktopBridge.pixelPack.getState();
+
+    expect(result).toEqual({
+      ok: true,
+      state: expect.objectContaining({
+        supported: false,
+        packs: [],
+        activePackId: '',
+      }),
+    });
+  });
+
+  it('returns a not-available error when pixel pack actions are missing', async () => {
+    globalThis.window = {
+      desktop: {
+        isElectron: true,
+      },
+    };
+
+    const result = await desktopBridge.pixelPack.activate({ packId: 'pack-alpha' });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: 'desktop_pixel_pack_unavailable',
+      error: expect.objectContaining({
+        code: 'desktop_pixel_pack_unavailable',
+      }),
+    });
+  });
+});
