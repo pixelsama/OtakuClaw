@@ -39,6 +39,14 @@ const ACP_RUNNER_CATALOG = {
       'win32-arm64': 'codex-acp-0.10.0-aarch64-pc-windows-msvc.zip',
       'win32-x64': 'codex-acp-0.10.0-x86_64-pc-windows-msvc.zip',
     },
+    checksums: {
+      'codex-acp-0.10.0-aarch64-apple-darwin.tar.gz': '691f2a3fca24e6f2b9b3bde1a1181f3122be17fcce990a9f7f1c750fb3668422',
+      'codex-acp-0.10.0-x86_64-apple-darwin.tar.gz': '0eb29de065f73334016d2b1046e4f2b52529b769d324d45a805e316d73d7e4ba',
+      'codex-acp-0.10.0-aarch64-unknown-linux-gnu.tar.gz': 'bb20efa584ad7f89cd0eaac09ec8fd1181cd8e818ad08ef22c2b0db3d1c736dd',
+      'codex-acp-0.10.0-x86_64-unknown-linux-gnu.tar.gz': 'f5d0c1bcbbb361a92c4f52168625fe5fbc845cc9e48ae1c3fd150115cd11b415',
+      'codex-acp-0.10.0-aarch64-pc-windows-msvc.zip': '9ed9af77c6fd6458149fd328f7e4b007691d8cf973aac3737c47b9fdbf1a9780',
+      'codex-acp-0.10.0-x86_64-pc-windows-msvc.zip': '197a4daf5c163f3b491b19073c18d7177d67bf5179212811caa5f88b3e92d93e',
+    },
   },
   'claude-code': {
     backend: 'claude-code',
@@ -53,6 +61,14 @@ const ACP_RUNNER_CATALOG = {
       'linux-x64': 'claude-agent-acp-linux-x64.tar.gz',
       'win32-arm64': 'claude-agent-acp-windows-arm64.zip',
       'win32-x64': 'claude-agent-acp-windows-x64.zip',
+    },
+    checksums: {
+      'claude-agent-acp-darwin-arm64.zip': '96599e925d927c44d0dc85845ef5f02860c26fb2502c5303c0a08076364ec6c2',
+      'claude-agent-acp-darwin-x64.zip': '858c1ca5901ee38c15cafebb0aae4e65dc5e0c52819da422275de718e82db5c7',
+      'claude-agent-acp-linux-arm64.tar.gz': 'dd9176743c31a2f7611cd6a48d878f0d17442a9f33810cacca7819e081543357',
+      'claude-agent-acp-linux-x64.tar.gz': '511da44ceee759985df829387d0e639b5b829367542cfe77a3338311f4fd61e5',
+      'claude-agent-acp-windows-arm64.zip': 'ce16bb405ef48bd83c2804fb0ac51c17893fac21eb203e8af90a25ac1676bb34',
+      'claude-agent-acp-windows-x64.zip': '218ae126935ed2bf172c88e06f7549c6b591c1944a207bbb1eb6714cdff0cf34',
     },
   },
 };
@@ -92,6 +108,21 @@ function createRunnerError(code, message) {
   const error = new Error(message);
   error.code = code;
   return error;
+}
+
+function normalizeSha256(value) {
+  const normalized = sanitizeText(value).toLowerCase();
+  if (!normalized) {
+    return '';
+  }
+  if (/^[a-f0-9]{64}$/.test(normalized)) {
+    return normalized;
+  }
+  if (normalized.startsWith('sha256:')) {
+    const digest = normalized.slice('sha256:'.length);
+    return /^[a-f0-9]{64}$/.test(digest) ? digest : '';
+  }
+  return '';
 }
 
 function inferArchiveKind(fileName = '') {
@@ -134,6 +165,19 @@ function normalizeStateBackendEntry(source = {}) {
     archiveUrl: sanitizeText(source.archiveUrl),
     installedAt: sanitizeText(source.installedAt),
   };
+}
+
+async function computeFileSha256(filePath) {
+  const hash = crypto.createHash('sha256');
+  await new Promise((resolve, reject) => {
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', (chunk) => {
+      hash.update(chunk);
+    });
+    stream.once('error', reject);
+    stream.once('end', resolve);
+  });
+  return hash.digest('hex');
 }
 
 async function downloadFileFromUrl({ url, destinationPath, signal, onProgress }) {
@@ -371,6 +415,9 @@ class AcpRunnerRuntimeManager {
     const overrideEnvName = normalizedBackend === 'codex'
       ? 'OPENCLAW_ACP_CODEX_RUNNER_URL'
       : 'OPENCLAW_ACP_CLAUDE_RUNNER_URL';
+    const overrideChecksumEnvName = normalizedBackend === 'codex'
+      ? 'OPENCLAW_ACP_CODEX_RUNNER_SHA256'
+      : 'OPENCLAW_ACP_CLAUDE_RUNNER_SHA256';
     const overriddenUrl = sanitizeText(this.env?.[overrideEnvName]);
     if (overriddenUrl) {
       let archiveFileName = '';
@@ -389,6 +436,7 @@ class AcpRunnerRuntimeManager {
         archiveUrl: overriddenUrl,
         archiveFileName,
         archiveKind: inferArchiveKind(overriddenUrl),
+        expectedSha256: normalizeSha256(this.env?.[overrideChecksumEnvName]),
         binaryName,
       };
     }
@@ -405,6 +453,13 @@ class AcpRunnerRuntimeManager {
     const binaryName = this.platform === 'win32'
       ? `${catalog.binaryName.replace(/\.exe$/i, '')}.exe`
       : catalog.binaryName.replace(/\.exe$/i, '');
+    const expectedSha256 = normalizeSha256(catalog.checksums?.[assetName]);
+    if (!expectedSha256) {
+      throw createRunnerError(
+        'acp_runner_checksum_missing',
+        `${catalog.displayName} runner checksum is missing for asset ${assetName}.`,
+      );
+    }
 
     return {
       backend: normalizedBackend,
@@ -413,6 +468,7 @@ class AcpRunnerRuntimeManager {
       archiveUrl: `${catalog.releasePrefix}${assetName}`,
       archiveFileName: assetName,
       archiveKind: inferArchiveKind(assetName),
+      expectedSha256,
       binaryName,
     };
   }
@@ -530,7 +586,20 @@ class AcpRunnerRuntimeManager {
 
     const spec = this.resolveAssetSpec(backend);
     const currentStatus = this.getBackendStatus(backend);
-    if (currentStatus.installed && !force) {
+    const installedVersion = sanitizeText(currentStatus?.version);
+    const expectedVersion = sanitizeText(spec?.version);
+    const installedArchiveUrl = sanitizeText(currentStatus?.archiveUrl);
+    const expectedArchiveUrl = sanitizeText(spec?.archiveUrl);
+    const isExactInstalledVersion = Boolean(
+      currentStatus.installed
+      && installedVersion
+      && expectedVersion
+      && installedVersion === expectedVersion
+      && installedArchiveUrl
+      && expectedArchiveUrl
+      && installedArchiveUrl === expectedArchiveUrl,
+    );
+    if (isExactInstalledVersion && !force) {
       return {
         ok: true,
         ...currentStatus,
@@ -539,6 +608,9 @@ class AcpRunnerRuntimeManager {
 
     const taskId = `acp-runner:${backend}`;
     const taskTitle = `${spec.displayName} Runner Download & Install`;
+    const totalTasks = spec.expectedSha256 ? 4 : 3;
+    const extractTaskIndex = spec.expectedSha256 ? 3 : 2;
+    const completedTaskIndex = totalTasks;
 
     emitProgress({
       backend,
@@ -546,7 +618,7 @@ class AcpRunnerRuntimeManager {
       taskTitle,
       phase: 'started',
       completedTasks: 0,
-      totalTasks: 3,
+      totalTasks,
       currentFile: '',
       overallProgress: 0,
     });
@@ -570,7 +642,7 @@ class AcpRunnerRuntimeManager {
         taskTitle,
         phase: 'running',
         completedTasks: 1,
-        totalTasks: 3,
+        totalTasks,
         currentFile: spec.archiveFileName || path.basename(archivePath),
       });
 
@@ -585,7 +657,7 @@ class AcpRunnerRuntimeManager {
             taskTitle,
             phase: 'running',
             completedTasks: 1,
-            totalTasks: 3,
+            totalTasks,
             currentFile: spec.archiveFileName || path.basename(archivePath),
             overallProgress: Number.isFinite(downloadPayload?.overallProgress) ? downloadPayload.overallProgress : null,
             fileDownloadedBytes: Number.isFinite(downloadPayload?.fileDownloadedBytes)
@@ -602,13 +674,32 @@ class AcpRunnerRuntimeManager {
         },
       });
 
+      if (spec.expectedSha256) {
+        emitProgress({
+          backend,
+          taskId,
+          taskTitle,
+          phase: 'verifying',
+          completedTasks: 2,
+          totalTasks,
+          currentFile: spec.archiveFileName || path.basename(archivePath),
+        });
+        const actualSha256 = await computeFileSha256(archivePath);
+        if (actualSha256 !== spec.expectedSha256) {
+          throw createRunnerError(
+            'acp_runner_checksum_mismatch',
+            `Checksum mismatch for ${spec.archiveFileName || path.basename(archivePath)}.`,
+          );
+        }
+      }
+
       emitProgress({
         backend,
         taskId,
         taskTitle,
         phase: 'extracting',
-        completedTasks: 2,
-        totalTasks: 3,
+        completedTasks: extractTaskIndex,
+        totalTasks,
         currentFile: spec.archiveFileName || path.basename(archivePath),
       });
 
@@ -650,8 +741,8 @@ class AcpRunnerRuntimeManager {
         taskId,
         taskTitle,
         phase: 'completed',
-        completedTasks: 3,
-        totalTasks: 3,
+        completedTasks: completedTaskIndex,
+        totalTasks,
         currentFile: '',
       });
 
@@ -665,8 +756,8 @@ class AcpRunnerRuntimeManager {
         taskId,
         taskTitle,
         phase: 'failed',
-        completedTasks: 3,
-        totalTasks: 3,
+        completedTasks: completedTaskIndex,
+        totalTasks,
         currentFile: '',
         error: {
           code: sanitizeText(error?.code) || 'acp_runner_install_failed',

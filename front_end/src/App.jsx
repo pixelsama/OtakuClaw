@@ -512,14 +512,14 @@ function AppContent({ desktopMode }) {
     await onInstallNanobotRuntime();
   }, [ensureDownloadTask, onInstallNanobotRuntime, t]);
 
-  const handleInstallAcpRunner = useCallback(async (backend) => {
+  const handleInstallAcpRunner = useCallback(async (backend, options = {}) => {
     const { taskId, title } = resolveAcpRunnerTaskMeta(backend);
     ensureDownloadTask({
       taskId,
       title,
     });
     openDownloadTask(taskId);
-    await onInstallAcpRunner(backend);
+    await onInstallAcpRunner(backend, options);
   }, [ensureDownloadTask, onInstallAcpRunner, openDownloadTask, resolveAcpRunnerTaskMeta]);
 
   const handleFinishFirstRunOnboarding = useCallback(async () => {

@@ -511,7 +511,7 @@ export default function ConfigDrawer({
                                   size="small"
                                   disabled={activeAcpRunnerInstalling}
                                   onClick={() => {
-                                    void onInstallAcpRunner?.(selectedAcpBackend);
+                                    void onInstallAcpRunner?.(selectedAcpBackend, { force: false });
                                   }}
                                 >
                                   {activeAcpRunnerInstalling ? t('app.acpRunnerInstalling') : t('app.acpRunnerInstall')}
@@ -531,7 +531,7 @@ export default function ConfigDrawer({
                                   size="small"
                                   disabled={activeAcpRunnerInstalling}
                                   onClick={() => {
-                                    void onInstallAcpRunner?.(selectedAcpBackend);
+                                    void onInstallAcpRunner?.(selectedAcpBackend, { force: true });
                                   }}
                                 >
                                   {activeAcpRunnerInstalling ? t('app.acpRunnerInstalling') : t('app.acpRunnerReinstall')}

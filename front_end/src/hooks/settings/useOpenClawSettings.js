@@ -783,7 +783,7 @@ export function useChatBackendSettings({ t, normalizeError }) {
     }
   }, [formatError, refreshNanobotRuntimeStatus, refreshNanobotSkills, t]);
 
-  const onInstallAcpRunner = useCallback(async (backend) => {
+  const onInstallAcpRunner = useCallback(async (backend, options = {}) => {
     const normalizedBackend = normalizeBackendName(backend);
     if (normalizedBackend !== 'codex' && normalizedBackend !== 'claude-code') {
       return {
@@ -794,6 +794,7 @@ export function useChatBackendSettings({ t, normalizeError }) {
         },
       };
     }
+    const force = options?.force === true;
 
     setAcpRunnerInstallingBackend(normalizedBackend);
     setSettingsError('');
@@ -802,6 +803,7 @@ export function useChatBackendSettings({ t, normalizeError }) {
     try {
       const result = await desktopBridge.acpRunnerRuntime.install({
         backend: normalizedBackend,
+        force,
       });
 
       if (!result?.ok) {
