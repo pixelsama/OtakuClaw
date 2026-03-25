@@ -566,15 +566,6 @@ export function useChatBackendSettings({ t, normalizeError }) {
     };
   }, [chatBackendSettings, formatError, savedSettingsSnapshot, settingsLoaded]);
 
-  const onChatBackendChange = useCallback((backend) => {
-    setChatBackendSettings((prev) => ({
-      ...prev,
-      chatBackend: normalizeBackendName(backend),
-    }));
-    setSettingsFeedback('');
-    setSettingsError('');
-  }, []);
-
   const onOpenClawSettingChange = useCallback((field, value) => {
     setChatBackendSettings((prev) => ({
       ...prev,
@@ -952,7 +943,6 @@ export function useChatBackendSettings({ t, normalizeError }) {
     settingsTesting,
     settingsFeedback,
     settingsError,
-    onChatBackendChange,
     onOpenClawSettingChange,
     onNanobotSettingChange,
     onAcpBackendSettingChange,

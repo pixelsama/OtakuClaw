@@ -743,7 +743,7 @@ export default function ConfigDrawer({
                         <Button
                           size="small"
                           color="warning"
-                          onClick={onClearSavedToken}
+                          onClick={() => onClearSavedToken?.('nanobot')}
                           disabled={settingsSaving || settingsTesting || !nanobotSettings.hasApiKey}
                         >
                           {t('app.nanobotClearApiKey')}
