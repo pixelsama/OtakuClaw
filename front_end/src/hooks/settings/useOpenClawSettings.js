@@ -676,13 +676,21 @@ export function useChatBackendSettings({ t, normalizeError }) {
     }
   }, [formatError]);
 
-  const onTestChatBackendSettings = useCallback(async () => {
+  const onTestChatBackendSettings = useCallback(async (backendOverride = '') => {
     setSettingsTesting(true);
     setSettingsError('');
     setSettingsFeedback('');
 
     try {
       const payload = buildChatBackendSettingsPayload(chatBackendSettings);
+      const requestedBackend =
+        typeof backendOverride === 'string' && backendOverride.trim()
+          ? normalizeBackendName(backendOverride)
+          : normalizeBackendName(chatBackendSettings?.chatBackend);
+      const testPayload = {
+        ...payload,
+        chatBackend: requestedBackend,
+      };
       let timeoutId = null;
       const timeoutPromise = new Promise((resolve) => {
         timeoutId = setTimeout(() => {
@@ -696,7 +704,7 @@ export function useChatBackendSettings({ t, normalizeError }) {
         }, CONNECTION_TEST_TIMEOUT_MS);
       });
       const result = await Promise.race([
-        desktopBridge.settings.testConnection(payload),
+        desktopBridge.settings.testConnection(testPayload),
         timeoutPromise,
       ]);
       if (timeoutId) {
@@ -720,14 +728,18 @@ export function useChatBackendSettings({ t, normalizeError }) {
     }
   }, [chatBackendSettings, formatError, t]);
 
-  const onClearSavedToken = useCallback(async () => {
+  const onClearSavedToken = useCallback(async (backendOverride = '') => {
     setSettingsSaving(true);
     setSettingsError('');
     setSettingsFeedback('');
 
     try {
+      const targetBackend =
+        typeof backendOverride === 'string' && backendOverride.trim()
+          ? normalizeBackendName(backendOverride)
+          : normalizeBackendName(chatBackendSettings?.chatBackend);
       const clearPayload =
-        chatBackendSettings.chatBackend === 'nanobot'
+        targetBackend === 'nanobot'
           ? {
               nanobot: {
                 clearApiKey: true,
@@ -760,7 +772,7 @@ export function useChatBackendSettings({ t, normalizeError }) {
     } finally {
       setSettingsSaving(false);
     }
-  }, [chatBackendSettings.chatBackend, formatError, t]);
+  }, [chatBackendSettings?.chatBackend, formatError, t]);
 
   const onInstallNanobotRuntime = useCallback(async () => {
     setNanobotRuntimeInstalling(true);

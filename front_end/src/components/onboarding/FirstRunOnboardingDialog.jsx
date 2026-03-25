@@ -419,7 +419,6 @@ export default function FirstRunOnboardingDialog({
   settingsTesting = false,
   settingsFeedback = '',
   settingsError = '',
-  onChatBackendChange,
   onNanobotSettingChange,
   onAcpBackendSettingChange,
   onPickNanobotWorkspace,
@@ -435,6 +434,7 @@ export default function FirstRunOnboardingDialog({
   const mountedRef = useRef(true);
   const [activeStep, setActiveStep] = useState(0);
   const [backendSubStep, setBackendSubStep] = useState(0);
+  const [selectedBackend, setSelectedBackend] = useState('nanobot');
   const [asrSubStep, setAsrSubStep] = useState(0);
   const [ttsSubStep, setTtsSubStep] = useState(0);
   const [backendDownloadDetailsOpen, setBackendDownloadDetailsOpen] = useState(false);
@@ -512,7 +512,6 @@ export default function FirstRunOnboardingDialog({
     ? t(VOICE_SUB_STEP_LABEL_KEYS[ttsSubStep + 1])
     : '';
 
-  const selectedBackend = chatBackendSettings?.chatBackend || 'nanobot';
   const nanobotSettings = chatBackendSettings?.nanobot || {};
   const claudeCodeSettings = chatBackendSettings?.claudeCode || {};
   const codexSettings = chatBackendSettings?.codex || {};
@@ -560,6 +559,16 @@ export default function FirstRunOnboardingDialog({
       || ttsDownloadPhase === 'completed'
       || ttsDownloadPhase === 'failed'
       || (Array.isArray(ttsDownloadTask?.logs) && ttsDownloadTask.logs.length > 0));
+
+  useEffect(() => {
+    const fallbackBackend = typeof chatBackendSettings?.chatBackend === 'string'
+      ? chatBackendSettings.chatBackend.trim().toLowerCase()
+      : '';
+    const normalized = fallbackBackend === 'codex' || fallbackBackend === 'claude-code' || fallbackBackend === 'nanobot'
+      ? fallbackBackend
+      : 'nanobot';
+    setSelectedBackend(normalized);
+  }, [open, chatBackendSettings?.chatBackend]);
   const shouldShowNanobotDownloadCard = selectedBackend === 'nanobot'
     && (nanobotRuntimeDownloading
       || nanobotDownloadPhase === 'completed'
@@ -1387,9 +1396,9 @@ export default function FirstRunOnboardingDialog({
     <Stack spacing={1.5}>
       <TextField
         select
-        label={t('onboarding.backend.label')}
+        label={t('onboarding.backend.resourceLabel')}
         value={selectedBackend}
-        onChange={(event) => onChatBackendChange?.(event.target.value)}
+        onChange={(event) => setSelectedBackend(event.target.value)}
         fullWidth
       >
         <MenuItem value="nanobot">{t('app.backend.nanobot')}</MenuItem>
@@ -1593,7 +1602,7 @@ export default function FirstRunOnboardingDialog({
             <Button
               variant="contained"
               disabled={settingsSaving || settingsTesting || !activeAcpSettings.enabled}
-              onClick={() => onTestChatBackendSettings?.()}
+              onClick={() => onTestChatBackendSettings?.(selectedBackend)}
             >
               {settingsTesting ? t('app.testingConnection') : t('app.connectionTest')}
             </Button>
@@ -1622,7 +1631,7 @@ export default function FirstRunOnboardingDialog({
         </Alert>
 
         <Stack direction="row" spacing={1}>
-          <Button variant="contained" disabled={testDisabled} onClick={() => onTestChatBackendSettings?.()}>
+          <Button variant="contained" disabled={testDisabled} onClick={() => onTestChatBackendSettings?.(selectedBackend)}>
             {settingsTesting ? t('app.testingConnection') : t('app.connectionTest')}
           </Button>
         </Stack>

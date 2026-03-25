@@ -51,6 +51,14 @@ const DEFAULT_APP_UPDATER_STATE = {
   supportReason: '',
 };
 
+function normalizeResourceBackend(value, fallback = 'nanobot') {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (normalized === 'codex' || normalized === 'claude-code' || normalized === 'nanobot') {
+    return normalized;
+  }
+  return fallback;
+}
+
 function resolveUpdaterStatusLabel(t, status = 'idle') {
   const normalized = typeof status === 'string' ? status.trim().toLowerCase() : 'idle';
   if (normalized === 'checking') {
@@ -167,7 +175,6 @@ export default function ConfigDrawer({
   settingsTesting = false,
   settingsFeedback = '',
   settingsError = '',
-  onChatBackendChange,
   onNanobotSettingChange,
   onAcpBackendSettingChange,
   onPickNanobotWorkspace,
@@ -192,11 +199,13 @@ export default function ConfigDrawer({
   const { language, setLanguage, t } = useI18n();
   const { themeMode, setThemeMode } = useThemeMode();
   const [activeConfigTab, setActiveConfigTab] = useState(0);
+  const [selectedBackend, setSelectedBackend] = useState(() =>
+    normalizeResourceBackend(defaultChatBackend, 'nanobot'),
+  );
   const [appUpdaterState, setAppUpdaterState] = useState(DEFAULT_APP_UPDATER_STATE);
   const [appUpdaterBusy, setAppUpdaterBusy] = useState(false);
   const [appUpdaterError, setAppUpdaterError] = useState('');
   const [appUpdaterFeedback, setAppUpdaterFeedback] = useState('');
-  const selectedBackend = chatBackendSettings?.chatBackend || 'nanobot';
   const nanobotSettings = chatBackendSettings?.nanobot || {};
   const claudeCodeSettings = chatBackendSettings?.claudeCode || {};
   const codexSettings = chatBackendSettings?.codex || {};
@@ -329,6 +338,13 @@ export default function ConfigDrawer({
   }, [open]);
 
   useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setSelectedBackend(normalizeResourceBackend(defaultChatBackend, 'nanobot'));
+  }, [defaultChatBackend, open]);
+
+  useEffect(() => {
     if (!open || !desktopMode) {
       return () => {};
     }
@@ -409,7 +425,7 @@ export default function ConfigDrawer({
           <Stack spacing={2}>
             <Tabs value={activeConfigTab} onChange={(_event, tab) => setActiveConfigTab(tab)} variant="fullWidth">
               <Tab label={t('app.tab.agentRoles')} />
-              <Tab label={t('app.tab.chatBackend')} />
+              <Tab label={t('app.tab.backendResources')} />
               <Tab label={t('app.tab.voice')} />
               <Tab label={t('app.tab.preferences')} />
             </Tabs>
@@ -434,12 +450,13 @@ export default function ConfigDrawer({
                   <Alert severity="warning">{t('app.keychainWarning')}</Alert>
                 )}
 
-                <SectionAccordion title={t('app.chatBackendSelector')}>
+                <SectionAccordion title={t('app.backendResourceSelector')}>
+                  <Alert severity="info">{t('app.backendResourceHint')}</Alert>
                   <TextField
                     select
-                    label={t('app.chatBackendSelector')}
+                    label={t('app.backendResourceSelector')}
                     value={selectedBackend}
-                    onChange={(event) => onChatBackendChange?.(event.target.value)}
+                    onChange={(event) => setSelectedBackend(normalizeResourceBackend(event.target.value, 'nanobot'))}
                     fullWidth
                   >
                     <MenuItem value="nanobot">{t('app.backend.nanobot')}</MenuItem>
@@ -910,18 +927,18 @@ export default function ConfigDrawer({
 
                 <SectionAccordion title={t('app.connectionTest')}>
                   <Stack direction="row" spacing={1}>
-                    <Button
-                      variant="outlined"
-                      onClick={onTestChatBackendSettings}
-                      disabled={testButtonDisabled}
-                    >
-                      {settingsTesting ? t('app.testingConnection') : t('app.connectionTest')}
+                      <Button
+                        variant="outlined"
+                        onClick={() => onTestChatBackendSettings?.(selectedBackend)}
+                        disabled={testButtonDisabled}
+                      >
+                        {settingsTesting ? t('app.testingConnection') : t('app.connectionTest')}
                     </Button>
                     {selectedBackend === 'nanobot' && (
                       <Button
                         variant="text"
                         color="warning"
-                        onClick={onClearSavedToken}
+                        onClick={() => onClearSavedToken?.('nanobot')}
                         disabled={settingsSaving || settingsTesting || !hasBackendSecret}
                       >
                         {t('app.clearToken')}

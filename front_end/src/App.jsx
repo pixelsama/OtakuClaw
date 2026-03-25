@@ -200,7 +200,6 @@ function AppContent({ desktopMode }) {
     settingsTesting,
     settingsFeedback,
     settingsError,
-    onChatBackendChange,
     onOpenClawSettingChange,
     onNanobotSettingChange,
     onAcpBackendSettingChange,
@@ -1627,7 +1626,7 @@ function AppContent({ desktopMode }) {
         desktopMode={desktopMode}
         officeState={officeStateSnapshot}
         agentRoleConfig={agentRoleConfig}
-        defaultChatBackend={chatBackendSettings.chatBackend}
+        defaultChatBackend={activeConversationBackend}
         onUpsertOfficeAgent={handleUpsertOfficeAgent}
         onRemoveOfficeAgent={handleRemoveOfficeAgent}
         onSetActiveOfficeAgent={handleSetActiveOfficeAgent}
@@ -1636,7 +1635,6 @@ function AppContent({ desktopMode }) {
         settingsTesting={settingsTesting}
         settingsFeedback={settingsFeedback}
         settingsError={settingsError}
-        onChatBackendChange={onChatBackendChange}
         onOpenClawSettingChange={onOpenClawSettingChange}
         onNanobotSettingChange={onNanobotSettingChange}
         onAcpBackendSettingChange={onAcpBackendSettingChange}
@@ -1679,7 +1677,6 @@ function AppContent({ desktopMode }) {
         settingsTesting={settingsTesting}
         settingsFeedback={settingsFeedback}
         settingsError={settingsError}
-        onChatBackendChange={onChatBackendChange}
         onOpenClawSettingChange={onOpenClawSettingChange}
         onNanobotSettingChange={onNanobotSettingChange}
         onAcpBackendSettingChange={onAcpBackendSettingChange}
