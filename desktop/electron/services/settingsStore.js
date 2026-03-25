@@ -76,6 +76,11 @@ const DEFAULT_UI_SETTINGS = {
     themeId: 'star-office-classic',
     furnitureOverrides: {},
   },
+  pixelPack: {
+    activePackId: '',
+    activeVersion: '',
+    overrides: {},
+  },
 };
 
 const DEFAULT_SETTINGS = {
@@ -105,6 +110,10 @@ const DEFAULT_SETTINGS = {
     onboarding: {
       ...DEFAULT_UI_SETTINGS.onboarding,
     },
+    pixelPack: {
+      ...DEFAULT_UI_SETTINGS.pixelPack,
+      overrides: cloneJsonValue(DEFAULT_UI_SETTINGS.pixelPack.overrides),
+    },
   },
 };
 
@@ -117,6 +126,18 @@ function normalizeString(value, fallback = '') {
     return fallback;
   }
   return value.trim();
+}
+
+function cloneJsonValue(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => cloneJsonValue(item));
+  }
+  if (isObject(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, cloneJsonValue(item)]),
+    );
+  }
+  return value;
 }
 
 function normalizeChatBackend(value) {
@@ -372,12 +393,30 @@ function normalizeOfficeSceneLayoutSettings(settings = {}) {
   };
 }
 
+function normalizePixelPackOverrides(value) {
+  if (!isObject(value)) {
+    return {};
+  }
+  return cloneJsonValue(value);
+}
+
+function normalizePixelPackSettings(settings = {}) {
+  const source = isObject(settings) ? settings : {};
+  return {
+    activePackId: normalizeString(source.activePackId, DEFAULT_UI_SETTINGS.pixelPack.activePackId),
+    activeVersion: normalizeString(source.activeVersion, DEFAULT_UI_SETTINGS.pixelPack.activeVersion),
+    overrides: normalizePixelPackOverrides(source.overrides),
+  };
+}
+
 function normalizeUiSettings(settings = {}) {
   const onboarding = isObject(settings.onboarding) ? settings.onboarding : {};
   const officeSceneLayout = isObject(settings.officeSceneLayout) ? settings.officeSceneLayout : {};
+  const pixelPack = isObject(settings.pixelPack) ? settings.pixelPack : {};
   return {
     onboarding: normalizeOnboardingSettings(onboarding),
     officeSceneLayout: normalizeOfficeSceneLayoutSettings(officeSceneLayout),
+    pixelPack: normalizePixelPackSettings(pixelPack),
   };
 }
 
@@ -405,6 +444,12 @@ function cloneSettings(settings) {
         furnitureOverrides: {
           ...(settings.ui?.officeSceneLayout?.furnitureOverrides || DEFAULT_UI_SETTINGS.officeSceneLayout.furnitureOverrides),
         },
+      },
+      pixelPack: {
+        ...(settings.ui?.pixelPack || DEFAULT_UI_SETTINGS.pixelPack),
+        overrides: cloneJsonValue(
+          settings.ui?.pixelPack?.overrides || DEFAULT_UI_SETTINGS.pixelPack.overrides,
+        ),
       },
     },
   };
@@ -733,8 +778,10 @@ function normalizePatch(partialSettings = {}) {
   const uiSource = isObject(source.ui) ? source.ui : {};
   const onboardingSource = isObject(uiSource.onboarding) ? uiSource.onboarding : {};
   const officeSceneLayoutSource = isObject(uiSource.officeSceneLayout) ? uiSource.officeSceneLayout : {};
+  const pixelPackSource = isObject(uiSource.pixelPack) ? uiSource.pixelPack : {};
   const onboardingPatch = {};
   const officeSceneLayoutPatch = {};
+  const pixelPackPatch = {};
   if (Object.prototype.hasOwnProperty.call(onboardingSource, 'completed')) {
     onboardingPatch.completed = Boolean(onboardingSource.completed);
   }
@@ -757,6 +804,18 @@ function normalizePatch(partialSettings = {}) {
   }
   if (Object.keys(officeSceneLayoutPatch).length > 0) {
     uiPatch.officeSceneLayout = officeSceneLayoutPatch;
+  }
+  if (Object.prototype.hasOwnProperty.call(pixelPackSource, 'activePackId')) {
+    pixelPackPatch.activePackId = normalizeString(pixelPackSource.activePackId);
+  }
+  if (Object.prototype.hasOwnProperty.call(pixelPackSource, 'activeVersion')) {
+    pixelPackPatch.activeVersion = normalizeString(pixelPackSource.activeVersion);
+  }
+  if (Object.prototype.hasOwnProperty.call(pixelPackSource, 'overrides')) {
+    pixelPackPatch.overrides = normalizePixelPackOverrides(pixelPackSource.overrides);
+  }
+  if (Object.keys(pixelPackPatch).length > 0) {
+    uiPatch.pixelPack = pixelPackPatch;
   }
   if (Object.keys(uiPatch).length > 0) {
     patch.ui = uiPatch;
@@ -949,6 +1008,10 @@ class SettingsStore {
             ...(this.settings.ui?.officeSceneLayout?.furnitureOverrides || {}),
           },
         },
+        pixelPack: {
+          ...(this.settings.ui?.pixelPack || {}),
+          overrides: cloneJsonValue(this.settings.ui?.pixelPack?.overrides || {}),
+        },
       },
       hasSecureStorage: this.hasSecureStorage,
 
@@ -994,6 +1057,10 @@ class SettingsStore {
           furnitureOverrides: {
             ...(this.settings.ui?.officeSceneLayout?.furnitureOverrides || {}),
           },
+        },
+        pixelPack: {
+          ...(this.settings.ui?.pixelPack || {}),
+          overrides: cloneJsonValue(this.settings.ui?.pixelPack?.overrides || {}),
         },
       },
 
@@ -1080,6 +1147,13 @@ class SettingsStore {
             ...(this.settings.ui?.officeSceneLayout?.furnitureOverrides || {}),
             ...(patch.ui.officeSceneLayout?.furnitureOverrides || {}),
           },
+        },
+        pixelPack: {
+          ...(this.settings.ui?.pixelPack || {}),
+          ...(patch.ui.pixelPack || {}),
+          overrides: cloneJsonValue(
+            patch.ui.pixelPack?.overrides || this.settings.ui?.pixelPack?.overrides || {},
+          ),
         },
       });
     }
@@ -1236,6 +1310,13 @@ class SettingsStore {
             ...(merged.ui?.officeSceneLayout?.furnitureOverrides || {}),
             ...(patch.ui.officeSceneLayout?.furnitureOverrides || {}),
           },
+        },
+        pixelPack: {
+          ...(merged.ui?.pixelPack || {}),
+          ...(patch.ui.pixelPack || {}),
+          overrides: cloneJsonValue(
+            patch.ui.pixelPack?.overrides || merged.ui?.pixelPack?.overrides || {},
+          ),
         },
       });
     }

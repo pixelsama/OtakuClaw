@@ -31,6 +31,34 @@ function normalizeFrameDimension(value, fallback = 1) {
   return Math.max(1, Math.round(numeric));
 }
 
+function normalizeAssetPath(value) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) {
+    return '';
+  }
+  return normalized
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .split('/')
+    .filter(Boolean)
+    .join('/');
+}
+
+function joinAssetUrl(baseUrl = '', relativePath = '') {
+  const normalizedBase = normalizeText(baseUrl, '');
+  const normalizedPath = normalizeAssetPath(relativePath);
+  if (!normalizedBase || !normalizedPath) {
+    return '';
+  }
+
+  const encodedPath = normalizedPath
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+  const baseWithSlash = normalizedBase.endsWith('/') ? normalizedBase : `${normalizedBase}/`;
+  return `${baseWithSlash}${encodedPath}`;
+}
+
 function normalizePixelPackError(error = null) {
   if (!error) {
     return '';
@@ -57,10 +85,12 @@ function normalizePixelPackError(error = null) {
   return '';
 }
 
-function normalizePixelPackAssetEntry(value = {}, fallbackKey = '') {
+function normalizePixelPackAssetEntry(value = {}, fallbackKey = '', { assetBaseUrl = '' } = {}) {
   const source = normalizePlainObject(value);
   const assetKey = normalizeText(source.assetKey || source.key || fallbackKey, fallbackKey);
-  const assetUrl = normalizeText(source.assetUrl || source.url || source.path || source.src, '');
+  const sourcePath = normalizeAssetPath(source.path || source.src || '');
+  const sourceAssetUrl = normalizeText(source.assetUrl || source.url, '');
+  const assetUrl = sourceAssetUrl || joinAssetUrl(assetBaseUrl, sourcePath);
   const cols = normalizeFrameDimension(source.cols, 1);
   const rows = normalizeFrameDimension(source.rows, 1);
 
@@ -73,17 +103,22 @@ function normalizePixelPackAssetEntry(value = {}, fallbackKey = '') {
     assetKey,
     assetUrl,
     url: assetUrl,
+    path: sourcePath,
     label: normalizeText(source.label || source.name, assetKey),
     cols,
     rows,
   };
 }
 
-function normalizePixelPackAssetMap(value = {}) {
+function normalizePixelPackAssetMap(value = {}, options = {}) {
   if (Array.isArray(value)) {
     return Object.fromEntries(
       value
-        .map((item, index) => normalizePixelPackAssetEntry(item, normalizeText(item?.assetKey || item?.key, `asset-${index + 1}`)))
+        .map((item, index) => normalizePixelPackAssetEntry(
+          item,
+          normalizeText(item?.assetKey || item?.key, `asset-${index + 1}`),
+          options,
+        ))
         .filter(Boolean)
         .map((asset) => [asset.assetKey, asset]),
     );
@@ -92,7 +127,7 @@ function normalizePixelPackAssetMap(value = {}) {
   const source = normalizePlainObject(value);
   return Object.fromEntries(
     Object.entries(source)
-      .map(([key, item]) => normalizePixelPackAssetEntry(item, key))
+      .map(([key, item]) => normalizePixelPackAssetEntry(item, key, options))
       .filter(Boolean)
       .map((asset) => [asset.assetKey, asset]),
   );
@@ -102,11 +137,18 @@ function resolvePixelPackManifestSource(source = {}) {
   const normalizedSource = normalizePlainObject(source);
   const nestedManifest = normalizePlainObject(normalizedSource.manifest);
   const nestedOfficeScene = normalizePlainObject(normalizedSource.officeScene || normalizedSource.scene || {});
+  const assetBaseUrl = normalizeText(
+    normalizedSource.assetBaseUrl
+      || nestedManifest.assetBaseUrl
+      || normalizedSource.pack?.assetBaseUrl,
+    '',
+  );
   const assets = normalizePixelPackAssetMap(
     normalizedSource.assets
     || nestedOfficeScene.assets
     || normalizedSource.sceneAssets
     || nestedManifest.assets,
+    { assetBaseUrl },
   );
 
   return {
@@ -117,6 +159,7 @@ function resolvePixelPackManifestSource(source = {}) {
     author: normalizeText(normalizedSource.author || nestedManifest.author, ''),
     sourcePath: normalizeText(normalizedSource.sourcePath || normalizedSource.path || nestedManifest.sourcePath, ''),
     updatedAt: normalizeText(normalizedSource.updatedAt || nestedManifest.updatedAt, ''),
+    assetBaseUrl,
     assets,
     officeScene: nestedOfficeScene,
   };
@@ -128,8 +171,14 @@ export function normalizePixelPackManifest(source = {}) {
 
 export function normalizePixelPackRecord(source = {}) {
   const normalizedSource = normalizePlainObject(source);
-  const manifest = normalizePixelPackManifest(normalizedSource.manifest || normalizedSource);
-  const id = normalizeText(normalizedSource.id || normalizedSource.packId || manifest.id, manifest.id || '');
+  const manifest = normalizePixelPackManifest({
+    ...(normalizedSource.manifest || normalizedSource),
+    assetBaseUrl: normalizedSource.assetBaseUrl,
+  });
+  const rawPackId = normalizeText(normalizedSource.packId || normalizedSource.id || manifest.id, manifest.id || '');
+  const packId = rawPackId.includes('@') ? rawPackId.split('@')[0] : rawPackId;
+  const version = normalizeText(normalizedSource.version || manifest.version, '');
+  const id = version ? `${packId}@${version}` : packId;
   const name = normalizeText(normalizedSource.name || manifest.name, id || 'Pixel Pack');
   const error = normalizePixelPackError(normalizedSource.error || normalizedSource.validationError || normalizedSource.lastError);
   const status = normalizeText(
@@ -148,10 +197,10 @@ export function normalizePixelPackRecord(source = {}) {
 
   return {
     id,
-    packId: id,
+    packId,
     name,
     description: normalizeText(normalizedSource.description || manifest.description, ''),
-    version: normalizeText(normalizedSource.version || manifest.version, ''),
+    version,
     author: normalizeText(normalizedSource.author || manifest.author, ''),
     sourcePath: normalizeText(normalizedSource.sourcePath || normalizedSource.path || manifest.sourcePath, ''),
     status,
@@ -164,6 +213,19 @@ export function normalizePixelPackRecord(source = {}) {
     canRemove: normalizedSource.canRemove !== false,
     canExport: normalizedSource.canExport !== false,
   };
+}
+
+function isSamePack(left = {}, rightPackId = '', rightVersion = '') {
+  if (!left || !rightPackId) {
+    return false;
+  }
+  if (left.packId !== rightPackId) {
+    return false;
+  }
+  if (!rightVersion) {
+    return true;
+  }
+  return left.version === rightVersion;
 }
 
 export function normalizePixelPackState(source = {}) {
@@ -180,16 +242,17 @@ export function normalizePixelPackState(source = {}) {
     normalizedSource.activePackId || normalizedSource.activeId || normalizedSource.selectedPackId,
     '',
   );
+  const activeVersion = normalizeText(normalizedSource.activeVersion || normalizedSource.selectedVersion, '');
   const explicitActivePack = normalizedSource.activePack
     ? normalizePixelPackRecord({
-        ...normalizedSource.activePack,
-        active: true,
-        status: 'active',
+      ...normalizedSource.activePack,
+      active: true,
+      status: 'active',
       })
     : null;
   const resolvedActivePack =
     explicitActivePack
-    || packs.find((pack) => pack.id === activePackId)
+    || packs.find((pack) => isSamePack(pack, activePackId, activeVersion))
     || packs.find((pack) => pack.active)
     || null;
   const normalizedActivePack = resolvedActivePack
@@ -208,7 +271,8 @@ export function normalizePixelPackState(source = {}) {
     updatedAt: normalizeText(normalizedSource.updatedAt, ''),
     supported: normalizedSource.supported !== false,
     loading: Boolean(normalizedSource.loading),
-    activePackId: normalizedActivePack?.id || activePackId,
+    activePackId: normalizedActivePack?.packId || activePackId,
+    activeVersion: normalizedActivePack?.version || activeVersion,
     activePack: normalizedActivePack,
     packs: mergedPacks,
     error: normalizePixelPackError(normalizedSource.error || normalizedSource.lastError),

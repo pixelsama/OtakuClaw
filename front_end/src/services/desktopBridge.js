@@ -1626,8 +1626,11 @@ export const desktopBridge = {
   pixelPack: {
     async getState() {
       const api = getDesktopApi();
-      if (api?.pixelPack?.getState) {
-        const result = await api.pixelPack.getState();
+      const pixelPackApi = api?.pixelPack || null;
+      const legacyPixelPacksApi = api?.pixelPacks || null;
+
+      if (pixelPackApi?.getState) {
+        const result = await pixelPackApi.getState();
         const normalizedState = normalizePixelPackState(result?.state || result || {});
         if (result?.ok === false) {
           const error = normalizePixelPackActionError(result?.reason || result?.error?.code || 'desktop_pixel_pack_unavailable', result?.error?.message || result?.message || '');
@@ -1648,6 +1651,57 @@ export const desktopBridge = {
         };
       }
 
+      if (legacyPixelPacksApi?.list) {
+        const [listResult, activeResult] = await Promise.all([
+          legacyPixelPacksApi.list(),
+          legacyPixelPacksApi.getActiveManifest
+            ? legacyPixelPacksApi.getActiveManifest()
+            : Promise.resolve({ ok: false, found: false }),
+        ]);
+
+        if (listResult?.ok === false) {
+          const error = normalizePixelPackActionError(
+            listResult?.reason || listResult?.error?.code || 'desktop_pixel_pack_unavailable',
+            listResult?.error?.message || listResult?.message || '',
+          );
+          return {
+            ok: false,
+            reason: listResult?.reason || error.code,
+            error,
+            state: normalizePixelPackState({
+              ...DEFAULT_PIXEL_PACK_STATE,
+              supported: false,
+              error: error.message,
+            }),
+          };
+        }
+
+        const activePackFromManifest = activeResult?.ok && activeResult?.found
+          ? {
+              ...(activeResult.pack || {}),
+              manifest: activeResult.manifest || null,
+              validation: activeResult.validation || null,
+              active: true,
+            }
+          : null;
+        const state = normalizePixelPackState({
+          supported: true,
+          packs: Array.isArray(listResult?.packs) ? listResult.packs : [],
+          activePackId:
+            normalizeText(listResult?.activePackId, '')
+            || normalizeText(activeResult?.activePackId, ''),
+          activeVersion:
+            normalizeText(listResult?.activeVersion, '')
+            || normalizeText(activeResult?.activeVersion, ''),
+          activePack: activePackFromManifest,
+          error: '',
+        });
+        return {
+          ok: true,
+          state,
+        };
+      }
+
       return {
         ok: true,
         state: normalizePixelPackState(DEFAULT_PIXEL_PACK_STATE),
@@ -1657,6 +1711,9 @@ export const desktopBridge = {
       const api = getDesktopApi();
       if (api?.pixelPack?.importZip) {
         return api.pixelPack.importZip(payload);
+      }
+      if (api?.pixelPacks?.importZip) {
+        return api.pixelPacks.importZip(payload);
       }
 
       return {
@@ -1670,6 +1727,9 @@ export const desktopBridge = {
       if (api?.pixelPack?.validate) {
         return api.pixelPack.validate(payload);
       }
+      if (api?.pixelPacks?.validate) {
+        return api.pixelPacks.validate(payload);
+      }
 
       return {
         ok: false,
@@ -1681,6 +1741,9 @@ export const desktopBridge = {
       const api = getDesktopApi();
       if (api?.pixelPack?.activate) {
         return api.pixelPack.activate(payload);
+      }
+      if (api?.pixelPacks?.activate) {
+        return api.pixelPacks.activate(payload);
       }
 
       return {
@@ -1694,6 +1757,9 @@ export const desktopBridge = {
       if (api?.pixelPack?.remove) {
         return api.pixelPack.remove(payload);
       }
+      if (api?.pixelPacks?.remove) {
+        return api.pixelPacks.remove(payload);
+      }
 
       return {
         ok: false,
@@ -1705,6 +1771,9 @@ export const desktopBridge = {
       const api = getDesktopApi();
       if (api?.pixelPack?.export) {
         return api.pixelPack.export(payload);
+      }
+      if (api?.pixelPacks?.exportZip) {
+        return api.pixelPacks.exportZip(payload);
       }
 
       return {

@@ -1101,7 +1101,7 @@ export default function ConfigDrawer({
                     size="small"
                     variant="outlined"
                     onClick={() => {
-                      void onPixelPackValidate?.(selectedPixelPack?.id || pixelPackState?.activePackId || '');
+                      void onPixelPackValidate?.(selectedPixelPack || null);
                     }}
                     disabled={!desktopMode || !pixelPackSupported || Boolean(pixelPackBusyAction) || !selectedPixelPack}
                   >
@@ -1120,7 +1120,12 @@ export default function ConfigDrawer({
                       </Box>
                     ) : pixelPackEntries.map((pack) => {
                       const isSelected = pack.id === selectedPixelPack?.id;
-                      const isActive = pack.id === (pixelPackState?.activePackId || pixelPackState?.activePack?.id || '');
+                      const activePackId = pixelPackState?.activePack?.packId || pixelPackState?.activePackId || '';
+                      const activeVersion = pixelPackState?.activePack?.version || pixelPackState?.activeVersion || '';
+                      const isActive = pack.active === true || (
+                        pack.packId === activePackId
+                        && (!activeVersion || pack.version === activeVersion)
+                      );
                       return (
                         <Button
                           key={pack.id}
@@ -1141,7 +1146,7 @@ export default function ConfigDrawer({
                               {!pack.validated && <Chip size="small" color="warning" label="Needs validation" />}
                             </Stack>
                             <Box component="span" sx={{ fontSize: 12, opacity: 0.8 }}>
-                              {pack.id}
+                              {pack.packId || pack.id}
                               {pack.version ? ` · v${pack.version}` : ''}
                               {typeof pack.assetCount === 'number' ? ` · ${pack.assetCount} assets` : ''}
                             </Box>
@@ -1167,7 +1172,7 @@ export default function ConfigDrawer({
                         size="small"
                         variant="contained"
                         onClick={() => {
-                          void onPixelPackActivate?.(selectedPixelPack.id);
+                          void onPixelPackActivate?.(selectedPixelPack);
                         }}
                         disabled={!desktopMode || !pixelPackSupported || Boolean(pixelPackBusyAction) || selectedPixelPack.active === true}
                       >
@@ -1181,7 +1186,7 @@ export default function ConfigDrawer({
                           if (!window.confirm(`Remove "${selectedPixelPack.name || selectedPixelPack.id}"?`)) {
                             return;
                           }
-                          void onPixelPackRemove?.(selectedPixelPack.id);
+                          void onPixelPackRemove?.(selectedPixelPack);
                         }}
                         disabled={!desktopMode || !pixelPackSupported || Boolean(pixelPackBusyAction) || selectedPixelPack.canRemove === false}
                       >
@@ -1191,7 +1196,7 @@ export default function ConfigDrawer({
                         size="small"
                         variant="outlined"
                         onClick={() => {
-                          void onPixelPackExport?.(selectedPixelPack.id);
+                          void onPixelPackExport?.(selectedPixelPack);
                         }}
                         disabled={!desktopMode || !pixelPackSupported || Boolean(pixelPackBusyAction) || selectedPixelPack.canExport === false}
                       >

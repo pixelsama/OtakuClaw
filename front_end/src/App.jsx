@@ -740,8 +740,11 @@ function AppContent({ desktopMode }) {
         }
 
         const result = await handler(payload);
-        if (result?.state) {
-          setPixelPackState(normalizePixelPackState(result.state));
+        const nextStateResult = result?.state
+          ? { state: result.state }
+          : await desktopBridge.pixelPack.getState().catch(() => null);
+        if (nextStateResult?.state) {
+          setPixelPackState(normalizePixelPackState(nextStateResult.state));
         }
 
         if (!result?.ok) {
@@ -768,22 +771,44 @@ function AppContent({ desktopMode }) {
     [desktopMode, t],
   );
 
+  const normalizePixelPackActionPayload = useCallback((input = null) => {
+    if (typeof input === 'string') {
+      const packId = input.trim();
+      return packId ? { packId } : {};
+    }
+    if (!input || typeof input !== 'object') {
+      return {};
+    }
+
+    const packId = typeof input.packId === 'string' && input.packId.trim()
+      ? input.packId.trim()
+      : typeof input.id === 'string' && input.id.trim()
+        ? input.id.trim().split('@')[0]
+        : '';
+    const version = typeof input.version === 'string' ? input.version.trim() : '';
+
+    return {
+      ...(packId ? { packId } : {}),
+      ...(version ? { version } : {}),
+    };
+  }, []);
+
   const handlePixelPackImport = useCallback(() => handlePixelPackAction('importZip'), [handlePixelPackAction]);
   const handlePixelPackValidate = useCallback(
-    (packId = '') => handlePixelPackAction('validate', { packId }),
-    [handlePixelPackAction],
+    (selection = null) => handlePixelPackAction('validate', normalizePixelPackActionPayload(selection)),
+    [handlePixelPackAction, normalizePixelPackActionPayload],
   );
   const handlePixelPackActivate = useCallback(
-    (packId = '') => handlePixelPackAction('activate', { packId }),
-    [handlePixelPackAction],
+    (selection = null) => handlePixelPackAction('activate', normalizePixelPackActionPayload(selection)),
+    [handlePixelPackAction, normalizePixelPackActionPayload],
   );
   const handlePixelPackRemove = useCallback(
-    (packId = '') => handlePixelPackAction('remove', { packId }),
-    [handlePixelPackAction],
+    (selection = null) => handlePixelPackAction('remove', normalizePixelPackActionPayload(selection)),
+    [handlePixelPackAction, normalizePixelPackActionPayload],
   );
   const handlePixelPackExport = useCallback(
-    (packId = '') => handlePixelPackAction('export', { packId }),
-    [handlePixelPackAction],
+    (selection = null) => handlePixelPackAction('export', normalizePixelPackActionPayload(selection)),
+    [handlePixelPackAction, normalizePixelPackActionPayload],
   );
 
   const latestFailedDownloadTask = useMemo(

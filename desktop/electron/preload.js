@@ -115,6 +115,105 @@ const nanobotSkills = {
   },
 };
 
+const pixelPacks = {
+  list() {
+    return ipcRenderer.invoke('pixel-packs:list');
+  },
+  validate(payload) {
+    return ipcRenderer.invoke('pixel-packs:validate', payload);
+  },
+  importZip(payload) {
+    return ipcRenderer.invoke('pixel-packs:import-zip', payload);
+  },
+  activate(payload) {
+    return ipcRenderer.invoke('pixel-packs:activate', payload);
+  },
+  remove(payload) {
+    return ipcRenderer.invoke('pixel-packs:remove', payload);
+  },
+  exportZip(payload) {
+    return ipcRenderer.invoke('pixel-packs:export-zip', payload);
+  },
+  getActiveManifest() {
+    return ipcRenderer.invoke('pixel-packs:get-active-manifest');
+  },
+};
+
+const pixelPack = {
+  async getState() {
+    const [listResult, activeResult] = await Promise.all([
+      ipcRenderer.invoke('pixel-packs:list'),
+      ipcRenderer.invoke('pixel-packs:get-active-manifest'),
+    ]);
+
+    if (!listResult?.ok) {
+      return listResult;
+    }
+
+    const listPacks = Array.isArray(listResult?.packs) ? listResult.packs : [];
+    const activePackFromManifest = activeResult?.ok && activeResult?.found
+      ? {
+          ...(activeResult.pack || {}),
+          manifest: activeResult.manifest || null,
+          validation: activeResult.validation || null,
+          active: true,
+        }
+      : null;
+
+    const activePackId =
+      (typeof listResult?.activePackId === 'string' && listResult.activePackId.trim())
+      || (typeof activeResult?.activePackId === 'string' && activeResult.activePackId.trim())
+      || '';
+    const activeVersion =
+      (typeof listResult?.activeVersion === 'string' && listResult.activeVersion.trim())
+      || (typeof activeResult?.activeVersion === 'string' && activeResult.activeVersion.trim())
+      || '';
+
+    const packs = listPacks.map((pack = {}) => ({
+      ...pack,
+      active: Boolean(
+        pack.active
+        || (
+          activePackId
+          && activeVersion
+          && pack.packId === activePackId
+          && pack.version === activeVersion
+        ),
+      ),
+    }));
+
+    return {
+      ok: true,
+      state: {
+        supported: true,
+        packs,
+        activePackId,
+        activeVersion,
+        activePack: activePackFromManifest,
+        error: '',
+      },
+    };
+  },
+  importZip(payload) {
+    return ipcRenderer.invoke('pixel-packs:import-zip', payload);
+  },
+  validate(payload) {
+    return ipcRenderer.invoke('pixel-packs:validate', payload);
+  },
+  activate(payload) {
+    return ipcRenderer.invoke('pixel-packs:activate', payload);
+  },
+  remove(payload) {
+    return ipcRenderer.invoke('pixel-packs:remove', payload);
+  },
+  export(payload) {
+    return ipcRenderer.invoke('pixel-packs:export-zip', payload);
+  },
+  onState(_handler) {
+    return () => {};
+  },
+};
+
 const office = {
   getState() {
     return ipcRenderer.invoke('office-state:get');
@@ -334,6 +433,8 @@ contextBridge.exposeInMainWorld('desktop', {
   appUpdater,
   nanobotRuntime,
   nanobotSkills,
+  pixelPack,
+  pixelPacks,
   office,
   valueState,
   windowMode,

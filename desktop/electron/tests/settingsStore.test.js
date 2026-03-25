@@ -606,3 +606,57 @@ test('persists acp http transport runner fields', async () => {
   );
   assert.equal(publicSettings.claudeCode.runner.headers.Authorization, 'Bearer token');
 });
+
+test('persists pixel pack ui settings with active selection and overrides', async () => {
+  const { store } = await setupTempStore({
+    secretStore: new FakeSecretStore({ available: true }),
+  });
+
+  await store.save({
+    ui: {
+      pixelPack: {
+        activePackId: 'com.otakuclaw.pixel.demo',
+        activeVersion: '1.1.0',
+        overrides: {
+          scene: {
+            backdrop: 'bg.office.main',
+          },
+        },
+      },
+    },
+  });
+
+  const publicSettings = store.getPublic();
+  assert.equal(publicSettings.ui.pixelPack.activePackId, 'com.otakuclaw.pixel.demo');
+  assert.equal(publicSettings.ui.pixelPack.activeVersion, '1.1.0');
+  assert.deepEqual(publicSettings.ui.pixelPack.overrides, {
+    scene: {
+      backdrop: 'bg.office.main',
+    },
+  });
+
+  const mainSettings = store.getForMain();
+  assert.equal(mainSettings.ui.pixelPack.activePackId, 'com.otakuclaw.pixel.demo');
+  assert.equal(mainSettings.ui.pixelPack.activeVersion, '1.1.0');
+  assert.deepEqual(mainSettings.ui.pixelPack.overrides, {
+    scene: {
+      backdrop: 'bg.office.main',
+    },
+  });
+
+  const merged = store.merge({
+    ui: {
+      pixelPack: {
+        activeVersion: '1.1.1',
+      },
+    },
+  });
+
+  assert.equal(merged.ui.pixelPack.activePackId, 'com.otakuclaw.pixel.demo');
+  assert.equal(merged.ui.pixelPack.activeVersion, '1.1.1');
+  assert.deepEqual(merged.ui.pixelPack.overrides, {
+    scene: {
+      backdrop: 'bg.office.main',
+    },
+  });
+});
