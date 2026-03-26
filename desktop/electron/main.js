@@ -17,6 +17,7 @@ const { registerConversationIpc } = require('./ipc/conversation');
 const { registerOfficeStateIpc } = require('./ipc/officeState');
 const { registerValueStateIpc } = require('./ipc/valueState');
 const { registerLive2DModelsIpc } = require('./ipc/live2dModels');
+const { registerPixelPacksIpc } = require('./ipc/pixelPacks');
 const { registerAppUpdaterIpc } = require('./ipc/appUpdater');
 const { registerNanobotSkillsIpc } = require('./ipc/nanobotSkills');
 const { registerNanobotRuntimeIpc } = require('./ipc/nanobotRuntime');
@@ -49,6 +50,7 @@ const { SettingsStore } = require('./services/settingsStore');
 const { AppUpdaterService } = require('./services/appUpdaterService');
 const { ScreenshotCaptureService } = require('./services/screenshotCaptureService');
 const { ScreenshotSelectionService } = require('./services/screenshotSelectionService');
+const { PixelPackLibrary, PIXEL_PACK_PROTOCOL } = require('./services/pixelPackLibrary');
 const { VoiceModelLibrary } = require('./services/voice/voiceModelLibrary');
 const { WindowModeManager } = require('./window/windowModeManager');
 const { TrayManager } = require('./window/trayManager');
@@ -57,6 +59,16 @@ const { registerModeIpc } = require('./window/modeIpc');
 protocol.registerSchemesAsPrivileged([
   {
     scheme: MODEL_PROTOCOL,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
+  {
+    scheme: PIXEL_PACK_PROTOCOL,
     privileges: {
       standard: true,
       secure: true,
@@ -74,6 +86,7 @@ let disposeOfficeStateHandlers = null;
 let disposeValueStateHandlers = null;
 let disposeModeHandlers = null;
 let disposeLive2DModelsHandlers = null;
+let disposePixelPackHandlers = null;
 let disposeAppUpdaterHandlers = null;
 let disposeNanobotRuntimeHandlers = null;
 let disposeAcpRunnerRuntimeHandlers = null;
@@ -95,6 +108,7 @@ let settingsStore = null;
 let windowModeManager = null;
 let trayManager = null;
 let live2dModelLibrary = null;
+let pixelPackLibrary = null;
 let screenshotCaptureService = null;
 let screenshotSelectionService = null;
 let pythonRuntimeManager = null;
@@ -828,6 +842,23 @@ function registerModelProtocol() {
   });
 }
 
+function registerPixelPackProtocol() {
+  protocol.handle(PIXEL_PACK_PROTOCOL, async (request) => {
+    try {
+      const { buffer, mimeType } = await pixelPackLibrary.readAssetFromProtocolUrl(request.url);
+      return new Response(buffer, {
+        status: 200,
+        headers: {
+          'content-type': mimeType,
+          'cache-control': 'no-store',
+        },
+      });
+    } catch (error) {
+      return new Response('Not Found', { status: 404 });
+    }
+  });
+}
+
 async function createMainWindow() {
   mainWindow = new BrowserWindow(createWindowOptions());
   windowModeManager.attachWindow(mainWindow);
@@ -886,6 +917,10 @@ async function bootstrap() {
   await settingsStore.init();
   live2dModelLibrary = new Live2DModelLibrary(app);
   await live2dModelLibrary.init();
+  pixelPackLibrary = new PixelPackLibrary(app, {
+    settingsStore,
+  });
+  await pixelPackLibrary.init();
   screenshotCaptureService = new ScreenshotCaptureService(app);
   await screenshotCaptureService.init();
   screenshotSelectionService = new ScreenshotSelectionService(app, {
@@ -967,6 +1002,7 @@ async function bootstrap() {
     ],
   });
   registerModelProtocol();
+  registerPixelPackProtocol();
   registerDisplayMediaHandler();
   registerMediaPermissionHandlers();
 
@@ -1035,6 +1071,11 @@ async function bootstrap() {
     ipcMain,
     getWindow: () => mainWindow,
     modelLibrary: live2dModelLibrary,
+  });
+  disposePixelPackHandlers = registerPixelPacksIpc({
+    ipcMain,
+    getWindow: () => mainWindow,
+    pixelPackLibrary,
   });
   disposeScreenshotCaptureHandlers = registerScreenshotCaptureIpc({
     ipcMain,
@@ -1686,6 +1727,9 @@ app.on('before-quit', () => {
   if (disposeLive2DModelsHandlers) {
     disposeLive2DModelsHandlers();
   }
+  if (disposePixelPackHandlers) {
+    disposePixelPackHandlers();
+  }
   if (disposeAppUpdaterHandlers) {
     disposeAppUpdaterHandlers();
   }
@@ -1751,6 +1795,7 @@ app.on('before-quit', () => {
   nanobotSkillsLibrary = null;
   screenshotCaptureService = null;
   screenshotSelectionService = null;
+  pixelPackLibrary = null;
 
   ipcMain.removeHandler('window:get-platform');
   ipcMain.removeHandler('window:control');
@@ -1769,6 +1814,11 @@ app.on('before-quit', () => {
   ipcMain.removeHandler('value-state:apply-interaction');
   try {
     protocol.unhandle(MODEL_PROTOCOL);
+  } catch {
+    // noop
+  }
+  try {
+    protocol.unhandle(PIXEL_PACK_PROTOCOL);
   } catch {
     // noop
   }

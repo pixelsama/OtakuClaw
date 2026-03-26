@@ -34,6 +34,11 @@ import {
   resolveOfficeSceneEditorState,
   resolveOfficeSceneState,
 } from './components/office/officeSceneConfig.js';
+import { OFFICE_SCENE_ASSET_REGISTRY } from './components/office/officeSceneAssets.js';
+import {
+  buildOfficeSceneAssetRegistry,
+  normalizePixelPackState,
+} from './components/office/pixelPack.js';
 import { ModeProvider, MODE_PET, MODE_WINDOW, useModeContext } from './mode/ModeContext.jsx';
 import MainShell from './shells/MainShell.jsx';
 import PetShell from './shells/PetShell.jsx';
@@ -144,6 +149,10 @@ function AppContent({ desktopMode }) {
   const [mainWindowViewMode, setMainWindowViewMode] = useState('office');
   const [immersiveContext, setImmersiveContext] = useState(null);
   const [valueStateSnapshot, setValueStateSnapshot] = useState(null);
+  const [pixelPackState, setPixelPackState] = useState(() => normalizePixelPackState());
+  const [pixelPackBusyAction, setPixelPackBusyAction] = useState('');
+  const [pixelPackFeedback, setPixelPackFeedback] = useState('');
+  const [pixelPackError, setPixelPackError] = useState('');
   const [builtinTtsEnabled, setBuiltinTtsEnabled] = useState(false);
   const [firstRunOnboardingOpen, setFirstRunOnboardingOpen] = useState(false);
   const [officeLayoutLoaded, setOfficeLayoutLoaded] = useState(!desktopMode);
@@ -542,6 +551,47 @@ function AppContent({ desktopMode }) {
     let cancelled = false;
 
     if (!desktopMode) {
+      setPixelPackState(normalizePixelPackState());
+      setPixelPackBusyAction('');
+      setPixelPackFeedback('');
+      setPixelPackError('');
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const loadPixelPackState = async () => {
+      try {
+        const result = await desktopBridge.pixelPack.getState();
+        if (!cancelled) {
+          setPixelPackState(normalizePixelPackState(result?.state || result || {}));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.warn('Failed to load pixel pack state:', error);
+        }
+      }
+    };
+
+    void loadPixelPackState();
+
+    const unsubscribe = desktopBridge.pixelPack.onState((payload = {}) => {
+      if (cancelled) {
+        return;
+      }
+      setPixelPackState(normalizePixelPackState(payload?.state || payload || {}));
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [desktopMode]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!desktopMode) {
       setOfficeSceneLayout(normalizeOfficeSceneLayout());
       setOfficeLayoutLoaded(true);
       savedOfficeLayoutSnapshotRef.current = JSON.stringify(normalizeOfficeSceneLayout());
@@ -856,6 +906,98 @@ function AppContent({ desktopMode }) {
     console.error('Model error in App:', error);
   }, []);
 
+  const handlePixelPackAction = useCallback(
+    async (action, payload = {}) => {
+      if (!desktopMode) {
+        const message = 'Pixel packs are available in desktop mode only.';
+        setPixelPackError(message);
+        return { ok: false, reason: 'desktop_pixel_pack_unavailable', error: { message } };
+      }
+
+      setPixelPackBusyAction(action);
+      setPixelPackFeedback('');
+      setPixelPackError('');
+
+      try {
+        const handler = desktopBridge.pixelPack[action];
+        if (typeof handler !== 'function') {
+          const message = 'Pixel pack management is unavailable in this build.';
+          setPixelPackError(message);
+          return { ok: false, reason: 'desktop_pixel_pack_unavailable', error: { message } };
+        }
+
+        const result = await handler(payload);
+        const nextStateResult = result?.state
+          ? { state: result.state }
+          : await desktopBridge.pixelPack.getState().catch(() => null);
+        if (nextStateResult?.state) {
+          setPixelPackState(normalizePixelPackState(nextStateResult.state));
+        }
+
+        if (!result?.ok) {
+          const message = normalizeErrorMessage(result?.error || result?.reason || result, t);
+          setPixelPackError(message);
+          return result;
+        }
+
+        const message = typeof result?.message === 'string' && result.message.trim()
+          ? result.message.trim()
+          : '';
+        if (message) {
+          setPixelPackFeedback(message);
+        }
+        return result;
+      } catch (error) {
+        const message = normalizeErrorMessage(error, t);
+        setPixelPackError(message);
+        return { ok: false, error: { message } };
+      } finally {
+        setPixelPackBusyAction('');
+      }
+    },
+    [desktopMode, t],
+  );
+
+  const normalizePixelPackActionPayload = useCallback((input = null) => {
+    if (typeof input === 'string') {
+      const packId = input.trim();
+      return packId ? { packId } : {};
+    }
+    if (!input || typeof input !== 'object') {
+      return {};
+    }
+
+    const packId = typeof input.packId === 'string' && input.packId.trim()
+      ? input.packId.trim()
+      : typeof input.id === 'string' && input.id.trim()
+        ? input.id.trim().split('@')[0]
+        : '';
+    const version = typeof input.version === 'string' ? input.version.trim() : '';
+
+    return {
+      ...(packId ? { packId } : {}),
+      ...(version ? { version } : {}),
+    };
+  }, []);
+
+  const handlePixelPackImport = useCallback(() => handlePixelPackAction('importZip'), [handlePixelPackAction]);
+  const handlePixelPackValidate = useCallback(
+    (selection = null) => handlePixelPackAction('validate', normalizePixelPackActionPayload(selection)),
+    [handlePixelPackAction, normalizePixelPackActionPayload],
+  );
+  const handlePixelPackActivate = useCallback(
+    (selection = null) => handlePixelPackAction('activate', normalizePixelPackActionPayload(selection)),
+    [handlePixelPackAction, normalizePixelPackActionPayload],
+  );
+  const handlePixelPackRemove = useCallback(
+    (selection = null) => handlePixelPackAction('remove', normalizePixelPackActionPayload(selection)),
+    [handlePixelPackAction, normalizePixelPackActionPayload],
+  );
+  const handlePixelPackExport = useCallback(
+    (selection = null) => handlePixelPackAction('export', normalizePixelPackActionPayload(selection)),
+    [handlePixelPackAction, normalizePixelPackActionPayload],
+  );
+
   const latestFailedDownloadTask = useMemo(
     () =>
       Object.values(taskMap)
@@ -870,6 +1012,10 @@ function AppContent({ desktopMode }) {
   const officeWorkspacePath = typeof chatBackendSettings?.nanobot?.workspace === 'string'
     ? chatBackendSettings.nanobot.workspace.trim()
     : '';
+  const officeAssetRegistry = useMemo(
+    () => buildOfficeSceneAssetRegistry(OFFICE_SCENE_ASSET_REGISTRY, pixelPackState),
+    [pixelPackState],
+  );
   const officeErrorMessage = textComposerWithVoiceProps.externalError
     || settingsError
     || latestFailedDownloadTask?.logs?.[latestFailedDownloadTask.logs.length - 1]
@@ -1194,66 +1340,36 @@ function AppContent({ desktopMode }) {
     });
   }, []);
 
-  const handleOfficeThemeChange = useCallback((themeId) => {
-    updateOfficeSceneLayout((currentLayout) => ({
-      ...currentLayout,
-      themeId,
-    }));
-  }, [updateOfficeSceneLayout]);
+  const normalizeBusinessStates = useCallback((states = []) => {
+    if (!Array.isArray(states)) {
+      return [];
+    }
 
-  const handleOfficeFurnitureHiddenChange = useCallback((furnitureId, hidden) => {
+    return states
+      .map((state) => (typeof state === 'string' ? state.trim().toLowerCase() : ''))
+      .filter(Boolean)
+      .filter((state, index, values) => values.indexOf(state) === index);
+  }, []);
+
+  const updateOfficeFurnitureOverride = useCallback((furnitureId, updater) => {
+    const normalizedFurnitureId = typeof furnitureId === 'string' ? furnitureId.trim() : '';
+    if (!normalizedFurnitureId) {
+      return;
+    }
+
     updateOfficeSceneLayout((currentLayout) => {
-      const currentOverride = currentLayout.furnitureOverrides?.[furnitureId] || {};
-      return {
-        ...currentLayout,
-        furnitureOverrides: {
-          ...(currentLayout.furnitureOverrides || {}),
-          [furnitureId]: {
-            ...currentOverride,
-            hidden: Boolean(hidden),
-          },
-        },
-      };
-    });
-  }, [updateOfficeSceneLayout]);
-
-  const handleOfficeFurniturePositionChange = useCallback((furnitureId, patch = {}) => {
-    updateOfficeSceneLayout((currentLayout) => {
-      const currentOverride = currentLayout.furnitureOverrides?.[furnitureId] || {};
-      return {
-        ...currentLayout,
-        furnitureOverrides: {
-          ...(currentLayout.furnitureOverrides || {}),
-          [furnitureId]: {
-            ...currentOverride,
-            ...(Number.isFinite(patch.left) ? { left: patch.left } : {}),
-            ...(Number.isFinite(patch.top) ? { top: patch.top } : {}),
-          },
-        },
-      };
-    });
-  }, [updateOfficeSceneLayout]);
-
-  const handleOfficeFurnitureReset = useCallback((furnitureId) => {
-    updateOfficeSceneLayout((currentLayout) => {
-      const catalogItem = getOfficeFurnitureCatalogItem(furnitureId);
-      const currentOverride = currentLayout.furnitureOverrides?.[furnitureId] || {};
-      const nextOverride = {
-        ...currentOverride,
-      };
-
-      delete nextOverride.hidden;
-      delete nextOverride.left;
-      delete nextOverride.top;
-
+      const currentOverride = currentLayout.furnitureOverrides?.[normalizedFurnitureId] || {};
+      const nextOverrideRaw = typeof updater === 'function' ? updater(currentOverride, currentLayout) : updater;
       const nextFurnitureOverrides = {
         ...(currentLayout.furnitureOverrides || {}),
       };
 
-      if (catalogItem && Object.keys(nextOverride).length === 0) {
-        delete nextFurnitureOverrides[furnitureId];
+      if (!nextOverrideRaw || typeof nextOverrideRaw !== 'object' || Array.isArray(nextOverrideRaw)) {
+        delete nextFurnitureOverrides[normalizedFurnitureId];
+      } else if (Object.keys(nextOverrideRaw).length === 0) {
+        delete nextFurnitureOverrides[normalizedFurnitureId];
       } else {
-        nextFurnitureOverrides[furnitureId] = nextOverride;
+        nextFurnitureOverrides[normalizedFurnitureId] = nextOverrideRaw;
       }
 
       return {
@@ -1262,6 +1378,108 @@ function AppContent({ desktopMode }) {
       };
     });
   }, [updateOfficeSceneLayout]);
+
+  const handleOfficeThemeChange = useCallback((themeId) => {
+    updateOfficeSceneLayout((currentLayout) => ({
+      ...currentLayout,
+      themeId,
+    }));
+  }, [updateOfficeSceneLayout]);
+
+  const handleOfficeFurniturePatchChange = useCallback((furnitureId, patch = {}) => {
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+      return;
+    }
+
+    updateOfficeFurnitureOverride(furnitureId, (currentOverride) => {
+      const nextOverride = {
+        ...currentOverride,
+      };
+
+      for (const [field, value] of Object.entries(patch)) {
+        if (value === null || typeof value === 'undefined') {
+          delete nextOverride[field];
+          continue;
+        }
+        nextOverride[field] = value;
+      }
+
+      return nextOverride;
+    });
+  }, [updateOfficeFurnitureOverride]);
+
+  const handleOfficeFurnitureHiddenChange = useCallback((furnitureId, hidden) => {
+    handleOfficeFurniturePatchChange(furnitureId, {
+      hidden: Boolean(hidden),
+    });
+  }, [handleOfficeFurniturePatchChange]);
+
+  const handleOfficeFurniturePositionChange = useCallback((furnitureId, patch = {}) => {
+    handleOfficeFurniturePatchChange(furnitureId, {
+      ...(Number.isFinite(patch.left) ? { left: patch.left } : {}),
+      ...(Number.isFinite(patch.top) ? { top: patch.top } : {}),
+    });
+  }, [handleOfficeFurniturePatchChange]);
+
+  const handleOfficeFurnitureStateRulesChange = useCallback((furnitureId, payload = {}) => {
+    handleOfficeFurniturePatchChange(furnitureId, {
+      ...(Array.isArray(payload.visibleWhenStates)
+        ? {
+            visibleWhenStates: (() => {
+              const states = normalizeBusinessStates(payload.visibleWhenStates);
+              return states.length > 0 ? states : null;
+            })(),
+          }
+        : {}),
+      ...(Array.isArray(payload.hiddenWhenStates)
+        ? {
+            hiddenWhenStates: (() => {
+              const states = normalizeBusinessStates(payload.hiddenWhenStates);
+              return states.length > 0 ? states : null;
+            })(),
+          }
+        : {}),
+    });
+  }, [handleOfficeFurniturePatchChange, normalizeBusinessStates]);
+
+  const handleOfficeFurnitureLayersChange = useCallback((furnitureId, layers = []) => {
+    if (!Array.isArray(layers)) {
+      return;
+    }
+
+    const normalizedLayers = layers
+      .map((layer, index) => {
+        if (!layer || typeof layer !== 'object' || Array.isArray(layer)) {
+          return null;
+        }
+
+        const layerId = typeof layer.id === 'string' && layer.id.trim()
+          ? layer.id.trim()
+          : `${furnitureId}-layer-${index + 1}`;
+        const normalizedLayer = {
+          ...layer,
+          id: layerId,
+        };
+        if (!normalizedLayer.assetKey || typeof normalizedLayer.assetKey !== 'string') {
+          delete normalizedLayer.assetKey;
+        } else {
+          normalizedLayer.assetKey = normalizedLayer.assetKey.trim();
+          if (!normalizedLayer.assetKey) {
+            delete normalizedLayer.assetKey;
+          }
+        }
+        return normalizedLayer;
+      })
+      .filter(Boolean);
+
+    handleOfficeFurniturePatchChange(furnitureId, {
+      layers: normalizedLayers.length > 0 ? normalizedLayers : null,
+    });
+  }, [handleOfficeFurniturePatchChange]);
+
+  const handleOfficeFurnitureReset = useCallback((furnitureId) => {
+    updateOfficeFurnitureOverride(furnitureId, null);
+  }, [updateOfficeFurnitureOverride]);
 
   const handleOfficeFurnitureEnabledChange = useCallback((furnitureId, enabled) => {
     updateOfficeSceneLayout((currentLayout) => {
@@ -1301,18 +1519,20 @@ function AppContent({ desktopMode }) {
     return resolveOfficeSceneState({
       officeState: officeDisplayState,
       sceneConfig: officeSceneLayout,
+      assetRegistry: officeAssetRegistry,
       subtitle: desktopMode ? 'Live local office' : 'Browser preview',
       caption:
         officeWorkspacePath
           ? `Workspace: ${officeWorkspacePath}`
           : 'Single-agent today, multi-agent ready for later.',
     });
-  }, [desktopMode, officeDisplayState, officeSceneLayout, officeWorkspacePath]);
+  }, [desktopMode, officeAssetRegistry, officeDisplayState, officeSceneLayout, officeWorkspacePath]);
 
   const officeEditor = useMemo(() => {
     const editorState = resolveOfficeSceneEditorState({
       sceneConfig: officeSceneLayout,
       officeState: officeDisplayState,
+      assetRegistry: officeAssetRegistry,
     });
 
     return {
@@ -1320,17 +1540,24 @@ function AppContent({ desktopMode }) {
       previewMode: officePreviewMode,
       onPreviewModeChange: setOfficePreviewMode,
       onThemeChange: handleOfficeThemeChange,
+      onFurniturePatchChange: handleOfficeFurniturePatchChange,
       onFurnitureHiddenChange: handleOfficeFurnitureHiddenChange,
+      onFurnitureStateRulesChange: handleOfficeFurnitureStateRulesChange,
       onFurniturePositionChange: handleOfficeFurniturePositionChange,
+      onFurnitureLayersChange: handleOfficeFurnitureLayersChange,
       onFurnitureReset: handleOfficeFurnitureReset,
       onFurnitureEnabledChange: handleOfficeFurnitureEnabledChange,
     };
   }, [
     handleOfficeFurnitureEnabledChange,
+    handleOfficeFurnitureLayersChange,
     handleOfficeFurnitureHiddenChange,
+    handleOfficeFurniturePatchChange,
     handleOfficeFurniturePositionChange,
     handleOfficeFurnitureReset,
+    handleOfficeFurnitureStateRulesChange,
     handleOfficeThemeChange,
+    officeAssetRegistry,
     officeDisplayState,
     officeSceneLayout,
     officePreviewMode,
@@ -1654,6 +1881,15 @@ function AppContent({ desktopMode }) {
         onImportNanobotSkillsZip={onImportNanobotSkillsZip}
         onDeleteNanobotSkill={onDeleteNanobotSkill}
         onOpenNanobotSkillsLibrary={onOpenNanobotSkillsLibrary}
+        pixelPackState={pixelPackState}
+        pixelPackBusyAction={pixelPackBusyAction}
+        pixelPackFeedback={pixelPackFeedback}
+        pixelPackError={pixelPackError}
+        onPixelPackImport={handlePixelPackImport}
+        onPixelPackValidate={handlePixelPackValidate}
+        onPixelPackActivate={handlePixelPackActivate}
+        onPixelPackRemove={handlePixelPackRemove}
+        onPixelPackExport={handlePixelPackExport}
         onOpenDownloadCenter={openDownloadTask}
         onBuiltinTtsEnabledChange={syncBuiltinTtsEnabled}
       />

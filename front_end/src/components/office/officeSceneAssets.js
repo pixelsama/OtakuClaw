@@ -66,16 +66,52 @@ const GUEST_ANIMATION = Object.freeze({
   fps: 8,
 });
 
-export function resolveOfficeSceneAsset(assetKey) {
-  if (!assetKey || !OFFICE_SCENE_ASSET_REGISTRY[assetKey]) {
+function normalizeSceneAssetEntry(asset = {}, fallbackKey = '') {
+  const source = asset && typeof asset === 'object' ? asset : {};
+  const key = typeof source.key === 'string' && source.key.trim()
+    ? source.key.trim()
+    : typeof source.assetKey === 'string' && source.assetKey.trim()
+      ? source.assetKey.trim()
+      : typeof fallbackKey === 'string' && fallbackKey.trim()
+        ? fallbackKey.trim()
+        : '';
+  if (!key) {
     return null;
   }
 
-  const asset = OFFICE_SCENE_ASSET_REGISTRY[assetKey];
+  const assetUrl = typeof source.assetUrl === 'string' && source.assetUrl.trim()
+    ? source.assetUrl.trim()
+    : typeof source.url === 'string' && source.url.trim()
+      ? source.url.trim()
+      : '';
+
+  return {
+    ...source,
+    key,
+    assetKey: key,
+    assetUrl,
+    url: assetUrl,
+    asset: assetUrl,
+    cols: Number.isFinite(source.cols) ? source.cols : 1,
+    rows: Number.isFinite(source.rows) ? source.rows : 1,
+  };
+}
+
+export function resolveOfficeSceneAsset(assetKey, assetRegistry = OFFICE_SCENE_ASSET_REGISTRY) {
+  const registry = assetRegistry && typeof assetRegistry === 'object' ? assetRegistry : OFFICE_SCENE_ASSET_REGISTRY;
+  if (!assetKey || !registry[assetKey]) {
+    return null;
+  }
+
+  const asset = normalizeSceneAssetEntry(registry[assetKey], assetKey);
+  if (!asset) {
+    return null;
+  }
+
   return {
     ...asset,
-    assetUrl: asset.url,
-    asset: asset.url,
+    assetUrl: asset.assetUrl || asset.url,
+    asset: asset.asset || asset.assetUrl || asset.url,
   };
 }
 
@@ -97,11 +133,11 @@ function pickGuestRoleAssetKey(agentId) {
   return pickHashedAssetKey(GUEST_ROLE_KEYS, agentId);
 }
 
-function resolveGuestFallbackSprite(agentId) {
-  return resolveOfficeSceneAsset(pickGuestRoleAssetKey(agentId)) || resolveOfficeSceneAsset('starIdle');
+function resolveGuestFallbackSprite(agentId, assetRegistry = OFFICE_SCENE_ASSET_REGISTRY) {
+  return resolveOfficeSceneAsset(pickGuestRoleAssetKey(agentId), assetRegistry) || resolveOfficeSceneAsset('starIdle', assetRegistry);
 }
 
-export function resolveOfficeOccupantSprite(occupant) {
+export function resolveOfficeOccupantSprite(occupant, assetRegistry = OFFICE_SCENE_ASSET_REGISTRY) {
   if (occupant?.isPrimary) {
     switch (occupant.businessState) {
       case 'writing':
@@ -111,23 +147,23 @@ export function resolveOfficeOccupantSprite(occupant) {
       case 'streaming':
       case 'gaming':
         return {
-          ...resolveOfficeSceneAsset('starWorking'),
+          ...resolveOfficeSceneAsset('starWorking', assetRegistry),
           variant: 'working',
         };
       case 'error':
         return {
-          ...resolveOfficeSceneAsset('errorBug'),
+          ...resolveOfficeSceneAsset('errorBug', assetRegistry),
           variant: 'alert',
         };
       default:
         return {
-          ...resolveOfficeSceneAsset('starIdle'),
+          ...resolveOfficeSceneAsset('starIdle', assetRegistry),
           variant: 'idle',
         };
     }
   }
 
-  const guestAnimated = resolveOfficeSceneAsset(pickGuestAnimAssetKey(occupant?.agentId));
+  const guestAnimated = resolveOfficeSceneAsset(pickGuestAnimAssetKey(occupant?.agentId), assetRegistry);
   if (guestAnimated) {
     return {
       ...guestAnimated,
@@ -137,7 +173,7 @@ export function resolveOfficeOccupantSprite(occupant) {
   }
 
   return {
-    ...resolveGuestFallbackSprite(occupant?.agentId),
+    ...resolveGuestFallbackSprite(occupant?.agentId, assetRegistry),
     variant: 'guest',
   };
 }

@@ -8,7 +8,12 @@ import {
   resolveOfficeSceneEditorState,
   resolveOfficeSceneState,
 } from '../src/components/office/officeSceneConfig.js';
-import { resolveOfficeOccupantSprite } from '../src/components/office/officeSceneAssets.js';
+import {
+  OFFICE_SCENE_ASSET_REGISTRY,
+  resolveOfficeOccupantSprite,
+  resolveOfficeSceneAsset,
+} from '../src/components/office/officeSceneAssets.js';
+import { buildOfficeSceneAssetRegistry } from '../src/components/office/pixelPack.js';
 
 describe('resolveContainedStageSize', () => {
   it('fits the 16:9 office scene inside wide windows without cropping', () => {
@@ -204,6 +209,46 @@ describe('resolveOfficeSceneState', () => {
         { id: 'coffee-machine', assetKey: 'coffeeMachine', animation: { fromFrame: 0, toFrame: 94, fps: 12.5 } },
       ],
     });
+  });
+
+  it('prefers active pack art but falls back to built-in assets when a pack omits artwork', () => {
+    const pixelPackState = {
+      activePack: {
+        id: 'pack-alpha',
+        manifest: {
+          assets: {
+            starOfficeBackdrop: {
+              url: '/packs/alpha/backdrop.webp',
+            },
+            desk: {
+              url: '/packs/alpha/desk.webp',
+            },
+            starWorking: {
+              url: '/packs/alpha/star-working.webp',
+            },
+          },
+        },
+      },
+    };
+    const assetRegistry = buildOfficeSceneAssetRegistry(OFFICE_SCENE_ASSET_REGISTRY, pixelPackState);
+    const scene = resolveOfficeSceneState({
+      officeState: normalizeOfficeState({
+        revision: 1,
+        activeAgentId: 'main',
+        agents: [
+          { agentId: 'main', displayName: 'Main', businessState: 'writing', detail: 'Standing by.' },
+        ],
+      }),
+      assetRegistry,
+    });
+
+    expect(scene.config.backdrop.assetUrl).toBe('/packs/alpha/backdrop.webp');
+    expect(scene.config.furniture.find((item) => item.id === 'desk')?.assetUrl).toBe('/packs/alpha/desk.webp');
+    expect(resolveOfficeOccupantSprite(scene.primaryAgent, assetRegistry)).toMatchObject({
+      assetKey: 'starWorking',
+      assetUrl: '/packs/alpha/star-working.webp',
+    });
+    expect(resolveOfficeSceneAsset('coffeeMachineShadow', assetRegistry)).toEqual(resolveOfficeSceneAsset('coffeeMachineShadow'));
   });
 
   it('supports conditional furniture visibility from business states', () => {
@@ -417,15 +462,34 @@ describe('resolveOfficeSceneEditorState', () => {
       ruleLabel: 'Always',
       left: 48.5,
       top: 19.4,
+      width: 20,
+      defaultWidth: 20,
+      defaultZIndex: 7,
+      defaultOpacity: 1,
       defaultLeft: 52.3,
       defaultTop: 20,
+      layers: [
+        {
+          id: 'sofa-shadow',
+          assetKey: 'sofaShadow',
+          defaultAssetKey: 'sofaShadow',
+        },
+        {
+          id: 'sofa',
+          assetKey: 'sofa',
+          defaultAssetKey: 'sofa',
+        },
+      ],
     });
     expect(editor.furniture.find((item) => item.id === 'sofa-shadow')).toBeUndefined();
     expect(editor.furniture.find((item) => item.id === 'bug')).toMatchObject({
       ruleLabel: 'Error-only',
+      visibleWhenStates: ['error'],
+      defaultVisibleWhenStates: ['error'],
     });
     expect(editor.furniture.find((item) => item.id === 'cat')).toMatchObject({
       ruleLabel: 'State furniture',
+      variantStates: ['error', 'syncing'],
     });
     expect(editor.catalog.find((item) => item.id === 'serverroom')).toMatchObject({
       category: 'status',
@@ -442,6 +506,14 @@ describe('resolveOfficeSceneEditorState', () => {
     expect(editor.catalogCategories.map((item) => item.id)).toEqual(
       expect.arrayContaining(['all', 'workstation', 'status', 'plants', 'companions']),
     );
+    expect(editor.availableStates).toEqual(
+      expect.arrayContaining(['idle', 'writing', 'researching', 'executing', 'syncing', 'error']),
+    );
+    expect(editor.assetOptions.find((item) => item.assetKey === 'desk')).toMatchObject({
+      assetKey: 'desk',
+      cols: 1,
+      rows: 1,
+    });
   });
 
   it('marks state-variant furniture in the classic theme editor list', () => {

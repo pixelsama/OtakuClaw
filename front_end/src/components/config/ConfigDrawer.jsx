@@ -193,6 +193,15 @@ export default function ConfigDrawer({
   onImportNanobotSkillsZip,
   onDeleteNanobotSkill,
   onOpenNanobotSkillsLibrary,
+  pixelPackState = {},
+  pixelPackBusyAction = '',
+  pixelPackFeedback = '',
+  pixelPackError = '',
+  onPixelPackImport,
+  onPixelPackValidate,
+  onPixelPackActivate,
+  onPixelPackRemove,
+  onPixelPackExport,
   onOpenDownloadCenter,
   onBuiltinTtsEnabledChange,
 }) {
@@ -270,6 +279,33 @@ export default function ConfigDrawer({
   const updaterVisibleError = appUpdaterError || (typeof appUpdaterState?.error?.message === 'string'
     ? appUpdaterState.error.message
     : '');
+  const pixelPackEntries = useMemo(
+    () => (Array.isArray(pixelPackState?.packs) ? pixelPackState.packs : []),
+    [pixelPackState?.packs],
+  );
+  const pixelPackSupported = pixelPackState?.supported !== false;
+  const pixelPackStateError = typeof pixelPackState?.error === 'string' ? pixelPackState.error : '';
+  const pixelPackActionError = pixelPackError || '';
+  const pixelPackStateNoticeError = pixelPackStateError && pixelPackStateError !== pixelPackActionError
+    ? pixelPackStateError
+    : '';
+  const [selectedPixelPackId, setSelectedPixelPackId] = useState('');
+  const selectedPixelPack = useMemo(() => {
+    return pixelPackEntries.find((pack) => pack.id === selectedPixelPackId)
+      || pixelPackState?.activePack
+      || pixelPackEntries.find((pack) => pack.id === pixelPackState?.activePackId)
+      || null;
+  }, [pixelPackEntries, pixelPackState?.activePack, pixelPackState?.activePackId, selectedPixelPackId]);
+
+  useEffect(() => {
+    setSelectedPixelPackId((current) => {
+      if (pixelPackEntries.some((pack) => pack.id === current)) {
+        return current;
+      }
+
+      return pixelPackState?.activePackId || pixelPackEntries[0]?.id || '';
+    });
+  }, [pixelPackEntries, pixelPackState?.activePackId]);
 
   const handleCheckForUpdates = async () => {
     setAppUpdaterBusy(true);
@@ -428,6 +464,7 @@ export default function ConfigDrawer({
               <Tab label={t('app.tab.backendResources')} />
               <Tab label={t('app.tab.voice')} />
               <Tab label={t('app.tab.preferences')} />
+              <Tab label="Pixel Pack" />
             </Tabs>
             <Divider />
 
@@ -1078,6 +1115,154 @@ export default function ConfigDrawer({
                   {!!updaterVisibleError && <Alert severity="error">{updaterVisibleError}</Alert>}
                   {!!appUpdaterFeedback && <Alert severity="success">{appUpdaterFeedback}</Alert>}
                 </SectionAccordion>
+              </Stack>
+            )}
+
+            {activeConfigTab === 4 && (
+              <Stack spacing={1.5}>
+                <Alert severity={desktopMode ? 'info' : 'warning'}>
+                  {desktopMode
+                    ? 'Pixel packs can override the room backdrop, characters, and furniture. Missing pack art still falls back to the built-in office assets.'
+                    : 'Pixel pack management is only available in desktop mode.'}
+                </Alert>
+
+                {desktopMode && !pixelPackSupported && (
+                  <Alert severity="warning">
+                    {pixelPackStateError || 'Pixel pack IPC is unavailable in this build.'}
+                  </Alert>
+                )}
+
+                {pixelPackActionError && <Alert severity="error">{pixelPackActionError}</Alert>}
+                {pixelPackStateNoticeError && <Alert severity="error">{pixelPackStateNoticeError}</Alert>}
+                {pixelPackFeedback && <Alert severity="success">{pixelPackFeedback}</Alert>}
+
+                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                  <Button
+                    size="small"
+                    variant="contained"
+                    onClick={() => {
+                      void onPixelPackImport?.();
+                    }}
+                    disabled={!desktopMode || !pixelPackSupported || Boolean(pixelPackBusyAction)}
+                  >
+                    {pixelPackBusyAction === 'importZip' ? 'Importing...' : 'Import ZIP'}
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => {
+                      void onPixelPackValidate?.(selectedPixelPack || null);
+                    }}
+                    disabled={!desktopMode || !pixelPackSupported || Boolean(pixelPackBusyAction) || !selectedPixelPack}
+                  >
+                    {pixelPackBusyAction === 'validate' ? 'Validating...' : 'Validate'}
+                  </Button>
+                </Stack>
+
+                <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
+                  <Box sx={{ px: 1.25, py: 1, borderBottom: 1, borderColor: 'divider', fontSize: 13, fontWeight: 600 }}>
+                    Installed Packs
+                  </Box>
+                  <Stack spacing={0.5} sx={{ p: 1 }}>
+                    {pixelPackEntries.length === 0 ? (
+                      <Box sx={{ px: 0.5, py: 1, color: 'text.secondary', fontSize: 13 }}>
+                        No packs installed yet.
+                      </Box>
+                    ) : pixelPackEntries.map((pack) => {
+                      const isSelected = pack.id === selectedPixelPack?.id;
+                      const activePackId = pixelPackState?.activePack?.packId || pixelPackState?.activePackId || '';
+                      const activeVersion = pixelPackState?.activePack?.version || pixelPackState?.activeVersion || '';
+                      const isActive = pack.active === true || (
+                        pack.packId === activePackId
+                        && (!activeVersion || pack.version === activeVersion)
+                      );
+                      return (
+                        <Button
+                          key={pack.id}
+                          variant={isSelected ? 'contained' : 'outlined'}
+                          color={isActive ? 'success' : 'inherit'}
+                          onClick={() => {
+                            setSelectedPixelPackId(pack.id);
+                          }}
+                          fullWidth
+                          sx={{ alignItems: 'flex-start', justifyContent: 'flex-start', textAlign: 'left', py: 1 }}
+                        >
+                          <Stack spacing={0.4} sx={{ width: '100%' }}>
+                            <Stack direction="row" spacing={0.75} alignItems="center" useFlexGap flexWrap="wrap">
+                              <Box component="span" sx={{ fontWeight: 600 }}>
+                                {pack.name || pack.id}
+                              </Box>
+                              {isActive && <Chip size="small" color="success" label="Active" />}
+                              {!pack.validated && <Chip size="small" color="warning" label="Needs validation" />}
+                            </Stack>
+                            <Box component="span" sx={{ fontSize: 12, opacity: 0.8 }}>
+                              {pack.packId || pack.id}
+                              {pack.version ? ` · v${pack.version}` : ''}
+                              {typeof pack.assetCount === 'number' ? ` · ${pack.assetCount} assets` : ''}
+                            </Box>
+                            {pack.description ? (
+                              <Box component="span" sx={{ fontSize: 12, opacity: 0.8 }}>
+                                {pack.description}
+                              </Box>
+                            ) : null}
+                          </Stack>
+                        </Button>
+                      );
+                    })}
+                  </Stack>
+                </Box>
+
+                {selectedPixelPack && (
+                  <SectionAccordion title="Selected Pack Actions" defaultExpanded>
+                    <Box sx={{ color: 'text.secondary', fontSize: 13 }}>
+                      {selectedPixelPack.description || 'This pack has no description.'}
+                    </Box>
+                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                      <Button
+                        size="small"
+                        variant="contained"
+                        onClick={() => {
+                          void onPixelPackActivate?.(selectedPixelPack);
+                        }}
+                        disabled={!desktopMode || !pixelPackSupported || Boolean(pixelPackBusyAction) || selectedPixelPack.active === true}
+                      >
+                        {pixelPackBusyAction === 'activate' ? 'Activating...' : 'Activate'}
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="warning"
+                        onClick={() => {
+                          if (!window.confirm(`Remove "${selectedPixelPack.name || selectedPixelPack.id}"?`)) {
+                            return;
+                          }
+                          void onPixelPackRemove?.(selectedPixelPack);
+                        }}
+                        disabled={!desktopMode || !pixelPackSupported || Boolean(pixelPackBusyAction) || selectedPixelPack.canRemove === false}
+                      >
+                        {pixelPackBusyAction === 'remove' ? 'Removing...' : 'Remove'}
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => {
+                          void onPixelPackExport?.(selectedPixelPack);
+                        }}
+                        disabled={!desktopMode || !pixelPackSupported || Boolean(pixelPackBusyAction) || selectedPixelPack.canExport === false}
+                      >
+                        {pixelPackBusyAction === 'export' ? 'Exporting...' : 'Export'}
+                      </Button>
+                    </Stack>
+                    <Box sx={{ color: 'text.secondary', fontSize: 12 }}>
+                      Pack status:
+                      {' '}
+                      {selectedPixelPack.status || 'installed'}
+                      {' · '}
+                      {selectedPixelPack.validated ? 'validated' : 'not yet validated'}
+                    </Box>
+                    {selectedPixelPack.error && <Alert severity="error">{selectedPixelPack.error}</Alert>}
+                  </SectionAccordion>
+                )}
               </Stack>
             )}
           </Stack>
