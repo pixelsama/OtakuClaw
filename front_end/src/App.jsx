@@ -24,7 +24,6 @@ import { buildVoiceStreamRequest } from './hooks/voice/voiceStreamRequest.js';
 import {
   buildOfficeDisplayState,
   derivePrimaryOfficeAgent,
-  getOfficeFurnitureCatalogItem,
   normalizeOfficeAgent,
   normalizeOfficeSceneLayout,
   normalizeOfficeState,
