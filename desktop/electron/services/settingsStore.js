@@ -72,6 +72,20 @@ const DEFAULT_UI_SETTINGS = {
     completed: false,
     completedAt: '',
   },
+  avatar: {
+    renderMode: 'live2d',
+    live2d: {
+      selectedModelPath: '',
+    },
+    static: {
+      selectedPackId: '',
+      scale: 1,
+      hitTest: {
+        mode: 'alpha',
+        alphaThreshold: 10,
+      },
+    },
+  },
   officeSceneLayout: {
     themeId: 'star-office-classic',
     furnitureOverrides: {},
@@ -409,12 +423,68 @@ function normalizePixelPackSettings(settings = {}) {
   };
 }
 
+function normalizeAvatarRenderMode(value) {
+  const normalized = normalizeString(value).toLowerCase();
+  return normalized === 'static' ? 'static' : 'live2d';
+}
+
+function normalizeAvatarLive2dSettings(settings = {}) {
+  const source = isObject(settings) ? settings : {};
+  return {
+    selectedModelPath: normalizeString(
+      source.selectedModelPath,
+      DEFAULT_UI_SETTINGS.avatar.live2d.selectedModelPath,
+    ),
+  };
+}
+
+function normalizeAvatarHitTestSettings(settings = {}) {
+  const source = isObject(settings) ? settings : {};
+  const mode = normalizeString(source.mode, DEFAULT_UI_SETTINGS.avatar.static.hitTest.mode).toLowerCase();
+  return {
+    mode: mode === 'rect' ? 'rect' : 'alpha',
+    alphaThreshold: Math.max(
+      0,
+      Math.min(
+        255,
+        toPositiveInteger(
+          source.alphaThreshold,
+          DEFAULT_UI_SETTINGS.avatar.static.hitTest.alphaThreshold,
+        ),
+      ),
+    ),
+  };
+}
+
+function normalizeAvatarStaticSettings(settings = {}) {
+  const source = isObject(settings) ? settings : {};
+  return {
+    selectedPackId: normalizeString(
+      source.selectedPackId,
+      DEFAULT_UI_SETTINGS.avatar.static.selectedPackId,
+    ),
+    scale: Math.max(0.1, Math.min(3, toFiniteNumber(source.scale, DEFAULT_UI_SETTINGS.avatar.static.scale))),
+    hitTest: normalizeAvatarHitTestSettings(source.hitTest),
+  };
+}
+
+function normalizeAvatarSettings(settings = {}) {
+  const source = isObject(settings) ? settings : {};
+  return {
+    renderMode: normalizeAvatarRenderMode(source.renderMode),
+    live2d: normalizeAvatarLive2dSettings(source.live2d),
+    static: normalizeAvatarStaticSettings(source.static),
+  };
+}
+
 function normalizeUiSettings(settings = {}) {
   const onboarding = isObject(settings.onboarding) ? settings.onboarding : {};
+  const avatar = isObject(settings.avatar) ? settings.avatar : {};
   const officeSceneLayout = isObject(settings.officeSceneLayout) ? settings.officeSceneLayout : {};
   const pixelPack = isObject(settings.pixelPack) ? settings.pixelPack : {};
   return {
     onboarding: normalizeOnboardingSettings(onboarding),
+    avatar: normalizeAvatarSettings(avatar),
     officeSceneLayout: normalizeOfficeSceneLayoutSettings(officeSceneLayout),
     pixelPack: normalizePixelPackSettings(pixelPack),
   };
@@ -438,6 +508,18 @@ function cloneSettings(settings) {
       ...(settings.ui || DEFAULT_UI_SETTINGS),
       onboarding: {
         ...(settings.ui?.onboarding || DEFAULT_UI_SETTINGS.onboarding),
+      },
+      avatar: {
+        ...(settings.ui?.avatar || DEFAULT_UI_SETTINGS.avatar),
+        live2d: {
+          ...(settings.ui?.avatar?.live2d || DEFAULT_UI_SETTINGS.avatar.live2d),
+        },
+        static: {
+          ...(settings.ui?.avatar?.static || DEFAULT_UI_SETTINGS.avatar.static),
+          hitTest: {
+            ...(settings.ui?.avatar?.static?.hitTest || DEFAULT_UI_SETTINGS.avatar.static.hitTest),
+          },
+        },
       },
       officeSceneLayout: {
         ...(settings.ui?.officeSceneLayout || DEFAULT_UI_SETTINGS.officeSceneLayout),
@@ -777,9 +859,17 @@ function normalizePatch(partialSettings = {}) {
   const uiPatch = {};
   const uiSource = isObject(source.ui) ? source.ui : {};
   const onboardingSource = isObject(uiSource.onboarding) ? uiSource.onboarding : {};
+  const avatarSource = isObject(uiSource.avatar) ? uiSource.avatar : {};
+  const avatarLive2dSource = isObject(avatarSource.live2d) ? avatarSource.live2d : {};
+  const avatarStaticSource = isObject(avatarSource.static) ? avatarSource.static : {};
+  const avatarHitTestSource = isObject(avatarStaticSource.hitTest) ? avatarStaticSource.hitTest : {};
   const officeSceneLayoutSource = isObject(uiSource.officeSceneLayout) ? uiSource.officeSceneLayout : {};
   const pixelPackSource = isObject(uiSource.pixelPack) ? uiSource.pixelPack : {};
   const onboardingPatch = {};
+  const avatarPatch = {};
+  const avatarLive2dPatch = {};
+  const avatarStaticPatch = {};
+  const avatarHitTestPatch = {};
   const officeSceneLayoutPatch = {};
   const pixelPackPatch = {};
   if (Object.prototype.hasOwnProperty.call(onboardingSource, 'completed')) {
@@ -790,6 +880,49 @@ function normalizePatch(partialSettings = {}) {
   }
   if (Object.keys(onboardingPatch).length > 0) {
     uiPatch.onboarding = onboardingPatch;
+  }
+  if (Object.prototype.hasOwnProperty.call(avatarSource, 'renderMode')) {
+    avatarPatch.renderMode = normalizeAvatarRenderMode(avatarSource.renderMode);
+  }
+  if (Object.prototype.hasOwnProperty.call(avatarLive2dSource, 'selectedModelPath')) {
+    avatarLive2dPatch.selectedModelPath = normalizeString(avatarLive2dSource.selectedModelPath);
+  }
+  if (Object.keys(avatarLive2dPatch).length > 0) {
+    avatarPatch.live2d = avatarLive2dPatch;
+  }
+  if (Object.prototype.hasOwnProperty.call(avatarStaticSource, 'selectedPackId')) {
+    avatarStaticPatch.selectedPackId = normalizeString(avatarStaticSource.selectedPackId);
+  }
+  if (Object.prototype.hasOwnProperty.call(avatarStaticSource, 'scale')) {
+    avatarStaticPatch.scale = Math.max(
+      0.1,
+      Math.min(3, toFiniteNumber(avatarStaticSource.scale, DEFAULT_UI_SETTINGS.avatar.static.scale)),
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(avatarHitTestSource, 'mode')) {
+    const mode = normalizeString(avatarHitTestSource.mode).toLowerCase();
+    avatarHitTestPatch.mode = mode === 'rect' ? 'rect' : 'alpha';
+  }
+  if (Object.prototype.hasOwnProperty.call(avatarHitTestSource, 'alphaThreshold')) {
+    avatarHitTestPatch.alphaThreshold = Math.max(
+      0,
+      Math.min(
+        255,
+        toPositiveInteger(
+          avatarHitTestSource.alphaThreshold,
+          DEFAULT_UI_SETTINGS.avatar.static.hitTest.alphaThreshold,
+        ),
+      ),
+    );
+  }
+  if (Object.keys(avatarHitTestPatch).length > 0) {
+    avatarStaticPatch.hitTest = avatarHitTestPatch;
+  }
+  if (Object.keys(avatarStaticPatch).length > 0) {
+    avatarPatch.static = avatarStaticPatch;
+  }
+  if (Object.keys(avatarPatch).length > 0) {
+    uiPatch.avatar = avatarPatch;
   }
   if (Object.prototype.hasOwnProperty.call(officeSceneLayoutSource, 'themeId')) {
     officeSceneLayoutPatch.themeId = normalizeString(
@@ -1002,6 +1135,18 @@ class SettingsStore {
         onboarding: {
           ...(this.settings.ui?.onboarding || {}),
         },
+        avatar: {
+          ...(this.settings.ui?.avatar || {}),
+          live2d: {
+            ...(this.settings.ui?.avatar?.live2d || {}),
+          },
+          static: {
+            ...(this.settings.ui?.avatar?.static || {}),
+            hitTest: {
+              ...(this.settings.ui?.avatar?.static?.hitTest || {}),
+            },
+          },
+        },
         officeSceneLayout: {
           ...(this.settings.ui?.officeSceneLayout || {}),
           furnitureOverrides: {
@@ -1051,6 +1196,18 @@ class SettingsStore {
         ...this.settings.ui,
         onboarding: {
           ...(this.settings.ui?.onboarding || {}),
+        },
+        avatar: {
+          ...(this.settings.ui?.avatar || {}),
+          live2d: {
+            ...(this.settings.ui?.avatar?.live2d || {}),
+          },
+          static: {
+            ...(this.settings.ui?.avatar?.static || {}),
+            hitTest: {
+              ...(this.settings.ui?.avatar?.static?.hitTest || {}),
+            },
+          },
         },
         officeSceneLayout: {
           ...(this.settings.ui?.officeSceneLayout || {}),
@@ -1139,6 +1296,22 @@ class SettingsStore {
         onboarding: {
           ...(this.settings.ui?.onboarding || {}),
           ...(patch.ui.onboarding || {}),
+        },
+        avatar: {
+          ...(this.settings.ui?.avatar || {}),
+          ...(patch.ui.avatar || {}),
+          live2d: {
+            ...(this.settings.ui?.avatar?.live2d || {}),
+            ...(patch.ui.avatar?.live2d || {}),
+          },
+          static: {
+            ...(this.settings.ui?.avatar?.static || {}),
+            ...(patch.ui.avatar?.static || {}),
+            hitTest: {
+              ...(this.settings.ui?.avatar?.static?.hitTest || {}),
+              ...(patch.ui.avatar?.static?.hitTest || {}),
+            },
+          },
         },
         officeSceneLayout: {
           ...(this.settings.ui?.officeSceneLayout || {}),
@@ -1302,6 +1475,22 @@ class SettingsStore {
         onboarding: {
           ...(merged.ui?.onboarding || {}),
           ...(patch.ui.onboarding || {}),
+        },
+        avatar: {
+          ...(merged.ui?.avatar || {}),
+          ...(patch.ui.avatar || {}),
+          live2d: {
+            ...(merged.ui?.avatar?.live2d || {}),
+            ...(patch.ui.avatar?.live2d || {}),
+          },
+          static: {
+            ...(merged.ui?.avatar?.static || {}),
+            ...(patch.ui.avatar?.static || {}),
+            hitTest: {
+              ...(merged.ui?.avatar?.static?.hitTest || {}),
+              ...(patch.ui.avatar?.static?.hitTest || {}),
+            },
+          },
         },
         officeSceneLayout: {
           ...(merged.ui?.officeSceneLayout || {}),

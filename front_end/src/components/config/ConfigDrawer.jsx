@@ -20,6 +20,8 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AgentRoleSettingsPanel from './AgentRoleSettingsPanel.jsx';
+import Live2DControls from '../controls/Live2DControls.jsx';
+import StaticAvatarControls from '../avatar/StaticAvatarControls.jsx';
 import VoiceSettingsPanel from './VoiceSettingsPanel.jsx';
 import { desktopBridge } from '../../services/desktopBridge.js';
 import {
@@ -171,6 +173,20 @@ export default function ConfigDrawer({
   onUpsertOfficeAgent,
   onRemoveOfficeAgent,
   onSetActiveOfficeAgent,
+  modelLoaded = false,
+  live2dViewerRef,
+  avatarRenderMode = 'live2d',
+  selectedStaticAvatarId = '',
+  staticAvatarScale = 1,
+  staticAvatarHitTest = null,
+  onAvatarRenderModeChange,
+  onSelectedStaticAvatarChange,
+  onStaticAvatarScaleChange,
+  onStaticAvatarHitTestChange,
+  onStaticAvatarPacksChange,
+  onModelChange,
+  onMotionsUpdate,
+  onExpressionsUpdate,
   chatBackendSettings = {},
   settingsSaving = false,
   settingsTesting = false,
@@ -274,6 +290,7 @@ export default function ConfigDrawer({
   const updaterSupportReason = typeof appUpdaterState?.supportReason === 'string'
     ? appUpdaterState.supportReason
     : '';
+  const effectiveAvatarMode = avatarRenderMode === 'static' ? 'static' : 'live2d';
   const updaterIsDownloading = updaterStatus === 'downloading';
   const updaterHasAvailable = Boolean(appUpdaterState?.available);
   const updaterDownloaded = Boolean(appUpdaterState?.downloaded);
@@ -461,6 +478,7 @@ export default function ConfigDrawer({
         <Box sx={{ flex: 1, overflowY: 'auto', px: 2, py: 2 }}>
           <Stack spacing={2}>
             <Tabs value={activeConfigTab} onChange={(_event, tab) => setActiveConfigTab(tab)} variant="fullWidth">
+              <Tab label={t('app.tab.avatar')} />
               <Tab label={t('app.tab.agentRoles')} />
               <Tab label={t('app.tab.backendResources')} />
               <Tab label={t('app.tab.voice')} />
@@ -470,6 +488,59 @@ export default function ConfigDrawer({
             <Divider />
 
             {activeConfigTab === 0 && (
+              <Stack spacing={2}>
+                <StaticAvatarControls
+                  desktopMode={desktopMode}
+                  renderMode={effectiveAvatarMode}
+                  onRenderModeChange={onAvatarRenderModeChange}
+                  selectedPackId={selectedStaticAvatarId}
+                  onSelectedPackIdChange={onSelectedStaticAvatarChange}
+                  staticScale={staticAvatarScale}
+                  onStaticScaleChange={onStaticAvatarScaleChange}
+                  staticHitTest={staticAvatarHitTest}
+                  onStaticHitTestChange={onStaticAvatarHitTestChange}
+                  onPacksChange={onStaticAvatarPacksChange}
+                />
+
+                {effectiveAvatarMode === 'live2d' ? (
+                  <Live2DControls
+                    live2dViewerRef={live2dViewerRef}
+                    modelLoaded={modelLoaded}
+                    isPetMode={isPetMode}
+                    onModelChange={onModelChange}
+                    onMotionsUpdate={onMotionsUpdate}
+                    onExpressionsUpdate={onExpressionsUpdate}
+                    onAutoEyeBlinkChange={(enabled) => {
+                      live2dViewerRef.current?.getManager?.()?.setAutoEyeBlinkEnable(enabled);
+                    }}
+                    onAutoBreathChange={(enabled) => {
+                      live2dViewerRef.current?.getManager?.()?.setAutoBreathEnable(enabled);
+                    }}
+                    onEyeTrackingChange={(enabled) => {
+                      live2dViewerRef.current?.getManager?.()?.setEyeTracking(enabled);
+                    }}
+                    onModelScaleChange={(scale) => {
+                      live2dViewerRef.current?.getManager?.()?.setModelScale(scale);
+                    }}
+                    onBackgroundChange={(backgroundConfig) => {
+                      const manager = live2dViewerRef.current?.getManager?.();
+                      if (!manager) {
+                        return;
+                      }
+
+                      if (!backgroundConfig.hasBackground) {
+                        manager.clearBackground();
+                        return;
+                      }
+
+                      manager.setBackgroundOpacity(backgroundConfig.opacity ?? 1);
+                    }}
+                  />
+                ) : null}
+              </Stack>
+            )}
+
+            {activeConfigTab === 1 && (
               <AgentRoleSettingsPanel
                 officeState={officeState}
                 agentRoleConfig={agentRoleConfig}
@@ -480,7 +551,7 @@ export default function ConfigDrawer({
               />
             )}
 
-            {activeConfigTab === 1 && (
+            {activeConfigTab === 2 && (
               <Stack spacing={1.5}>
                 {!desktopMode && <Alert severity="warning">{t('app.webModeWarning')}</Alert>}
 
@@ -990,7 +1061,7 @@ export default function ConfigDrawer({
               </Stack>
             )}
 
-            {activeConfigTab === 2 && (
+            {activeConfigTab === 3 && (
               <VoiceSettingsPanel
                 desktopMode={desktopMode}
                 onOpenDownloadCenter={onOpenDownloadCenter}
@@ -998,7 +1069,7 @@ export default function ConfigDrawer({
               />
             )}
 
-            {activeConfigTab === 3 && (
+            {activeConfigTab === 4 && (
               <Stack spacing={1.5}>
                 <SectionAccordion title={t('preferences.language')}>
                   <Stack direction="row" spacing={1}>
@@ -1119,7 +1190,7 @@ export default function ConfigDrawer({
               </Stack>
             )}
 
-            {activeConfigTab === 4 && (
+            {activeConfigTab === 5 && (
               <Stack spacing={1.5}>
                 <Alert severity={desktopMode ? 'info' : 'warning'}>
                   {desktopMode

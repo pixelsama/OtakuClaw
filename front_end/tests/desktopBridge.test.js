@@ -537,6 +537,101 @@ describe('desktopBridge settings bridge', () => {
       },
     });
   });
+
+  it('persists avatar settings in web fallback storage', async () => {
+    const storage = new Map();
+    globalThis.window = {
+      localStorage: {
+        getItem: vi.fn((key) => (storage.has(key) ? storage.get(key) : null)),
+        setItem: vi.fn((key, value) => {
+          storage.set(key, value);
+        }),
+      },
+    };
+
+    const saved = await desktopBridge.settings.save({
+      ui: {
+        avatar: {
+          renderMode: 'static',
+          live2d: {
+            selectedModelPath: 'openclaw-model:///demo/Hiyori.model3.json',
+          },
+          static: {
+            selectedPackId: 'com.otakuclaw.avatar.demo',
+            scale: 1.35,
+            hitTest: {
+              mode: 'rect',
+              alphaThreshold: 22,
+            },
+          },
+        },
+      },
+    });
+
+    expect(saved.ui.avatar).toEqual({
+      renderMode: 'static',
+      live2d: {
+        selectedModelPath: 'openclaw-model:///demo/Hiyori.model3.json',
+      },
+      static: {
+        selectedPackId: 'com.otakuclaw.avatar.demo',
+        scale: 1.35,
+        hitTest: {
+          mode: 'rect',
+          alphaThreshold: 22,
+        },
+      },
+    });
+    expect(JSON.parse(storage.get('openclaw.settings')).ui.avatar).toEqual({
+      renderMode: 'static',
+      live2d: {
+        selectedModelPath: 'openclaw-model:///demo/Hiyori.model3.json',
+      },
+      static: {
+        selectedPackId: 'com.otakuclaw.avatar.demo',
+        scale: 1.35,
+        hitTest: {
+          mode: 'rect',
+          alphaThreshold: 22,
+        },
+      },
+    });
+  });
+});
+
+describe('desktopBridge static avatars bridge', () => {
+  it('returns unavailable when static avatar preload API is missing', async () => {
+    globalThis.window = {
+      desktop: {
+        isElectron: true,
+      },
+    };
+
+    const result = await desktopBridge.staticAvatars.list();
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('desktop_static_avatar_unavailable');
+  });
+
+  it('delegates remove to preload static avatar API', async () => {
+    const remove = vi.fn(async ({ packId }) => ({
+      ok: true,
+      removedPackId: packId,
+      packs: [],
+    }));
+    globalThis.window = {
+      desktop: {
+        isElectron: true,
+        staticAvatars: {
+          remove,
+        },
+      },
+    };
+
+    const result = await desktopBridge.staticAvatars.remove('com.otakuclaw.avatar.demo');
+    expect(remove).toHaveBeenCalledWith({ packId: 'com.otakuclaw.avatar.demo' });
+    expect(result.ok).toBe(true);
+    expect(result.removedPackId).toBe('com.otakuclaw.avatar.demo');
+  });
 });
 
 describe('desktopBridge app updater bridge', () => {

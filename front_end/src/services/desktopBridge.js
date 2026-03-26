@@ -448,6 +448,14 @@ function normalizeAcpBackendResponse(settings = {}, fallbackCommand = '') {
   };
 }
 
+function normalizeAvatarRenderMode(value) {
+  return normalizeText(value).toLowerCase() === 'static' ? 'static' : 'live2d';
+}
+
+function normalizeAvatarHitTestMode(value) {
+  return normalizeText(value).toLowerCase() === 'rect' ? 'rect' : 'alpha';
+}
+
 function normalizeSettingsResponse(settings = {}) {
   const chatBackend = normalizeChatBackend(settings?.chatBackend);
   const openclaw = settings?.openclaw || {};
@@ -525,6 +533,30 @@ function normalizeSettingsResponse(settings = {}) {
           typeof settings?.ui?.onboarding?.completedAt === 'string'
             ? settings.ui.onboarding.completedAt.trim()
             : '',
+      },
+      avatar: {
+        renderMode: normalizeAvatarRenderMode(settings?.ui?.avatar?.renderMode),
+        live2d: {
+          selectedModelPath:
+            typeof settings?.ui?.avatar?.live2d?.selectedModelPath === 'string'
+              ? settings.ui.avatar.live2d.selectedModelPath.trim()
+              : '',
+        },
+        static: {
+          selectedPackId:
+            typeof settings?.ui?.avatar?.static?.selectedPackId === 'string'
+              ? settings.ui.avatar.static.selectedPackId.trim()
+              : '',
+          scale: Number.isFinite(settings?.ui?.avatar?.static?.scale)
+            ? Math.max(0.1, Math.min(3, settings.ui.avatar.static.scale))
+            : 1,
+          hitTest: {
+            mode: normalizeAvatarHitTestMode(settings?.ui?.avatar?.static?.hitTest?.mode),
+            alphaThreshold: Number.isFinite(settings?.ui?.avatar?.static?.hitTest?.alphaThreshold)
+              ? Math.max(0, Math.min(255, settings.ui.avatar.static.hitTest.alphaThreshold))
+              : 10,
+          },
+        },
       },
       officeSceneLayout: {
         themeId:
@@ -956,6 +988,82 @@ function normalizeSettingsPatch(settings = {}) {
                             : {},
                       }
                     : {}),
+                  ...(Object.prototype.hasOwnProperty.call(settings.ui, 'avatar')
+                    ? {
+                        avatar:
+                          typeof settings.ui.avatar === 'object' && settings.ui.avatar
+                            ? {
+                                ...(Object.prototype.hasOwnProperty.call(settings.ui.avatar, 'renderMode')
+                                  ? {
+                                      renderMode: normalizeAvatarRenderMode(settings.ui.avatar.renderMode),
+                                    }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.ui.avatar, 'live2d')
+                                  ? {
+                                      live2d:
+                                        typeof settings.ui.avatar.live2d === 'object' && settings.ui.avatar.live2d
+                                          ? {
+                                              ...(Object.prototype.hasOwnProperty.call(settings.ui.avatar.live2d, 'selectedModelPath')
+                                                ? {
+                                                    selectedModelPath:
+                                                      typeof settings.ui.avatar.live2d.selectedModelPath === 'string'
+                                                        ? settings.ui.avatar.live2d.selectedModelPath.trim()
+                                                        : '',
+                                                  }
+                                                : {}),
+                                            }
+                                          : {},
+                                    }
+                                  : {}),
+                                ...(Object.prototype.hasOwnProperty.call(settings.ui.avatar, 'static')
+                                  ? {
+                                      static:
+                                        typeof settings.ui.avatar.static === 'object' && settings.ui.avatar.static
+                                          ? {
+                                              ...(Object.prototype.hasOwnProperty.call(settings.ui.avatar.static, 'selectedPackId')
+                                                ? {
+                                                    selectedPackId:
+                                                      typeof settings.ui.avatar.static.selectedPackId === 'string'
+                                                        ? settings.ui.avatar.static.selectedPackId.trim()
+                                                        : '',
+                                                  }
+                                                : {}),
+                                              ...(Object.prototype.hasOwnProperty.call(settings.ui.avatar.static, 'scale')
+                                                ? {
+                                                    scale: Number.isFinite(settings.ui.avatar.static.scale)
+                                                      ? Math.max(0.1, Math.min(3, settings.ui.avatar.static.scale))
+                                                      : 1,
+                                                  }
+                                                : {}),
+                                              ...(Object.prototype.hasOwnProperty.call(settings.ui.avatar.static, 'hitTest')
+                                                ? {
+                                                    hitTest:
+                                                      typeof settings.ui.avatar.static.hitTest === 'object' && settings.ui.avatar.static.hitTest
+                                                        ? {
+                                                            ...(Object.prototype.hasOwnProperty.call(settings.ui.avatar.static.hitTest, 'mode')
+                                                              ? {
+                                                                  mode: normalizeAvatarHitTestMode(settings.ui.avatar.static.hitTest.mode),
+                                                                }
+                                                              : {}),
+                                                            ...(Object.prototype.hasOwnProperty.call(settings.ui.avatar.static.hitTest, 'alphaThreshold')
+                                                              ? {
+                                                                  alphaThreshold: Number.isFinite(settings.ui.avatar.static.hitTest.alphaThreshold)
+                                                                    ? Math.max(0, Math.min(255, settings.ui.avatar.static.hitTest.alphaThreshold))
+                                                                    : 10,
+                                                                }
+                                                              : {}),
+                                                          }
+                                                        : {},
+                                                  }
+                                                : {}),
+                                            }
+                                          : {},
+                                    }
+                                  : {}),
+                              }
+                            : {},
+                      }
+                    : {}),
                   ...(Object.prototype.hasOwnProperty.call(settings.ui, 'officeSceneLayout')
                     ? {
                         officeSceneLayout:
@@ -1058,6 +1166,22 @@ function saveWebSettings(partialSettings = {}) {
       onboarding: {
         ...(current.ui?.onboarding || {}),
         ...(patch.ui?.onboarding || {}),
+      },
+      avatar: {
+        ...(current.ui?.avatar || {}),
+        ...(patch.ui?.avatar || {}),
+        live2d: {
+          ...(current.ui?.avatar?.live2d || {}),
+          ...(patch.ui?.avatar?.live2d || {}),
+        },
+        static: {
+          ...(current.ui?.avatar?.static || {}),
+          ...(patch.ui?.avatar?.static || {}),
+          hitTest: {
+            ...(current.ui?.avatar?.static?.hitTest || {}),
+            ...(patch.ui?.avatar?.static?.hitTest || {}),
+          },
+        },
       },
       officeSceneLayout: {
         ...(current.ui?.officeSceneLayout || {}),
@@ -1171,6 +1295,24 @@ function saveWebSettings(partialSettings = {}) {
           onboarding: {
             completed: Boolean(merged.ui?.onboarding?.completed),
             completedAt: merged.ui?.onboarding?.completedAt || '',
+          },
+          avatar: {
+            renderMode: normalizeAvatarRenderMode(merged.ui?.avatar?.renderMode),
+            live2d: {
+              selectedModelPath: normalizeText(merged.ui?.avatar?.live2d?.selectedModelPath),
+            },
+            static: {
+              selectedPackId: normalizeText(merged.ui?.avatar?.static?.selectedPackId),
+              scale: Number.isFinite(merged.ui?.avatar?.static?.scale)
+                ? Math.max(0.1, Math.min(3, merged.ui.avatar.static.scale))
+                : 1,
+              hitTest: {
+                mode: normalizeAvatarHitTestMode(merged.ui?.avatar?.static?.hitTest?.mode),
+                alphaThreshold: Number.isFinite(merged.ui?.avatar?.static?.hitTest?.alphaThreshold)
+                  ? Math.max(0, Math.min(255, merged.ui.avatar.static.hitTest.alphaThreshold))
+                  : 10,
+              },
+            },
           },
           officeSceneLayout: {
             themeId: merged.ui?.officeSceneLayout?.themeId || 'star-office-classic',
@@ -2406,6 +2548,48 @@ export const desktopBridge = {
         };
       }
       return api.live2dModels.importZip();
+    },
+  },
+  staticAvatars: {
+    async list() {
+      const api = getDesktopApi();
+      if (!api?.staticAvatars?.list) {
+        return {
+          ok: false,
+          packs: [],
+          error: {
+            code: 'desktop_static_avatar_unavailable',
+            message: '当前环境不支持静态角色资源管理。',
+          },
+        };
+      }
+      return api.staticAvatars.list();
+    },
+    async importZip() {
+      const api = getDesktopApi();
+      if (!api?.staticAvatars?.importZip) {
+        return {
+          ok: false,
+          error: {
+            code: 'desktop_static_avatar_unavailable',
+            message: '当前环境不支持静态角色资源导入。',
+          },
+        };
+      }
+      return api.staticAvatars.importZip();
+    },
+    async remove(packId = '') {
+      const api = getDesktopApi();
+      if (!api?.staticAvatars?.remove) {
+        return {
+          ok: false,
+          error: {
+            code: 'desktop_static_avatar_unavailable',
+            message: '当前环境不支持静态角色资源删除。',
+          },
+        };
+      }
+      return api.staticAvatars.remove({ packId });
     },
   },
 };
