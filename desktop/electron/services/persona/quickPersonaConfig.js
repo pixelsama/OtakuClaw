@@ -1,12 +1,14 @@
 const DEFAULT_FAST_PERSONA_SETTINGS = Object.freeze({
   enabled: true,
-  configMode: 'inherit',
-  provider: 'openrouter',
-  model: '',
-  apiBase: '',
   maxTokens: 768,
   temperature: 0.3,
   timeoutMs: 20000,
+});
+
+const DEFAULT_AI_MODEL_SETTINGS = Object.freeze({
+  provider: 'openrouter',
+  model: 'anthropic/claude-opus-4-5',
+  apiBase: '',
 });
 
 function normalizeText(value, fallback = '') {
@@ -36,11 +38,7 @@ function toFiniteNumber(value, fallback) {
   return parsed;
 }
 
-function normalizeConfigMode(value) {
-  return normalizeText(value).toLowerCase() === 'custom' ? 'custom' : 'inherit';
-}
-
-function normalizeProvider(value, fallback = DEFAULT_FAST_PERSONA_SETTINGS.provider) {
+function normalizeProvider(value, fallback = DEFAULT_AI_MODEL_SETTINGS.provider) {
   const normalized = normalizeText(value, fallback).toLowerCase();
   if ([
     'openrouter',
@@ -65,13 +63,18 @@ function normalizeFastPersonaSettings(settings = {}) {
       Object.prototype.hasOwnProperty.call(source, 'enabled')
         ? Boolean(source.enabled)
         : DEFAULT_FAST_PERSONA_SETTINGS.enabled,
-    configMode: normalizeConfigMode(source.configMode),
-    provider: normalizeProvider(source.provider),
-    model: normalizeText(source.model),
-    apiBase: normalizeText(source.apiBase),
     maxTokens: toPositiveInteger(source.maxTokens, DEFAULT_FAST_PERSONA_SETTINGS.maxTokens),
     temperature: toFiniteNumber(source.temperature, DEFAULT_FAST_PERSONA_SETTINGS.temperature),
     timeoutMs: toPositiveInteger(source.timeoutMs, DEFAULT_FAST_PERSONA_SETTINGS.timeoutMs),
+  };
+}
+
+function normalizeAiModelSettings(settings = {}) {
+  const source = settings && typeof settings === 'object' ? settings : {};
+  return {
+    provider: normalizeProvider(source.provider, DEFAULT_AI_MODEL_SETTINGS.provider),
+    model: normalizeText(source.model, DEFAULT_AI_MODEL_SETTINGS.model),
+    apiBase: normalizeText(source.apiBase, DEFAULT_AI_MODEL_SETTINGS.apiBase),
   };
 }
 
@@ -84,6 +87,7 @@ function buildConfigError(code, message) {
 function resolveFastPersonaRuntimeConfig(settings = {}) {
   const source = settings && typeof settings === 'object' ? settings : {};
   const fastPersona = normalizeFastPersonaSettings(source.fastPersona);
+  const aiModel = normalizeAiModelSettings(source.aiModel);
 
   if (!fastPersona.enabled) {
     return {
@@ -94,52 +98,10 @@ function resolveFastPersonaRuntimeConfig(settings = {}) {
     };
   }
 
-  if (fastPersona.configMode === 'inherit') {
-    const nanobot = source.nanobot && typeof source.nanobot === 'object' ? source.nanobot : {};
-    const provider = normalizeProvider(nanobot.provider, fastPersona.provider);
-    const model = normalizeText(nanobot.model, fastPersona.model);
-    const apiBase = normalizeText(nanobot.apiBase, fastPersona.apiBase);
-    const apiKey = normalizeText(nanobot.apiKey);
-
-    if (!model) {
-      return {
-        ok: false,
-        disabled: false,
-        reason: 'fast_persona_missing_model',
-        fastPersona,
-      };
-    }
-
-    if (!apiKey) {
-      return {
-        ok: false,
-        disabled: false,
-        reason: 'fast_persona_missing_api_key',
-        fastPersona,
-      };
-    }
-
-    return {
-      ok: true,
-      config: {
-        provider,
-        model,
-        apiBase,
-        apiKey,
-        maxTokens: fastPersona.maxTokens,
-        temperature: fastPersona.temperature,
-        timeoutMs: fastPersona.timeoutMs,
-        configMode: 'inherit',
-        inheritedFrom: 'nanobot',
-      },
-      fastPersona,
-    };
-  }
-
-  const provider = normalizeProvider(fastPersona.provider);
-  const model = normalizeText(fastPersona.model);
-  const apiBase = normalizeText(fastPersona.apiBase);
-  const apiKey = normalizeText(source.fastPersona?.apiKey);
+  const provider = normalizeProvider(aiModel.provider);
+  const model = normalizeText(aiModel.model);
+  const apiBase = normalizeText(aiModel.apiBase);
+  const apiKey = normalizeText(source.aiModel?.apiKey);
 
   if (!model) {
     return {
@@ -161,19 +123,19 @@ function resolveFastPersonaRuntimeConfig(settings = {}) {
 
   return {
     ok: true,
-    config: {
-      provider,
-      model,
-      apiBase,
-      apiKey,
-      maxTokens: fastPersona.maxTokens,
-      temperature: fastPersona.temperature,
-      timeoutMs: fastPersona.timeoutMs,
-      configMode: 'custom',
-      inheritedFrom: '',
-    },
-    fastPersona,
-  };
+      config: {
+        provider,
+        model,
+        apiBase,
+        apiKey,
+        maxTokens: fastPersona.maxTokens,
+        temperature: fastPersona.temperature,
+        timeoutMs: fastPersona.timeoutMs,
+        configMode: 'ai-model',
+        inheritedFrom: 'ai-model',
+      },
+      fastPersona,
+    };
 }
 
 function requireFastPersonaRuntimeConfig(settings = {}) {
@@ -195,7 +157,9 @@ function requireFastPersonaRuntimeConfig(settings = {}) {
 }
 
 module.exports = {
+  DEFAULT_AI_MODEL_SETTINGS,
   DEFAULT_FAST_PERSONA_SETTINGS,
+  normalizeAiModelSettings,
   normalizeFastPersonaSettings,
   normalizeProvider,
   resolveFastPersonaRuntimeConfig,

@@ -33,13 +33,14 @@ test('quick persona backend manager uses independent openai-compatible direct ca
 
   const result = await manager.runDirect({
     settings: {
-      fastPersona: {
-        enabled: true,
-        configMode: 'custom',
+      aiModel: {
         provider: 'openai',
         model: 'gpt-fast',
         apiBase: 'https://api.example.com/v1',
         apiKey: 'fast-secret',
+      },
+      fastPersona: {
+        enabled: true,
         maxTokens: 256,
         temperature: 0.1,
         timeoutMs: 5000,
@@ -81,7 +82,7 @@ test('quick persona backend manager can inherit llm config without using chat ba
   });
 
   const resolved = manager.resolveConfig({
-    nanobot: {
+    aiModel: {
       provider: 'openrouter',
       model: 'anthropic/claude-opus-4-5',
       apiBase: 'https://openrouter.ai/api/v1',
@@ -89,14 +90,13 @@ test('quick persona backend manager can inherit llm config without using chat ba
     },
     fastPersona: {
       enabled: true,
-      configMode: 'inherit',
       maxTokens: 300,
       temperature: 0.25,
     },
   });
 
   assert.equal(resolved.ok, true);
-  assert.equal(resolved.config.inheritedFrom, 'nanobot');
+  assert.equal(resolved.config.inheritedFrom, 'ai-model');
   assert.equal(resolved.config.model, 'anthropic/claude-opus-4-5');
   assert.equal(resolved.config.apiKey, 'shared-key');
 });

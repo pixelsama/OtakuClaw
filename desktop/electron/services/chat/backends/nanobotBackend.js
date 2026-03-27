@@ -38,16 +38,17 @@ function resolveEffectiveModel(config = {}) {
 
 function normalizeNanobotConfig(settings = {}) {
   const source = settings && typeof settings.nanobot === 'object' ? settings.nanobot : {};
+  const aiModel = settings && typeof settings.aiModel === 'object' ? settings.aiModel : {};
   const fallbackWorkspace = normalizeString(process.env.NANOBOT_WORKSPACE, path.resolve(process.cwd(), 'nanobot-workspace'));
 
   return {
     enabled: Boolean(source.enabled),
     workspace: normalizeString(source.workspace, fallbackWorkspace) || fallbackWorkspace,
     allowHighRiskTools: Boolean(source.allowHighRiskTools),
-    provider: normalizeString(source.provider, 'openrouter'),
-    model: normalizeString(source.model, 'anthropic/claude-opus-4-5'),
-    apiBase: normalizeString(source.apiBase, ''),
-    apiKey: normalizeString(source.apiKey, ''),
+    provider: normalizeString(aiModel.provider || source.provider, 'openrouter'),
+    model: normalizeString(aiModel.model || source.model, 'anthropic/claude-opus-4-5'),
+    apiBase: normalizeString(aiModel.apiBase || source.apiBase, ''),
+    apiKey: normalizeString(aiModel.apiKey || source.apiKey, ''),
     maxTokens: Number.isFinite(source.maxTokens) ? Math.max(1, Math.floor(source.maxTokens)) : 4096,
     temperature: Number.isFinite(source.temperature) ? Number(source.temperature) : 0.2,
     reasoningEffort: normalizeString(source.reasoningEffort, ''),
@@ -225,7 +226,7 @@ class NanobotBackendAdapter extends ChatBackendAdapter {
     if (!config.provider || !config.model || !config.apiKey) {
       throw createNanobotError(
         'nanobot_missing_config',
-        'Nanobot 配置不完整，请先填写 Provider / Model / API Key。',
+        'Nanobot 配置不完整，请先填写 AI 模型配置（Provider / Model / API Key）。',
       );
     }
   }

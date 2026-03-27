@@ -420,6 +420,7 @@ export default function FirstRunOnboardingDialog({
   settingsFeedback = '',
   settingsError = '',
   onNanobotSettingChange,
+  onAiModelSettingChange,
   onAcpBackendSettingChange,
   onPickNanobotWorkspace,
   onTestChatBackendSettings,
@@ -513,16 +514,17 @@ export default function FirstRunOnboardingDialog({
     : '';
 
   const nanobotSettings = chatBackendSettings?.nanobot || {};
+  const aiModelSettings = chatBackendSettings?.aiModel || {};
   const claudeCodeSettings = chatBackendSettings?.claudeCode || {};
   const codexSettings = chatBackendSettings?.codex || {};
   const activeAcpSettings = selectedBackend === 'codex' ? codexSettings : claudeCodeSettings;
   const activeAcpRunner = activeAcpSettings?.runner || {};
-  const nanobotProviderOptions = useMemo(
-    () => extendNanobotProviderOptionsWithLegacy(NANOBOT_PROVIDER_OPTIONS, nanobotSettings.provider || ''),
-    [nanobotSettings.provider],
+  const aiModelProviderOptions = useMemo(
+    () => extendNanobotProviderOptionsWithLegacy(NANOBOT_PROVIDER_OPTIONS, aiModelSettings.provider || ''),
+    [aiModelSettings.provider],
   );
-  const nanobotApiKeySaved = Boolean(nanobotSettings.hasApiKey && !(nanobotSettings.apiKey || '').trim());
-  const nanobotApiKeyValue = nanobotApiKeySaved ? MASKED_SECRET_VALUE : (nanobotSettings.apiKey || '');
+  const aiModelApiKeySaved = Boolean(aiModelSettings.hasApiKey && !(aiModelSettings.apiKey || '').trim());
+  const aiModelApiKeyValue = aiModelApiKeySaved ? MASKED_SECRET_VALUE : (aiModelSettings.apiKey || '');
   const dashscopeApiKeyValue = dashscopeApiKeySaved ? MASKED_SECRET_VALUE : dashscopeSettings.apiKey;
   const nanobotDownloadPhase = typeof nanobotRuntimeDownloadTask?.phase === 'string'
     ? nanobotRuntimeDownloadTask.phase
@@ -1534,11 +1536,11 @@ export default function FirstRunOnboardingDialog({
           <TextField
             select
             label={t('onboarding.backend.provider')}
-            value={nanobotSettings.provider || ''}
-            onChange={(event) => onNanobotSettingChange?.('provider', event.target.value)}
+            value={aiModelSettings.provider || ''}
+            onChange={(event) => onAiModelSettingChange?.('provider', event.target.value)}
             fullWidth
           >
-            {nanobotProviderOptions.map((option) => (
+            {aiModelProviderOptions.map((option) => (
               <MenuItem key={option.value} value={option.value}>
                 {option.legacyValue
                   ? t('nanobot.provider.legacy', { provider: option.legacyValue })
@@ -1551,28 +1553,28 @@ export default function FirstRunOnboardingDialog({
           </TextField>
           <TextField
             label={t('onboarding.backend.model')}
-            value={nanobotSettings.model || ''}
-            onChange={(event) => onNanobotSettingChange?.('model', event.target.value)}
+            value={aiModelSettings.model || ''}
+            onChange={(event) => onAiModelSettingChange?.('model', event.target.value)}
             fullWidth
           />
           <TextField
             label={t('onboarding.backend.apiBase')}
-            value={nanobotSettings.apiBase || ''}
-            onChange={(event) => onNanobotSettingChange?.('apiBase', event.target.value)}
+            value={aiModelSettings.apiBase || ''}
+            onChange={(event) => onAiModelSettingChange?.('apiBase', event.target.value)}
             placeholder={t('onboarding.optional')}
             fullWidth
           />
           <TextField
             label={t('onboarding.backend.apiKey')}
-            value={nanobotApiKeyValue}
+            value={aiModelApiKeyValue}
             onChange={(event) => {
-              const nextApiKey = normalizeMaskedSecretInput(event.target.value, nanobotApiKeySaved);
-              onNanobotSettingChange?.('apiKey', nextApiKey);
+              const nextApiKey = normalizeMaskedSecretInput(event.target.value, aiModelApiKeySaved);
+              onAiModelSettingChange?.('apiKey', nextApiKey);
             }}
             type="password"
             autoComplete="off"
-            placeholder={nanobotSettings.hasApiKey ? t('app.tokenSavedPlaceholder') : ''}
-            helperText={nanobotApiKeySaved ? t('app.tokenSavedPlaceholder') : ''}
+            placeholder={aiModelSettings.hasApiKey ? t('app.tokenSavedPlaceholder') : ''}
+            helperText={aiModelApiKeySaved ? t('app.tokenSavedPlaceholder') : ''}
             fullWidth
           />
         </Stack>

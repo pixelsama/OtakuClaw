@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 
 const {
+  AI_MODEL_ACCOUNT_NAME,
   KeytarSecretStore,
   DASHSCOPE_ACCOUNT_NAME,
   FAST_PERSONA_ACCOUNT_NAME,
@@ -9,7 +10,9 @@ const {
   NANOBOT_ACCOUNT_NAME,
 } = require('./secretStore');
 const {
+  DEFAULT_AI_MODEL_SETTINGS,
   DEFAULT_FAST_PERSONA_SETTINGS,
+  normalizeAiModelSettings,
   normalizeFastPersonaSettings,
 } = require('./persona/quickPersonaConfig');
 
@@ -101,6 +104,7 @@ const DEFAULT_SETTINGS = {
   chatBackend: 'nanobot',
   openclaw: { ...DEFAULT_OPENCLAW_SETTINGS },
   nanobot: { ...DEFAULT_NANOBOT_SETTINGS },
+  aiModel: { ...DEFAULT_AI_MODEL_SETTINGS },
   claudeCode: { ...DEFAULT_CLAUDE_CODE_SETTINGS },
   codex: { ...DEFAULT_CODEX_SETTINGS },
   fastPersona: { ...DEFAULT_FAST_PERSONA_SETTINGS },
@@ -318,6 +322,25 @@ function normalizeNanobotSettings(settings = {}) {
   };
 }
 
+function resolveLegacyAiModelSource(source = {}) {
+  const nanobot = isObject(source.nanobot) ? source.nanobot : {};
+  const fastPersona = isObject(source.fastPersona) ? source.fastPersona : {};
+  return {
+    provider: normalizeString(
+      nanobot.provider || fastPersona.provider,
+      DEFAULT_AI_MODEL_SETTINGS.provider,
+    ),
+    model: normalizeString(
+      nanobot.model || fastPersona.model,
+      DEFAULT_AI_MODEL_SETTINGS.model,
+    ),
+    apiBase: normalizeString(
+      nanobot.apiBase || fastPersona.apiBase,
+      DEFAULT_AI_MODEL_SETTINGS.apiBase,
+    ),
+  };
+}
+
 function normalizeClaudeCodeSettings(settings = {}) {
   return normalizeAcpBackendSettings(settings, DEFAULT_CLAUDE_CODE_SETTINGS);
 }
@@ -495,6 +518,7 @@ function cloneSettings(settings) {
     chatBackend: settings.chatBackend,
     openclaw: { ...settings.openclaw },
     nanobot: { ...settings.nanobot },
+    aiModel: { ...settings.aiModel },
     claudeCode: cloneAcpBackendSettings(settings.claudeCode),
     codex: cloneAcpBackendSettings(settings.codex),
     fastPersona: { ...settings.fastPersona },
@@ -542,6 +566,7 @@ function isNextGenSettingsShape(settings = {}) {
     Object.prototype.hasOwnProperty.call(settings, 'chatBackend')
     || Object.prototype.hasOwnProperty.call(settings, 'openclaw')
     || Object.prototype.hasOwnProperty.call(settings, 'nanobot')
+    || Object.prototype.hasOwnProperty.call(settings, 'aiModel')
     || Object.prototype.hasOwnProperty.call(settings, 'claudeCode')
     || Object.prototype.hasOwnProperty.call(settings, 'codex')
     || Object.prototype.hasOwnProperty.call(settings, 'fastPersona')
@@ -554,10 +579,14 @@ function normalizeFileSettings(settings = {}) {
   const source = isObject(settings) ? settings : {};
 
   if (isNextGenSettingsShape(source)) {
+    const aiModelSource = isObject(source.aiModel)
+      ? source.aiModel
+      : resolveLegacyAiModelSource(source);
     return {
       chatBackend: normalizeChatBackend(source.chatBackend),
       openclaw: normalizeOpenClawSettings(isObject(source.openclaw) ? source.openclaw : source),
       nanobot: normalizeNanobotSettings(isObject(source.nanobot) ? source.nanobot : {}),
+      aiModel: normalizeAiModelSettings(aiModelSource),
       claudeCode: normalizeClaudeCodeSettings(isObject(source.claudeCode) ? source.claudeCode : {}),
       codex: normalizeCodexSettings(isObject(source.codex) ? source.codex : {}),
       fastPersona: normalizeFastPersonaSettings(isObject(source.fastPersona) ? source.fastPersona : {}),
@@ -570,6 +599,7 @@ function normalizeFileSettings(settings = {}) {
     chatBackend: 'nanobot',
     openclaw: normalizeOpenClawSettings(source),
     nanobot: { ...DEFAULT_NANOBOT_SETTINGS },
+    aiModel: { ...DEFAULT_AI_MODEL_SETTINGS },
     claudeCode: { ...DEFAULT_CLAUDE_CODE_SETTINGS },
     codex: { ...DEFAULT_CODEX_SETTINGS },
     fastPersona: { ...DEFAULT_FAST_PERSONA_SETTINGS },
@@ -586,6 +616,7 @@ function extractLegacySecrets(settings = {}) {
   const source = isObject(settings) ? settings : {};
   const openclaw = isObject(source.openclaw) ? source.openclaw : {};
   const nanobot = isObject(source.nanobot) ? source.nanobot : {};
+  const aiModel = isObject(source.aiModel) ? source.aiModel : {};
   const fastPersona = isObject(source.fastPersona) ? source.fastPersona : {};
   const voice = isObject(source.voice) ? source.voice : {};
   const dashscope = isObject(voice.dashscope) ? voice.dashscope : {};
@@ -593,6 +624,12 @@ function extractLegacySecrets(settings = {}) {
   return {
     openclawToken: normalizeSecretValue(openclaw.token || source.token),
     nanobotApiKey: normalizeSecretValue(nanobot.apiKey || source.nanobotApiKey),
+    aiModelApiKey: normalizeSecretValue(
+      aiModel.apiKey
+      || source.aiModelApiKey
+      || fastPersona.apiKey
+      || source.fastPersonaApiKey,
+    ),
     fastPersonaApiKey: normalizeSecretValue(fastPersona.apiKey || source.fastPersonaApiKey),
     dashscopeApiKey: normalizeSecretValue(dashscope.apiKey || source.dashscopeApiKey),
   };
@@ -655,6 +692,21 @@ function normalizePatch(partialSettings = {}) {
   }
   if (Object.keys(nanobotPatch).length > 0) {
     patch.nanobot = nanobotPatch;
+  }
+
+  const aiModelPatch = {};
+  const aiModelSource = isObject(source.aiModel) ? source.aiModel : {};
+  if (Object.prototype.hasOwnProperty.call(aiModelSource, 'provider')) {
+    aiModelPatch.provider = normalizeString(aiModelSource.provider);
+  }
+  if (Object.prototype.hasOwnProperty.call(aiModelSource, 'model')) {
+    aiModelPatch.model = normalizeString(aiModelSource.model);
+  }
+  if (Object.prototype.hasOwnProperty.call(aiModelSource, 'apiBase')) {
+    aiModelPatch.apiBase = normalizeString(aiModelSource.apiBase);
+  }
+  if (Object.keys(aiModelPatch).length > 0) {
+    patch.aiModel = aiModelPatch;
   }
 
   const claudeCodePatch = {};
@@ -772,18 +824,6 @@ function normalizePatch(partialSettings = {}) {
   const fastPersonaSource = isObject(source.fastPersona) ? source.fastPersona : {};
   if (Object.prototype.hasOwnProperty.call(fastPersonaSource, 'enabled')) {
     fastPersonaPatch.enabled = Boolean(fastPersonaSource.enabled);
-  }
-  if (Object.prototype.hasOwnProperty.call(fastPersonaSource, 'configMode')) {
-    fastPersonaPatch.configMode = normalizeString(fastPersonaSource.configMode);
-  }
-  if (Object.prototype.hasOwnProperty.call(fastPersonaSource, 'provider')) {
-    fastPersonaPatch.provider = normalizeString(fastPersonaSource.provider);
-  }
-  if (Object.prototype.hasOwnProperty.call(fastPersonaSource, 'model')) {
-    fastPersonaPatch.model = normalizeString(fastPersonaSource.model);
-  }
-  if (Object.prototype.hasOwnProperty.call(fastPersonaSource, 'apiBase')) {
-    fastPersonaPatch.apiBase = normalizeString(fastPersonaSource.apiBase);
   }
   if (Object.prototype.hasOwnProperty.call(fastPersonaSource, 'maxTokens')) {
     fastPersonaPatch.maxTokens = toPositiveInteger(fastPersonaSource.maxTokens, DEFAULT_FAST_PERSONA_SETTINGS.maxTokens);
@@ -982,6 +1022,19 @@ function normalizePatch(partialSettings = {}) {
 
   patch.clearNanobotApiKey = Boolean(source.clearNanobotApiKey || nanobotSource.clearApiKey);
 
+  const aiModelApiKeyFromFlat = Object.prototype.hasOwnProperty.call(source, 'aiModelApiKey')
+    ? normalizeSecretValue(source.aiModelApiKey)
+    : null;
+  const aiModelApiKeyFromNested = Object.prototype.hasOwnProperty.call(aiModelSource, 'apiKey')
+    ? normalizeSecretValue(aiModelSource.apiKey)
+    : null;
+  if (typeof aiModelApiKeyFromNested === 'string') {
+    patch.aiModelApiKey = aiModelApiKeyFromNested;
+  } else if (typeof aiModelApiKeyFromFlat === 'string') {
+    patch.aiModelApiKey = aiModelApiKeyFromFlat;
+  }
+  patch.clearAiModelApiKey = Boolean(source.clearAiModelApiKey || aiModelSource.clearApiKey);
+
   const dashscopeApiKeyFromFlat = Object.prototype.hasOwnProperty.call(source, 'dashscopeApiKey')
     ? normalizeSecretValue(source.dashscopeApiKey)
     : null;
@@ -999,10 +1052,15 @@ function normalizePatch(partialSettings = {}) {
   const fastPersonaApiKeyFromNested = Object.prototype.hasOwnProperty.call(fastPersonaSource, 'apiKey')
     ? normalizeSecretValue(fastPersonaSource.apiKey)
     : null;
-  if (typeof fastPersonaApiKeyFromNested === 'string') {
-    patch.fastPersonaApiKey = fastPersonaApiKeyFromNested;
+  if (
+    typeof fastPersonaApiKeyFromNested === 'string'
+    && !Object.prototype.hasOwnProperty.call(patch, 'aiModelApiKey')
+  ) {
+    patch.aiModelApiKey = fastPersonaApiKeyFromNested;
   }
-  patch.clearFastPersonaApiKey = Boolean(fastPersonaSource.clearApiKey);
+  if (fastPersonaSource.clearApiKey) {
+    patch.clearAiModelApiKey = true;
+  }
 
   return patch;
 }
@@ -1017,8 +1075,8 @@ class SettingsStore {
     this.secrets = {
       openclawToken: '',
       nanobotApiKey: '',
+      aiModelApiKey: '',
       dashscopeApiKey: '',
-      fastPersonaApiKey: '',
     };
     this.hasSecureStorage = this.secretStore.isAvailable();
   }
@@ -1034,6 +1092,9 @@ class SettingsStore {
       parsed = JSON.parse(raw);
       this.settings = normalizeFileSettings(parsed);
       shouldPersist = !isNextGenSettingsShape(parsed);
+      if (isNextGenSettingsShape(parsed) && !Object.prototype.hasOwnProperty.call(parsed, 'aiModel')) {
+        shouldPersist = true;
+      }
     } catch (error) {
       if (error?.code !== 'ENOENT') {
         console.warn('Failed to load settings file:', error);
@@ -1055,19 +1116,28 @@ class SettingsStore {
       ? await this.safeGetSecrets([
         OPENCLAW_ACCOUNT_NAME,
         NANOBOT_ACCOUNT_NAME,
+        AI_MODEL_ACCOUNT_NAME,
         DASHSCOPE_ACCOUNT_NAME,
         FAST_PERSONA_ACCOUNT_NAME,
       ])
       : {};
     const secureOpenclawToken = secureSecrets[OPENCLAW_ACCOUNT_NAME] || '';
     const secureNanobotApiKey = secureSecrets[NANOBOT_ACCOUNT_NAME] || '';
+    const secureAiModelApiKey = secureSecrets[AI_MODEL_ACCOUNT_NAME] || '';
     const secureDashscopeApiKey = secureSecrets[DASHSCOPE_ACCOUNT_NAME] || '';
     const secureFastPersonaApiKey = secureSecrets[FAST_PERSONA_ACCOUNT_NAME] || '';
+    const legacyAiModelApiKey = legacySecrets.aiModelApiKey;
+    const fallbackAiModelApiKey = legacyAiModelApiKey
+      || secureFastPersonaApiKey
+      || legacySecrets.fastPersonaApiKey
+      || secureNanobotApiKey
+      || legacySecrets.nanobotApiKey
+      || '';
 
     this.secrets.openclawToken = secureOpenclawToken || legacySecrets.openclawToken || '';
     this.secrets.nanobotApiKey = secureNanobotApiKey || legacySecrets.nanobotApiKey || '';
+    this.secrets.aiModelApiKey = secureAiModelApiKey || fallbackAiModelApiKey;
     this.secrets.dashscopeApiKey = secureDashscopeApiKey || legacySecrets.dashscopeApiKey || '';
-    this.secrets.fastPersonaApiKey = secureFastPersonaApiKey || legacySecrets.fastPersonaApiKey || '';
 
     const migrationSecrets = {};
     if (!secureOpenclawToken && legacySecrets.openclawToken) {
@@ -1079,8 +1149,8 @@ class SettingsStore {
     if (!secureDashscopeApiKey && legacySecrets.dashscopeApiKey) {
       migrationSecrets[DASHSCOPE_ACCOUNT_NAME] = legacySecrets.dashscopeApiKey;
     }
-    if (!secureFastPersonaApiKey && legacySecrets.fastPersonaApiKey) {
-      migrationSecrets[FAST_PERSONA_ACCOUNT_NAME] = legacySecrets.fastPersonaApiKey;
+    if (!secureAiModelApiKey && fallbackAiModelApiKey) {
+      migrationSecrets[AI_MODEL_ACCOUNT_NAME] = fallbackAiModelApiKey;
     }
     if (this.hasSecureStorage && Object.keys(migrationSecrets).length > 0) {
       await this.safeSetSecrets(migrationSecrets);
@@ -1090,6 +1160,7 @@ class SettingsStore {
     if (
       legacySecrets.openclawToken
       || legacySecrets.nanobotApiKey
+      || legacySecrets.aiModelApiKey
       || legacySecrets.dashscopeApiKey
       || legacySecrets.fastPersonaApiKey
     ) {
@@ -1104,8 +1175,8 @@ class SettingsStore {
   getPublic() {
     const hasOpenclawToken = Boolean(this.secrets.openclawToken);
     const hasNanobotApiKey = Boolean(this.secrets.nanobotApiKey);
+    const hasAiModelApiKey = Boolean(this.secrets.aiModelApiKey);
     const hasDashscopeApiKey = Boolean(this.secrets.dashscopeApiKey);
-    const hasFastPersonaApiKey = Boolean(this.secrets.fastPersonaApiKey);
 
     return {
       chatBackend: this.settings.chatBackend,
@@ -1117,12 +1188,13 @@ class SettingsStore {
         ...this.settings.nanobot,
         hasApiKey: hasNanobotApiKey,
       },
+      aiModel: {
+        ...this.settings.aiModel,
+        hasApiKey: hasAiModelApiKey,
+      },
       claudeCode: cloneAcpBackendSettings(this.settings.claudeCode),
       codex: cloneAcpBackendSettings(this.settings.codex),
-      fastPersona: {
-        ...this.settings.fastPersona,
-        hasApiKey: hasFastPersonaApiKey,
-      },
+      fastPersona: { ...this.settings.fastPersona },
       voice: {
         ...this.settings.voice,
         dashscope: {
@@ -1179,12 +1251,13 @@ class SettingsStore {
         ...this.settings.nanobot,
         apiKey: this.secrets.nanobotApiKey,
       },
+      aiModel: {
+        ...this.settings.aiModel,
+        apiKey: this.secrets.aiModelApiKey,
+      },
       claudeCode: cloneAcpBackendSettings(this.settings.claudeCode),
       codex: cloneAcpBackendSettings(this.settings.codex),
-      fastPersona: {
-        ...this.settings.fastPersona,
-        apiKey: this.secrets.fastPersonaApiKey,
-      },
+      fastPersona: { ...this.settings.fastPersona },
       voice: {
         ...this.settings.voice,
         dashscope: {
@@ -1246,6 +1319,13 @@ class SettingsStore {
       this.settings.nanobot = normalizeNanobotSettings({
         ...this.settings.nanobot,
         ...patch.nanobot,
+      });
+    }
+
+    if (isObject(patch.aiModel)) {
+      this.settings.aiModel = normalizeAiModelSettings({
+        ...this.settings.aiModel,
+        ...patch.aiModel,
       });
     }
 
@@ -1343,16 +1423,16 @@ class SettingsStore {
       this.secrets.nanobotApiKey = patch.nanobotApiKey;
     }
 
+    if (patch.clearAiModelApiKey) {
+      this.secrets.aiModelApiKey = '';
+    } else if (Object.prototype.hasOwnProperty.call(patch, 'aiModelApiKey') && patch.aiModelApiKey) {
+      this.secrets.aiModelApiKey = patch.aiModelApiKey;
+    }
+
     if (patch.clearDashscopeApiKey) {
       this.secrets.dashscopeApiKey = '';
     } else if (Object.prototype.hasOwnProperty.call(patch, 'dashscopeApiKey') && patch.dashscopeApiKey) {
       this.secrets.dashscopeApiKey = patch.dashscopeApiKey;
-    }
-
-    if (patch.clearFastPersonaApiKey) {
-      this.secrets.fastPersonaApiKey = '';
-    } else if (Object.prototype.hasOwnProperty.call(patch, 'fastPersonaApiKey') && patch.fastPersonaApiKey) {
-      this.secrets.fastPersonaApiKey = patch.fastPersonaApiKey;
     }
 
     if (this.hasSecureStorage) {
@@ -1371,16 +1451,16 @@ class SettingsStore {
         setSecrets[NANOBOT_ACCOUNT_NAME] = patch.nanobotApiKey;
       }
 
+      if (patch.clearAiModelApiKey) {
+        clearAccounts.push(AI_MODEL_ACCOUNT_NAME);
+      } else if (Object.prototype.hasOwnProperty.call(patch, 'aiModelApiKey') && patch.aiModelApiKey) {
+        setSecrets[AI_MODEL_ACCOUNT_NAME] = patch.aiModelApiKey;
+      }
+
       if (patch.clearDashscopeApiKey) {
         clearAccounts.push(DASHSCOPE_ACCOUNT_NAME);
       } else if (Object.prototype.hasOwnProperty.call(patch, 'dashscopeApiKey') && patch.dashscopeApiKey) {
         setSecrets[DASHSCOPE_ACCOUNT_NAME] = patch.dashscopeApiKey;
-      }
-
-      if (patch.clearFastPersonaApiKey) {
-        clearAccounts.push(FAST_PERSONA_ACCOUNT_NAME);
-      } else if (Object.prototype.hasOwnProperty.call(patch, 'fastPersonaApiKey') && patch.fastPersonaApiKey) {
-        setSecrets[FAST_PERSONA_ACCOUNT_NAME] = patch.fastPersonaApiKey;
       }
 
       if (clearAccounts.length || Object.keys(setSecrets).length) {
@@ -1420,6 +1500,16 @@ class SettingsStore {
         ...patch.nanobot,
       });
       merged.nanobot.apiKey = existingNanobotApiKey;
+    }
+
+    if (isObject(patch.aiModel)) {
+      const existingAiModelApiKey =
+        typeof merged.aiModel?.apiKey === 'string' ? merged.aiModel.apiKey : '';
+      merged.aiModel = normalizeAiModelSettings({
+        ...merged.aiModel,
+        ...patch.aiModel,
+      });
+      merged.aiModel.apiKey = existingAiModelApiKey;
     }
 
     if (isObject(patch.claudeCode)) {
@@ -1524,16 +1614,16 @@ class SettingsStore {
       merged.nanobot.apiKey = patch.nanobotApiKey;
     }
 
+    if (patch.clearAiModelApiKey) {
+      merged.aiModel.apiKey = '';
+    } else if (Object.prototype.hasOwnProperty.call(patch, 'aiModelApiKey') && patch.aiModelApiKey) {
+      merged.aiModel.apiKey = patch.aiModelApiKey;
+    }
+
     if (patch.clearDashscopeApiKey) {
       merged.voice.dashscope.apiKey = '';
     } else if (Object.prototype.hasOwnProperty.call(patch, 'dashscopeApiKey') && patch.dashscopeApiKey) {
       merged.voice.dashscope.apiKey = patch.dashscopeApiKey;
-    }
-
-    if (patch.clearFastPersonaApiKey) {
-      merged.fastPersona.apiKey = '';
-    } else if (Object.prototype.hasOwnProperty.call(patch, 'fastPersonaApiKey') && patch.fastPersonaApiKey) {
-      merged.fastPersona.apiKey = patch.fastPersonaApiKey;
     }
 
     return merged;
@@ -1587,11 +1677,11 @@ class SettingsStore {
       if (this.secrets.nanobotApiKey) {
         filePayload.nanobot.apiKey = this.secrets.nanobotApiKey;
       }
+      if (this.secrets.aiModelApiKey) {
+        filePayload.aiModel.apiKey = this.secrets.aiModelApiKey;
+      }
       if (this.secrets.dashscopeApiKey) {
         filePayload.voice.dashscope.apiKey = this.secrets.dashscopeApiKey;
-      }
-      if (this.secrets.fastPersonaApiKey) {
-        filePayload.fastPersona.apiKey = this.secrets.fastPersonaApiKey;
       }
     }
 

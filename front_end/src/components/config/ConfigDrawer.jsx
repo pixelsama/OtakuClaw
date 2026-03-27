@@ -193,6 +193,7 @@ export default function ConfigDrawer({
   settingsFeedback = '',
   settingsError = '',
   onNanobotSettingChange,
+  onAiModelSettingChange,
   onAcpBackendSettingChange,
   onPickNanobotWorkspace,
   onTestChatBackendSettings,
@@ -233,6 +234,7 @@ export default function ConfigDrawer({
   const [appUpdaterError, setAppUpdaterError] = useState('');
   const [appUpdaterFeedback, setAppUpdaterFeedback] = useState('');
   const nanobotSettings = chatBackendSettings?.nanobot || {};
+  const aiModelSettings = chatBackendSettings?.aiModel || {};
   const claudeCodeSettings = chatBackendSettings?.claudeCode || {};
   const codexSettings = chatBackendSettings?.codex || {};
   const activeAcpSettings = selectedBackend === 'codex' ? codexSettings : claudeCodeSettings;
@@ -254,11 +256,11 @@ export default function ConfigDrawer({
     ? t('app.backend.codex')
     : t('app.backend.claudeCode');
   const hasSecureStorage = chatBackendSettings?.hasSecureStorage !== false;
-  const hasBackendSecret = selectedBackend === 'nanobot' && nanobotSettings.hasApiKey;
+  const hasBackendSecret = selectedBackend === 'nanobot' && aiModelSettings.hasApiKey;
   const nanobotRuntimeInstalled = Boolean(nanobotRuntimeStatus?.installed);
   const nanobotRuntimePath = nanobotRuntimeStatus?.repoPath || '';
-  const nanobotApiKeySaved = Boolean(nanobotSettings.hasApiKey && !(nanobotSettings.apiKey || '').trim());
-  const nanobotApiKeyValue = nanobotApiKeySaved ? MASKED_SECRET_VALUE : (nanobotSettings.apiKey || '');
+  const aiModelApiKeySaved = Boolean(aiModelSettings.hasApiKey && !(aiModelSettings.apiKey || '').trim());
+  const aiModelApiKeyValue = aiModelApiKeySaved ? MASKED_SECRET_VALUE : (aiModelSettings.apiKey || '');
   const customNanobotSkills = Array.isArray(nanobotSkills?.customSkills) ? nanobotSkills.customSkills : [];
   const builtinNanobotSkills = Array.isArray(nanobotSkills?.builtinSkills) ? nanobotSkills.builtinSkills : [];
   const normalizedSettingsFeedback = typeof settingsFeedback === 'string' ? settingsFeedback.toLowerCase() : '';
@@ -273,9 +275,9 @@ export default function ConfigDrawer({
     || settingsTesting
     || (selectedBackend === 'nanobot' && !nanobotSettings.enabled)
     || (selectedBackend !== 'nanobot' && !activeAcpSettings.enabled);
-  const nanobotProviderOptions = useMemo(
-    () => extendNanobotProviderOptionsWithLegacy(NANOBOT_PROVIDER_OPTIONS, nanobotSettings.provider || ''),
-    [nanobotSettings.provider],
+  const aiModelProviderOptions = useMemo(
+    () => extendNanobotProviderOptionsWithLegacy(NANOBOT_PROVIDER_OPTIONS, aiModelSettings.provider || ''),
+    [aiModelSettings.provider],
   );
   const updaterStatus = typeof appUpdaterState?.status === 'string' ? appUpdaterState.status : 'idle';
   const updaterStatusLabel = resolveUpdaterStatusLabel(t, updaterStatus);
@@ -559,6 +561,69 @@ export default function ConfigDrawer({
                   <Alert severity="warning">{t('app.keychainWarning')}</Alert>
                 )}
 
+                <SectionAccordion title={t('app.aiModelConfigTitle')}>
+                  <Alert severity="info">{t('app.aiModelConfigHint')}</Alert>
+
+                  <TextField
+                    select
+                    label={t('app.aiModelProvider')}
+                    value={aiModelSettings.provider || ''}
+                    onChange={(event) => onAiModelSettingChange?.('provider', event.target.value)}
+                    fullWidth
+                  >
+                    {aiModelProviderOptions.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.legacyValue
+                          ? t('nanobot.provider.legacy', { provider: option.legacyValue })
+                          : (() => {
+                            const localized = t(option.labelKey);
+                            return localized === option.labelKey ? option.fallbackLabel : localized;
+                          })()}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+
+                  <TextField
+                    label={t('app.aiModelName')}
+                    value={aiModelSettings.model || ''}
+                    onChange={(event) => onAiModelSettingChange?.('model', event.target.value)}
+                    placeholder="anthropic/claude-opus-4-5"
+                    fullWidth
+                  />
+
+                  <TextField
+                    label={t('app.aiModelApiBase')}
+                    value={aiModelSettings.apiBase || ''}
+                    onChange={(event) => onAiModelSettingChange?.('apiBase', event.target.value)}
+                    placeholder="https://openrouter.ai/api/v1"
+                    fullWidth
+                  />
+
+                  <TextField
+                    label={t('app.aiModelApiKey')}
+                    value={aiModelApiKeyValue}
+                    onChange={(event) => {
+                      const nextApiKey = normalizeMaskedSecretInput(event.target.value, aiModelApiKeySaved);
+                      onAiModelSettingChange?.('apiKey', nextApiKey);
+                    }}
+                    type="password"
+                    autoComplete="off"
+                    placeholder={aiModelSettings.hasApiKey ? t('app.tokenSavedPlaceholder') : ''}
+                    helperText={aiModelApiKeySaved ? t('app.tokenSavedPlaceholder') : ''}
+                    fullWidth
+                  />
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: -0.5 }}>
+                    <Button
+                      size="small"
+                      color="warning"
+                      onClick={() => onClearSavedToken?.('nanobot')}
+                      disabled={settingsSaving || settingsTesting || !aiModelSettings.hasApiKey}
+                    >
+                      {t('app.aiModelClearApiKey')}
+                    </Button>
+                  </Box>
+                </SectionAccordion>
+
                 <SectionAccordion title={t('app.backendResourceSelector')}>
                   <Alert severity="info">{t('app.backendResourceHint')}</Alert>
                   <TextField
@@ -801,63 +866,11 @@ export default function ConfigDrawer({
                       </TextField>
 
                       <TextField
-                        select
-                        label={t('app.nanobotProvider')}
-                        value={nanobotSettings.provider || ''}
-                        onChange={(event) => onNanobotSettingChange?.('provider', event.target.value)}
-                        fullWidth
-                      >
-                        {nanobotProviderOptions.map((option) => (
-                          <MenuItem key={option.value} value={option.value}>
-                            {option.legacyValue
-                              ? t('nanobot.provider.legacy', { provider: option.legacyValue })
-                              : (() => {
-                                const localized = t(option.labelKey);
-                                return localized === option.labelKey ? option.fallbackLabel : localized;
-                              })()}
-                          </MenuItem>
-                        ))}
-                      </TextField>
-
-                      <TextField
-                        label={t('app.nanobotModel')}
-                        value={nanobotSettings.model || ''}
-                        onChange={(event) => onNanobotSettingChange?.('model', event.target.value)}
-                        placeholder="anthropic/claude-opus-4-5"
+                        label={t('app.nanobotModelConfigSource')}
+                        value={t('app.nanobotModelConfigSourceAiModel')}
+                        InputProps={{ readOnly: true }}
                         fullWidth
                       />
-
-                      <TextField
-                        label={t('app.nanobotApiBase')}
-                        value={nanobotSettings.apiBase || ''}
-                        onChange={(event) => onNanobotSettingChange?.('apiBase', event.target.value)}
-                        placeholder="https://openrouter.ai/api/v1"
-                        fullWidth
-                      />
-
-                      <TextField
-                        label={t('app.nanobotApiKey')}
-                        value={nanobotApiKeyValue}
-                        onChange={(event) => {
-                          const nextApiKey = normalizeMaskedSecretInput(event.target.value, nanobotApiKeySaved);
-                          onNanobotSettingChange?.('apiKey', nextApiKey);
-                        }}
-                        type="password"
-                        autoComplete="off"
-                        placeholder={nanobotSettings.hasApiKey ? t('app.tokenSavedPlaceholder') : ''}
-                        helperText={nanobotApiKeySaved ? t('app.tokenSavedPlaceholder') : ''}
-                        fullWidth
-                      />
-                      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: -0.5 }}>
-                        <Button
-                          size="small"
-                          color="warning"
-                          onClick={() => onClearSavedToken?.('nanobot')}
-                          disabled={settingsSaving || settingsTesting || !nanobotSettings.hasApiKey}
-                        >
-                          {t('app.nanobotClearApiKey')}
-                        </Button>
-                      </Box>
 
                       <Stack direction="row" spacing={1}>
                         <TextField

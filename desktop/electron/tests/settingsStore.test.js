@@ -6,6 +6,7 @@ const test = require('node:test');
 
 const { SettingsStore } = require('../services/settingsStore');
 const {
+  AI_MODEL_ACCOUNT_NAME,
   DASHSCOPE_ACCOUNT_NAME,
   FAST_PERSONA_ACCOUNT_NAME,
   OPENCLAW_ACCOUNT_NAME,
@@ -127,7 +128,7 @@ test('migrates legacy openclaw token and settings shape', async () => {
   assert.equal(Object.prototype.hasOwnProperty.call(persisted.openclaw, 'token'), false);
 });
 
-test('migrates legacy nanobot api key into secure storage', async () => {
+test('migrates legacy nanobot api key into secure storage and ai model config', async () => {
   const secretStore = new FakeSecretStore({ available: true });
   const { store, tmpDir } = await setupTempStore({
     fileContent: {
@@ -150,11 +151,15 @@ test('migrates legacy nanobot api key into secure storage', async () => {
   assert.equal(mainSettings.chatBackend, 'nanobot');
   assert.equal(mainSettings.nanobot.enabled, true);
   assert.equal(mainSettings.nanobot.apiKey, 'legacy-nanobot-api-key');
+  assert.equal(mainSettings.aiModel.apiKey, 'legacy-nanobot-api-key');
+  assert.equal(mainSettings.aiModel.model, 'anthropic/claude-opus-4-5');
   assert.equal(secretStore.secrets[NANOBOT_ACCOUNT_NAME], 'legacy-nanobot-api-key');
+  assert.equal(secretStore.secrets[AI_MODEL_ACCOUNT_NAME], 'legacy-nanobot-api-key');
 
   const fileRaw = await fs.readFile(path.join(tmpDir, 'openclaw-settings.json'), 'utf-8');
   const persisted = JSON.parse(fileRaw);
   assert.equal(Object.prototype.hasOwnProperty.call(persisted.nanobot, 'apiKey'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(persisted.aiModel, 'apiKey'), false);
 });
 
 test('uses batched secure secret reads during init when supported', async () => {
@@ -163,6 +168,7 @@ test('uses batched secure secret reads during init when supported', async () => 
     secrets: {
       [OPENCLAW_ACCOUNT_NAME]: 'saved-openclaw-token',
       [NANOBOT_ACCOUNT_NAME]: 'saved-nanobot-api-key',
+      [AI_MODEL_ACCOUNT_NAME]: 'saved-ai-model-api-key',
       [DASHSCOPE_ACCOUNT_NAME]: 'saved-dashscope-api-key',
     },
   });
@@ -172,11 +178,13 @@ test('uses batched secure secret reads during init when supported', async () => 
   const mainSettings = store.getForMain();
   assert.equal(mainSettings.openclaw.token, 'saved-openclaw-token');
   assert.equal(mainSettings.nanobot.apiKey, 'saved-nanobot-api-key');
+  assert.equal(mainSettings.aiModel.apiKey, 'saved-ai-model-api-key');
   assert.equal(mainSettings.voice.dashscope.apiKey, 'saved-dashscope-api-key');
   assert.deepEqual(secretStore.getCalls, []);
   assert.deepEqual(secretStore.getManyCalls, [[
     OPENCLAW_ACCOUNT_NAME,
     NANOBOT_ACCOUNT_NAME,
+    AI_MODEL_ACCOUNT_NAME,
     DASHSCOPE_ACCOUNT_NAME,
     FAST_PERSONA_ACCOUNT_NAME,
   ]]);
@@ -201,6 +209,12 @@ test('falls back to plain text secrets when secure storage is unavailable', asyn
       model: 'anthropic/claude-opus-4-5',
       apiKey: 'plain-nanobot-api-key',
     },
+    aiModel: {
+      provider: 'openrouter',
+      model: 'anthropic/claude-opus-4-5',
+      apiBase: 'https://openrouter.ai/api/v1',
+      apiKey: 'plain-ai-model-api-key',
+    },
   });
 
   const publicSettings = store.getPublic();
@@ -208,12 +222,14 @@ test('falls back to plain text secrets when secure storage is unavailable', asyn
   assert.equal(publicSettings.hasSecureStorage, false);
   assert.equal(publicSettings.hasToken, true);
   assert.equal(publicSettings.nanobot.hasApiKey, true);
+  assert.equal(publicSettings.aiModel.hasApiKey, true);
   assert.equal(publicSettings.nanobot.allowHighRiskTools, true);
 
   const fileRaw = await fs.readFile(path.join(tmpDir, 'openclaw-settings.json'), 'utf-8');
   const persisted = JSON.parse(fileRaw);
   assert.equal(persisted.openclaw.token, 'plain-openclaw-token');
   assert.equal(persisted.nanobot.apiKey, 'plain-nanobot-api-key');
+  assert.equal(persisted.aiModel.apiKey, 'plain-ai-model-api-key');
   assert.equal(persisted.nanobot.allowHighRiskTools, true);
 });
 
@@ -257,18 +273,19 @@ test('persists dashscope voice settings and secret', async () => {
   assert.equal(runtimeEnv.VOICE_TTS_DASHSCOPE_VOICE, 'Cherry');
 });
 
-test('persists fast persona settings and dedicated api key', async () => {
+test('persists ai model settings and reuses api key for fast persona runtime', async () => {
   const secretStore = new FakeSecretStore({ available: true });
   const { store } = await setupTempStore({ secretStore });
 
   await store.save({
-    fastPersona: {
-      enabled: true,
-      configMode: 'custom',
+    aiModel: {
       provider: 'openai',
       model: 'gpt-fast',
       apiBase: 'https://api.example.com/v1',
       apiKey: 'fast-persona-secret',
+    },
+    fastPersona: {
+      enabled: true,
       maxTokens: 512,
       temperature: 0.15,
       timeoutMs: 12000,
@@ -277,14 +294,13 @@ test('persists fast persona settings and dedicated api key', async () => {
 
   const publicSettings = store.getPublic();
   assert.equal(publicSettings.fastPersona.enabled, true);
-  assert.equal(publicSettings.fastPersona.configMode, 'custom');
-  assert.equal(publicSettings.fastPersona.provider, 'openai');
-  assert.equal(publicSettings.fastPersona.model, 'gpt-fast');
-  assert.equal(publicSettings.fastPersona.hasApiKey, true);
+  assert.equal(publicSettings.aiModel.provider, 'openai');
+  assert.equal(publicSettings.aiModel.model, 'gpt-fast');
+  assert.equal(publicSettings.aiModel.hasApiKey, true);
 
   const mainSettings = store.getForMain();
-  assert.equal(mainSettings.fastPersona.apiKey, 'fast-persona-secret');
-  assert.equal(secretStore.secrets[FAST_PERSONA_ACCOUNT_NAME], 'fast-persona-secret');
+  assert.equal(mainSettings.aiModel.apiKey, 'fast-persona-secret');
+  assert.equal(secretStore.secrets[AI_MODEL_ACCOUNT_NAME], 'fast-persona-secret');
 });
 
 test('preserves tokens when save payload omits tokens', async () => {
@@ -329,12 +345,13 @@ test('preserves tokens when save payload omits tokens', async () => {
   assert.equal(mainSettings.nanobot.model, 'openai/gpt-4.1');
 });
 
-test('clears openclaw and nanobot secrets explicitly', async () => {
+test('clears openclaw, nanobot, and ai model secrets explicitly', async () => {
   const secretStore = new FakeSecretStore({
     available: true,
     secrets: {
       [OPENCLAW_ACCOUNT_NAME]: 'saved-openclaw-token',
       [NANOBOT_ACCOUNT_NAME]: 'saved-nanobot-api-key',
+      [AI_MODEL_ACCOUNT_NAME]: 'saved-ai-model-api-key',
     },
   });
   const { store } = await setupTempStore({ secretStore });
@@ -342,15 +359,19 @@ test('clears openclaw and nanobot secrets explicitly', async () => {
   await store.save({
     clearToken: true,
     clearNanobotApiKey: true,
+    clearAiModelApiKey: true,
   });
 
   const publicSettings = store.getPublic();
   assert.equal(publicSettings.hasToken, false);
   assert.equal(publicSettings.nanobot.hasApiKey, false);
+  assert.equal(publicSettings.aiModel.hasApiKey, false);
   assert.equal(store.getForMain().openclaw.token, '');
   assert.equal(store.getForMain().nanobot.apiKey, '');
+  assert.equal(store.getForMain().aiModel.apiKey, '');
   assert.equal(secretStore.secrets[OPENCLAW_ACCOUNT_NAME], undefined);
   assert.equal(secretStore.secrets[NANOBOT_ACCOUNT_NAME], undefined);
+  assert.equal(secretStore.secrets[AI_MODEL_ACCOUNT_NAME], undefined);
 });
 
 test('merge applies backend-specific override payload', async () => {
@@ -359,6 +380,7 @@ test('merge applies backend-specific override payload', async () => {
     secrets: {
       [OPENCLAW_ACCOUNT_NAME]: 'saved-openclaw-token',
       [NANOBOT_ACCOUNT_NAME]: 'saved-nanobot-api-key',
+      [AI_MODEL_ACCOUNT_NAME]: 'saved-ai-model-api-key',
     },
   });
   const { store } = await setupTempStore({
@@ -384,27 +406,34 @@ test('merge applies backend-specific override payload', async () => {
     },
     nanobot: {
       enabled: true,
+      apiKey: 'override-nanobot-api-key',
+    },
+    aiModel: {
       provider: 'openrouter',
       model: 'openai/gpt-4.1',
-      apiKey: 'override-nanobot-api-key',
+      apiKey: 'override-ai-model-api-key',
     },
   });
 
   assert.equal(merged.chatBackend, 'nanobot');
   assert.equal(merged.openclaw.token, 'override-openclaw-token');
   assert.equal(merged.nanobot.enabled, true);
-  assert.equal(merged.nanobot.model, 'openai/gpt-4.1');
+  assert.equal(merged.aiModel.model, 'openai/gpt-4.1');
   assert.equal(merged.nanobot.apiKey, 'override-nanobot-api-key');
+  assert.equal(merged.aiModel.apiKey, 'override-ai-model-api-key');
 
   const mergedWithoutApiKeyOverride = store.merge({
     chatBackend: 'nanobot',
     nanobot: {
       enabled: true,
+    },
+    aiModel: {
       provider: 'openrouter',
       model: 'openai/gpt-4.1',
     },
   });
   assert.equal(mergedWithoutApiKeyOverride.nanobot.apiKey, 'saved-nanobot-api-key');
+  assert.equal(mergedWithoutApiKeyOverride.aiModel.apiKey, 'saved-ai-model-api-key');
 });
 
 test('falls back when secure storage throws at runtime', async () => {
@@ -418,17 +447,20 @@ test('falls back when secure storage throws at runtime', async () => {
   await store.save({
     openclaw: { token: 'fallback-openclaw-token' },
     nanobot: { apiKey: 'fallback-nanobot-api-key' },
+    aiModel: { apiKey: 'fallback-ai-model-api-key' },
   });
 
   const publicSettings = store.getPublic();
   assert.equal(publicSettings.hasSecureStorage, false);
   assert.equal(store.getForMain().openclaw.token, 'fallback-openclaw-token');
   assert.equal(store.getForMain().nanobot.apiKey, 'fallback-nanobot-api-key');
+  assert.equal(store.getForMain().aiModel.apiKey, 'fallback-ai-model-api-key');
 
   const fileRaw = await fs.readFile(path.join(tmpDir, 'openclaw-settings.json'), 'utf-8');
   const persisted = JSON.parse(fileRaw);
   assert.equal(persisted.openclaw.token, 'fallback-openclaw-token');
   assert.equal(persisted.nanobot.apiKey, 'fallback-nanobot-api-key');
+  assert.equal(persisted.aiModel.apiKey, 'fallback-ai-model-api-key');
 });
 
 test('persists first-run onboarding completion state', async () => {

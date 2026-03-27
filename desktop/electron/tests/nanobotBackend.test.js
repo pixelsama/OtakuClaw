@@ -84,6 +84,47 @@ test('nanobot backend starts stream through bridge and injects source', async ()
   assert.equal(events[1].payload.source, 'nanobot');
 });
 
+test('nanobot backend prefers ai model settings for provider/model/api key', async () => {
+  const calls = [];
+  const backend = new NanobotBackendAdapter({
+    bridgeClient: {
+      start: async (payload) => {
+        calls.push(payload);
+        payload.onEvent({ type: 'done', payload: {} });
+      },
+      testConnection: async () => ({ ok: true }),
+      dispose: async () => {},
+    },
+  });
+
+  await backend.startStream({
+    settings: {
+      nanobot: {
+        enabled: true,
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        apiKey: 'legacy-nanobot-key',
+      },
+      aiModel: {
+        provider: 'openrouter',
+        model: 'anthropic/claude-opus-4-5',
+        apiBase: 'https://openrouter.ai/api/v1',
+        apiKey: 'ai-model-key',
+      },
+    },
+    sessionId: 's-ai-model',
+    content: 'hello',
+    signal: new AbortController().signal,
+    onEvent: () => {},
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].config.provider, 'openrouter');
+  assert.equal(calls[0].config.model, 'anthropic/claude-opus-4-5');
+  assert.equal(calls[0].config.apiBase, 'https://openrouter.ai/api/v1');
+  assert.equal(calls[0].config.apiKey, 'ai-model-key');
+});
+
 test('nanobot backend resolves capture attachments into media paths', async () => {
   const calls = [];
   const backend = new NanobotBackendAdapter({

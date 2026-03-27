@@ -121,6 +121,13 @@ const defaultChatBackendSettings = {
     reasoningEffort: '',
     hasApiKey: false,
   },
+  aiModel: {
+    provider: 'openrouter',
+    model: 'anthropic/claude-opus-4-5',
+    apiBase: '',
+    apiKey: '',
+    hasApiKey: false,
+  },
   claudeCode: normalizeAcpBackendForState({}, 'claude-agent-acp'),
   codex: normalizeAcpBackendForState({}, 'codex-acp'),
   hasSecureStorage: true,
@@ -254,6 +261,11 @@ function buildComparableSettingsSnapshot(settings = {}) {
       temperature: Number.isFinite(normalized.nanobot?.temperature) ? normalized.nanobot.temperature : 0.2,
       reasoningEffort: normalized.nanobot?.reasoningEffort || '',
     },
+    aiModel: {
+      provider: normalized.aiModel?.provider || '',
+      model: normalized.aiModel?.model || '',
+      apiBase: normalized.aiModel?.apiBase || '',
+    },
     claudeCode: {
       enabled: Boolean(normalized.claudeCode?.enabled),
       timeoutMs: Number.isFinite(normalized.claudeCode?.timeoutMs) ? normalized.claudeCode.timeoutMs : 120000,
@@ -292,12 +304,14 @@ function buildComparableSettingsSnapshot(settings = {}) {
 function hasPendingSecretChanges(settings = {}) {
   const openclawToken = typeof settings?.openclaw?.token === 'string' ? settings.openclaw.token.trim() : '';
   const nanobotApiKey = typeof settings?.nanobot?.apiKey === 'string' ? settings.nanobot.apiKey.trim() : '';
-  return Boolean(openclawToken || nanobotApiKey);
+  const aiModelApiKey = typeof settings?.aiModel?.apiKey === 'string' ? settings.aiModel.apiKey.trim() : '';
+  return Boolean(openclawToken || nanobotApiKey || aiModelApiKey);
 }
 
 function normalizeSettingsForState(settings = {}) {
   const openclaw = settings?.openclaw || {};
   const nanobot = settings?.nanobot || {};
+  const aiModel = settings?.aiModel || {};
   const chatBackend = normalizeBackendName(settings?.chatBackend);
 
   return {
@@ -316,6 +330,12 @@ function normalizeSettingsForState(settings = {}) {
       apiKey: '',
       hasApiKey: Boolean(nanobot.hasApiKey || settings?.hasNanobotApiKey),
     },
+    aiModel: {
+      ...defaultChatBackendSettings.aiModel,
+      ...aiModel,
+      apiKey: '',
+      hasApiKey: Boolean(aiModel.hasApiKey || settings?.hasAiModelApiKey),
+    },
     claudeCode: normalizeAcpBackendForState(settings?.claudeCode, 'claude-agent-acp'),
     codex: normalizeAcpBackendForState(settings?.codex, 'codex-acp'),
     hasSecureStorage: settings?.hasSecureStorage !== false,
@@ -326,6 +346,7 @@ export function buildChatBackendSettingsPayload(settings) {
   const source = settings || {};
   const openclawSource = source?.openclaw || source;
   const nanobotSource = source?.nanobot || {};
+  const aiModelSource = source?.aiModel || {};
   const claudeCodeSource = source?.claudeCode || {};
   const codexSource = source?.codex || {};
   const chatBackend = normalizeBackendName(source?.chatBackend);
@@ -346,6 +367,11 @@ export function buildChatBackendSettingsPayload(settings) {
       maxTokens: Number.isFinite(nanobotSource?.maxTokens) ? nanobotSource.maxTokens : 4096,
       temperature: Number.isFinite(nanobotSource?.temperature) ? nanobotSource.temperature : 0.2,
       reasoningEffort: nanobotSource?.reasoningEffort || '',
+    },
+    aiModel: {
+      provider: aiModelSource?.provider || 'openrouter',
+      model: aiModelSource?.model || 'anthropic/claude-opus-4-5',
+      apiBase: aiModelSource?.apiBase || '',
     },
     claudeCode: {
       enabled: Boolean(claudeCodeSource?.enabled),
@@ -403,6 +429,11 @@ export function buildChatBackendSettingsPayload(settings) {
   const nanobotApiKey = (nanobotSource?.apiKey || source?.nanobotApiKey || '').trim?.() || '';
   if (nanobotApiKey) {
     payload.nanobot.apiKey = nanobotApiKey;
+  }
+
+  const aiModelApiKey = (aiModelSource?.apiKey || source?.aiModelApiKey || '').trim?.() || '';
+  if (aiModelApiKey) {
+    payload.aiModel.apiKey = aiModelApiKey;
   }
 
   return payload;
@@ -590,6 +621,18 @@ export function useChatBackendSettings({ t, normalizeError }) {
     setSettingsError('');
   }, []);
 
+  const onAiModelSettingChange = useCallback((field, value) => {
+    setChatBackendSettings((prev) => ({
+      ...prev,
+      aiModel: {
+        ...prev.aiModel,
+        [field]: value,
+      },
+    }));
+    setSettingsFeedback('');
+    setSettingsError('');
+  }, []);
+
   const onAcpBackendSettingChange = useCallback((backend, field, value) => {
     const backendKey = normalizeBackendName(backend) === 'codex' ? 'codex' : 'claudeCode';
     setChatBackendSettings((prev) => {
@@ -732,7 +775,7 @@ export function useChatBackendSettings({ t, normalizeError }) {
       const clearPayload =
         targetBackend === 'nanobot'
           ? {
-              nanobot: {
+              aiModel: {
                 clearApiKey: true,
               },
             }
@@ -752,6 +795,10 @@ export function useChatBackendSettings({ t, normalizeError }) {
         },
         nanobot: {
           ...normalizedSaved.nanobot,
+          apiKey: '',
+        },
+        aiModel: {
+          ...normalizedSaved.aiModel,
           apiKey: '',
         },
       });
@@ -945,6 +992,7 @@ export function useChatBackendSettings({ t, normalizeError }) {
     settingsError,
     onOpenClawSettingChange,
     onNanobotSettingChange,
+    onAiModelSettingChange,
     onAcpBackendSettingChange,
     onPickNanobotWorkspace,
     onOpenNanobotWorkspace,

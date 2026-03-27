@@ -3,6 +3,7 @@ const OPENCLAW_ACCOUNT_NAME = 'openclaw-token';
 const NANOBOT_ACCOUNT_NAME = 'nanobot-api-key';
 const DASHSCOPE_ACCOUNT_NAME = 'dashscope-api-key';
 const FAST_PERSONA_ACCOUNT_NAME = 'fast-persona-api-key';
+const AI_MODEL_ACCOUNT_NAME = 'ai-model-api-key';
 const BUNDLED_ACCOUNT_NAME = 'secrets-bundle-v1';
 
 function normalizeAccountName(value) {
@@ -220,6 +221,7 @@ class KeytarSecretStore {
 }
 
 module.exports = {
+  AI_MODEL_ACCOUNT_NAME,
   DASHSCOPE_ACCOUNT_NAME,
   FAST_PERSONA_ACCOUNT_NAME,
   OPENCLAW_ACCOUNT_NAME,

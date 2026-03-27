@@ -462,6 +462,7 @@ function normalizeSettingsResponse(settings = {}) {
   const chatBackend = normalizeChatBackend(settings?.chatBackend);
   const openclaw = settings?.openclaw || {};
   const nanobot = settings?.nanobot || {};
+  const aiModel = settings?.aiModel || {};
   const claudeCode = settings?.claudeCode || {};
   const codex = settings?.codex || {};
   const voice = settings?.voice || {};
@@ -471,6 +472,11 @@ function normalizeSettingsResponse(settings = {}) {
     settings?.hasNanobotApiKey
       || nanobot?.hasApiKey
       || (typeof settings?.nanobotApiKey === 'string' && settings.nanobotApiKey.trim()),
+  );
+  const hasAiModelApiKey = Boolean(
+    settings?.hasAiModelApiKey
+      || aiModel?.hasApiKey
+      || (typeof settings?.aiModelApiKey === 'string' && settings.aiModelApiKey.trim()),
   );
   const hasDashscopeApiKey = Boolean(
     dashscope?.hasApiKey
@@ -508,6 +514,13 @@ function normalizeSettingsResponse(settings = {}) {
       temperature: Number.isFinite(nanobot.temperature) ? nanobot.temperature : 0.2,
       reasoningEffort: typeof nanobot.reasoningEffort === 'string' ? nanobot.reasoningEffort.trim() : '',
       hasApiKey: hasNanobotApiKey,
+    },
+    aiModel: {
+      provider: typeof aiModel.provider === 'string' ? aiModel.provider.trim() : 'openrouter',
+      model: typeof aiModel.model === 'string' ? aiModel.model.trim() : 'anthropic/claude-opus-4-5',
+      apiBase: typeof aiModel.apiBase === 'string' ? aiModel.apiBase.trim() : '',
+      apiKey: typeof aiModel.apiKey === 'string' ? aiModel.apiKey.trim() : '',
+      hasApiKey: hasAiModelApiKey,
     },
     claudeCode: normalizeAcpBackendResponse(claudeCode, 'claude-agent-acp'),
     codex: normalizeAcpBackendResponse(codex, 'codex-acp'),
@@ -584,6 +597,7 @@ function normalizeSettingsResponse(settings = {}) {
     agentId: normalized.openclaw.agentId,
     hasToken: normalized.openclaw.hasToken,
     hasNanobotApiKey: normalized.nanobot.hasApiKey,
+    hasAiModelApiKey: normalized.aiModel.hasApiKey,
     dashscopeApiKey: normalized.voice.dashscope.apiKey,
   };
 }
@@ -728,6 +742,53 @@ function normalizeSettingsPatch(settings = {}) {
                   ...(Object.prototype.hasOwnProperty.call(settings.nanobot, 'clearApiKey')
                     ? {
                         clearApiKey: Boolean(settings.nanobot.clearApiKey),
+                      }
+                    : {}),
+                }
+              : {}),
+          },
+        }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(settings, 'aiModel')
+      ? {
+          aiModel: {
+            ...(typeof settings.aiModel === 'object' && settings.aiModel
+              ? {
+                  ...(Object.prototype.hasOwnProperty.call(settings.aiModel, 'provider')
+                    ? {
+                        provider:
+                          typeof settings.aiModel.provider === 'string'
+                            ? settings.aiModel.provider.trim()
+                            : '',
+                      }
+                    : {}),
+                  ...(Object.prototype.hasOwnProperty.call(settings.aiModel, 'model')
+                    ? {
+                        model:
+                          typeof settings.aiModel.model === 'string'
+                            ? settings.aiModel.model.trim()
+                            : '',
+                      }
+                    : {}),
+                  ...(Object.prototype.hasOwnProperty.call(settings.aiModel, 'apiBase')
+                    ? {
+                        apiBase:
+                          typeof settings.aiModel.apiBase === 'string'
+                            ? settings.aiModel.apiBase.trim()
+                            : '',
+                      }
+                    : {}),
+                  ...(Object.prototype.hasOwnProperty.call(settings.aiModel, 'apiKey')
+                    ? {
+                        apiKey:
+                          typeof settings.aiModel.apiKey === 'string'
+                            ? settings.aiModel.apiKey.trim()
+                            : '',
+                      }
+                    : {}),
+                  ...(Object.prototype.hasOwnProperty.call(settings.aiModel, 'clearApiKey')
+                    ? {
+                        clearApiKey: Boolean(settings.aiModel.clearApiKey),
                       }
                     : {}),
                 }
@@ -1138,6 +1199,10 @@ function saveWebSettings(partialSettings = {}) {
       ...current.nanobot,
       ...(patch.nanobot || {}),
     },
+    aiModel: {
+      ...current.aiModel,
+      ...(patch.aiModel || {}),
+    },
     claudeCode: {
       ...(current.claudeCode || normalizeAcpBackendResponse({}, 'claude-agent-acp')),
       ...(patch.claudeCode || {}),
@@ -1205,17 +1270,23 @@ function saveWebSettings(partialSettings = {}) {
     merged.nanobot.apiKey = '';
   }
 
+  if (patch.aiModel?.clearApiKey === true) {
+    merged.aiModel.apiKey = '';
+  }
+
   if (patch.voice?.dashscope?.clearApiKey === true) {
     merged.voice.dashscope.apiKey = '';
   }
 
   merged.openclaw.hasToken = Boolean(merged.openclaw.token);
   merged.nanobot.hasApiKey = Boolean(merged.nanobot.apiKey);
+  merged.aiModel.hasApiKey = Boolean(merged.aiModel.apiKey);
   merged.baseUrl = merged.openclaw.baseUrl;
   merged.token = merged.openclaw.token;
   merged.agentId = merged.openclaw.agentId;
   merged.hasToken = merged.openclaw.hasToken;
   merged.hasNanobotApiKey = merged.nanobot.hasApiKey;
+  merged.hasAiModelApiKey = merged.aiModel.hasApiKey;
   merged.voice.dashscope.hasApiKey = Boolean(merged.voice.dashscope.apiKey);
   merged.dashscopeApiKey = merged.voice.dashscope.apiKey;
 
@@ -1240,6 +1311,12 @@ function saveWebSettings(partialSettings = {}) {
           maxTokens: merged.nanobot.maxTokens,
           temperature: merged.nanobot.temperature,
           reasoningEffort: merged.nanobot.reasoningEffort,
+        },
+        aiModel: {
+          provider: merged.aiModel.provider,
+          model: merged.aiModel.model,
+          apiBase: merged.aiModel.apiBase,
+          apiKey: merged.aiModel.apiKey,
         },
         claudeCode: {
           enabled: Boolean(merged.claudeCode?.enabled),
@@ -1370,6 +1447,9 @@ async function testWebConnection(inputSettings = {}) {
 
   if (settings.nanobot?.clearApiKey === true) {
     settings.nanobot.apiKey = '';
+  }
+  if (settings.aiModel?.clearApiKey === true) {
+    settings.aiModel.apiKey = '';
   }
 
   if (chatBackend === 'nanobot') {

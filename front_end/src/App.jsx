@@ -267,6 +267,7 @@ function AppContent({ desktopMode }) {
     settingsError,
     onOpenClawSettingChange,
     onNanobotSettingChange,
+    onAiModelSettingChange,
     onAcpBackendSettingChange,
     onPickNanobotWorkspace,
     onOpenNanobotWorkspace,
@@ -2056,6 +2057,7 @@ function AppContent({ desktopMode }) {
         settingsError={settingsError}
         onOpenClawSettingChange={onOpenClawSettingChange}
         onNanobotSettingChange={onNanobotSettingChange}
+        onAiModelSettingChange={onAiModelSettingChange}
         onAcpBackendSettingChange={onAcpBackendSettingChange}
         onPickNanobotWorkspace={onPickNanobotWorkspace}
         onTestChatBackendSettings={onTestChatBackendSettings}
@@ -2107,6 +2109,7 @@ function AppContent({ desktopMode }) {
         settingsError={settingsError}
         onOpenClawSettingChange={onOpenClawSettingChange}
         onNanobotSettingChange={onNanobotSettingChange}
+        onAiModelSettingChange={onAiModelSettingChange}
         onAcpBackendSettingChange={onAcpBackendSettingChange}
         onPickNanobotWorkspace={onPickNanobotWorkspace}
         onTestChatBackendSettings={onTestChatBackendSettings}
