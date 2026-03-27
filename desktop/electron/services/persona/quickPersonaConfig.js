@@ -123,19 +123,19 @@ function resolveFastPersonaRuntimeConfig(settings = {}) {
 
   return {
     ok: true,
-      config: {
-        provider,
-        model,
-        apiBase,
-        apiKey,
-        maxTokens: fastPersona.maxTokens,
-        temperature: fastPersona.temperature,
-        timeoutMs: fastPersona.timeoutMs,
-        configMode: 'ai-model',
-        inheritedFrom: 'ai-model',
-      },
-      fastPersona,
-    };
+    config: {
+      provider,
+      model,
+      apiBase,
+      apiKey,
+      maxTokens: fastPersona.maxTokens,
+      temperature: fastPersona.temperature,
+      timeoutMs: fastPersona.timeoutMs,
+      configMode: 'ai-model',
+      inheritedFrom: 'ai-model',
+    },
+    fastPersona,
+  };
 }
 
 function requireFastPersonaRuntimeConfig(settings = {}) {
