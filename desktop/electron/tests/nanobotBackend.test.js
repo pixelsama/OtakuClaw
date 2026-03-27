@@ -31,7 +31,7 @@ test('nanobot backend validates required settings', () => {
           enabled: true,
           provider: 'openrouter',
           model: 'anthropic/claude-opus-4-5',
-          apiKey: '',
+          apiKey: 'legacy-nanobot-key',
         },
       }),
     (error) => error && error.code === 'nanobot_missing_config',
@@ -67,6 +67,12 @@ test('nanobot backend starts stream through bridge and injects source', async ()
         allowHighRiskTools: true,
         provider: 'openrouter',
         model: 'anthropic/claude-opus-4-5',
+        apiKey: 'sk-or-test',
+      },
+      aiModel: {
+        provider: 'openrouter',
+        model: 'anthropic/claude-opus-4-5',
+        apiBase: 'https://openrouter.ai/api/v1',
         apiKey: 'sk-or-test',
       },
     },
@@ -156,6 +162,11 @@ test('nanobot backend resolves capture attachments into media paths', async () =
         model: 'anthropic/claude-opus-4-5',
         apiKey: 'sk-or-test',
       },
+      aiModel: {
+        provider: 'openrouter',
+        model: 'anthropic/claude-opus-4-5',
+        apiKey: 'sk-or-test',
+      },
     },
     sessionId: 's-capture',
     content: '看看这张图',
@@ -218,6 +229,11 @@ test('nanobot backend strips tool-call traces from text delta payload', async ()
         model: 'anthropic/claude-opus-4-5',
         apiKey: 'sk-or-test',
       },
+      aiModel: {
+        provider: 'openrouter',
+        model: 'anthropic/claude-opus-4-5',
+        apiKey: 'sk-or-test',
+      },
     },
     sessionId: 's2',
     content: 'hello',
@@ -260,6 +276,11 @@ test('nanobot backend drops text delta when payload only contains tool-call trac
         model: 'anthropic/claude-opus-4-5',
         apiKey: 'sk-or-test',
       },
+      aiModel: {
+        provider: 'openrouter',
+        model: 'anthropic/claude-opus-4-5',
+        apiKey: 'sk-or-test',
+      },
     },
     sessionId: 's3',
     content: 'hello',
@@ -297,6 +318,11 @@ test('nanobot backend emits debug logs for request, sanitize and forward stages'
     settings: {
       nanobot: {
         enabled: true,
+        provider: 'openrouter',
+        model: 'anthropic/claude-opus-4-5',
+        apiKey: 'sk-or-test',
+      },
+      aiModel: {
         provider: 'openrouter',
         model: 'anthropic/claude-opus-4-5',
         apiKey: 'sk-or-test',
@@ -369,6 +395,11 @@ test('nanobot backend forwards progress before final reply and avoids duplicate 
         model: 'anthropic/claude-opus-4-5',
         apiKey: 'sk-or-test',
       },
+      aiModel: {
+        provider: 'openrouter',
+        model: 'anthropic/claude-opus-4-5',
+        apiKey: 'sk-or-test',
+      },
     },
     sessionId: 's-progress',
     content: '帮我看看',
@@ -421,6 +452,11 @@ test('nanobot backend keeps tool hints out of user-facing text while exposing ac
         model: 'anthropic/claude-opus-4-5',
         apiKey: 'sk-or-test',
       },
+      aiModel: {
+        provider: 'openrouter',
+        model: 'anthropic/claude-opus-4-5',
+        apiKey: 'sk-or-test',
+      },
     },
     sessionId: 's-tool-hint',
     content: 'hello',
@@ -466,6 +502,11 @@ test('nanobot backend forwards recognized tool hints as agent-state activity', a
     settings: {
       nanobot: {
         enabled: true,
+        provider: 'openrouter',
+        model: 'anthropic/claude-opus-4-5',
+        apiKey: 'sk-or-test',
+      },
+      aiModel: {
         provider: 'openrouter',
         model: 'anthropic/claude-opus-4-5',
         apiKey: 'sk-or-test',

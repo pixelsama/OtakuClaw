@@ -8,7 +8,6 @@ const { SettingsStore } = require('../services/settingsStore');
 const {
   AI_MODEL_ACCOUNT_NAME,
   DASHSCOPE_ACCOUNT_NAME,
-  FAST_PERSONA_ACCOUNT_NAME,
   OPENCLAW_ACCOUNT_NAME,
   NANOBOT_ACCOUNT_NAME,
 } = require('../services/secretStore');
@@ -128,7 +127,7 @@ test('migrates legacy openclaw token and settings shape', async () => {
   assert.equal(Object.prototype.hasOwnProperty.call(persisted.openclaw, 'token'), false);
 });
 
-test('migrates legacy nanobot api key into secure storage and ai model config', async () => {
+test('does not migrate legacy nanobot api key into ai model config', async () => {
   const secretStore = new FakeSecretStore({ available: true });
   const { store, tmpDir } = await setupTempStore({
     fileContent: {
@@ -151,10 +150,9 @@ test('migrates legacy nanobot api key into secure storage and ai model config', 
   assert.equal(mainSettings.chatBackend, 'nanobot');
   assert.equal(mainSettings.nanobot.enabled, true);
   assert.equal(mainSettings.nanobot.apiKey, 'legacy-nanobot-api-key');
-  assert.equal(mainSettings.aiModel.apiKey, 'legacy-nanobot-api-key');
-  assert.equal(mainSettings.aiModel.model, 'anthropic/claude-opus-4-5');
+  assert.equal(mainSettings.aiModel.apiKey, '');
   assert.equal(secretStore.secrets[NANOBOT_ACCOUNT_NAME], 'legacy-nanobot-api-key');
-  assert.equal(secretStore.secrets[AI_MODEL_ACCOUNT_NAME], 'legacy-nanobot-api-key');
+  assert.equal(secretStore.secrets[AI_MODEL_ACCOUNT_NAME], undefined);
 
   const fileRaw = await fs.readFile(path.join(tmpDir, 'openclaw-settings.json'), 'utf-8');
   const persisted = JSON.parse(fileRaw);
@@ -186,7 +184,6 @@ test('uses batched secure secret reads during init when supported', async () => 
     NANOBOT_ACCOUNT_NAME,
     AI_MODEL_ACCOUNT_NAME,
     DASHSCOPE_ACCOUNT_NAME,
-    FAST_PERSONA_ACCOUNT_NAME,
   ]]);
 });
 
