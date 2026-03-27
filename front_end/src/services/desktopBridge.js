@@ -6,6 +6,7 @@ import {
 import { normalizePixelPackState } from '../components/office/pixelPack.js';
 
 const SETTINGS_STORAGE_KEY = 'openclaw.settings';
+const DEFAULT_CONVERSATION_ENVELOPE_SCHEMA_VERSION = '2026-03-27.v1';
 let webOfficeState = normalizeOfficeState();
 const webOfficeListeners = new Set();
 let webValueState = {
@@ -50,6 +51,7 @@ function normalizeConversationEnvelopeEvent(event = {}) {
     : normalizePlainObject(event.data);
   return {
     ...event,
+    schemaVersion: normalizeText(event.schemaVersion, DEFAULT_CONVERSATION_ENVELOPE_SCHEMA_VERSION),
     channel,
     type,
     streamId: normalizeText(event.streamId, ''),

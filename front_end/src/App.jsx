@@ -12,6 +12,7 @@ import { useTextComposerController } from './hooks/chat/useTextComposerControlle
 import { useChatHistory } from './hooks/chat/useChatHistory.js';
 import { useConfigPanelController } from './hooks/config/useConfigPanelController.js';
 import { useUnifiedDownloader } from './hooks/download/useUnifiedDownloader.js';
+import { useDesktopConversationAssemblies } from './hooks/app/useDesktopConversationAssemblies.js';
 import { useStreamingChat } from './hooks/useStreamingChat.js';
 import { useSubtitleFeed } from './hooks/useSubtitleFeed.js';
 import { usePetHoverPassthrough } from './hooks/pet/usePetHoverPassthrough.js';
@@ -28,7 +29,6 @@ import {
   normalizeOfficeSceneLayout,
   normalizeOfficeState,
   OFFICE_PRIMARY_AGENT_ID,
-  reduceOfficeActivityHint,
   resolveOfficeRoomTheme,
   resolveOfficeSceneEditorState,
   resolveOfficeSceneState,
@@ -1305,79 +1305,12 @@ function AppContent({ desktopMode }) {
     });
   }, []);
 
-  useEffect(() => {
-    if (!desktopMode) {
-      setOfficeActivityHint(null);
-      return () => {};
-    }
-
-    return desktopBridge.conversation.onEvent((event = {}) => {
-      setOfficeActivityHint((current) => reduceOfficeActivityHint(current, event));
-    });
-  }, [desktopMode]);
-
-  useEffect(() => {
-    if (!desktopMode) {
-      setPermissionRequestQueue([]);
-      setPermissionDecisionSubmitting(false);
-      return () => {};
-    }
-
-    return desktopBridge.conversation.onEvent((event = {}) => {
-      if (event?.channel !== 'chat') {
-        return;
-      }
-
-      if (event.type === 'permission-request') {
-        const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
-        const permissionRequestId =
-          typeof payload.permissionRequestId === 'string' ? payload.permissionRequestId.trim() : '';
-        if (!permissionRequestId) {
-          return;
-        }
-
-        setPermissionRequestQueue((currentQueue) => {
-          if (currentQueue.some((item) => item.permissionRequestId === permissionRequestId)) {
-            return currentQueue;
-          }
-
-          return [
-            ...currentQueue,
-            {
-              permissionRequestId,
-              streamId: typeof event.streamId === 'string' ? event.streamId.trim() : '',
-              backend:
-                typeof payload.backend === 'string' && payload.backend.trim()
-                  ? payload.backend.trim()
-                  : typeof event.backend === 'string'
-                    ? event.backend.trim()
-                    : '',
-              transport: typeof payload.transport === 'string' ? payload.transport.trim() : '',
-              requestId: typeof payload.requestId === 'string' ? payload.requestId.trim() : '',
-              permission: typeof payload.permission === 'string' ? payload.permission.trim() : '',
-              toolName: typeof payload.toolName === 'string' ? payload.toolName.trim() : '',
-              reason: typeof payload.reason === 'string' ? payload.reason.trim() : '',
-              askTimeoutMs:
-                Number.isFinite(payload.askTimeoutMs) && payload.askTimeoutMs > 0
-                  ? Math.min(Math.floor(payload.askTimeoutMs), 60_000)
-                  : 8_000,
-            },
-          ];
-        });
-        return;
-      }
-
-      if (event.type === 'done' || event.type === 'error') {
-        const streamId = typeof event.streamId === 'string' ? event.streamId.trim() : '';
-        if (!streamId) {
-          return;
-        }
-
-        setPermissionRequestQueue((currentQueue) =>
-          currentQueue.filter((item) => item.streamId !== streamId));
-      }
-    });
-  }, [desktopMode]);
+  useDesktopConversationAssemblies({
+    desktopMode,
+    setOfficeActivityHint,
+    setPermissionRequestQueue,
+    setPermissionDecisionSubmitting,
+  });
 
   const handleUpsertOfficeAgent = useCallback(async (inputAgent = {}) => {
     const fallbackId =

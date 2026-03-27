@@ -169,6 +169,7 @@ test('conversation runtime mirrors chat and voice events to conversation:event e
   assert.equal(emitted[0].streamId, 'stream-c1');
   assert.equal(emitted[0].type, 'text-delta');
   assert.equal(emitted[0].payload.content, 'hello');
+  assert.equal(emitted[0].schemaVersion, '2026-03-27.v1');
   assert.ok(typeof emitted[0].timestamp === 'string' && emitted[0].timestamp);
 
   assert.equal(emitted[1].channel, 'voice');

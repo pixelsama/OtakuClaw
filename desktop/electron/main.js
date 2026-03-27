@@ -14,18 +14,6 @@ const {
 
 const { registerChatStreamIpc } = require('./ipc/chatStream');
 const { registerConversationIpc } = require('./ipc/conversation');
-const { registerOfficeStateIpc } = require('./ipc/officeState');
-const { registerValueStateIpc } = require('./ipc/valueState');
-const { registerLive2DModelsIpc } = require('./ipc/live2dModels');
-const { registerPixelPacksIpc } = require('./ipc/pixelPacks');
-const { registerStaticAvatarsIpc } = require('./ipc/staticAvatars');
-const { registerAppUpdaterIpc } = require('./ipc/appUpdater');
-const { registerNanobotSkillsIpc } = require('./ipc/nanobotSkills');
-const { registerNanobotRuntimeIpc } = require('./ipc/nanobotRuntime');
-const { registerAcpRunnerRuntimeIpc } = require('./ipc/acpRunnerRuntime');
-const { registerSettingsIpc } = require('./ipc/settings');
-const { registerScreenshotCaptureIpc } = require('./ipc/screenshotCapture');
-const { registerVoiceModelsIpc } = require('./ipc/voiceModels');
 const { DownloadInstallTaskManager } = require('./services/download/downloadInstallTaskManager');
 const { registerVoiceSessionIpc } = require('./ipc/voiceSession');
 const { createConversationRuntime } = require('./services/chat/conversationRuntime');
@@ -56,7 +44,15 @@ const { PixelPackLibrary, PIXEL_PACK_PROTOCOL } = require('./services/pixelPackL
 const { VoiceModelLibrary } = require('./services/voice/voiceModelLibrary');
 const { WindowModeManager } = require('./window/windowModeManager');
 const { TrayManager } = require('./window/trayManager');
-const { registerModeIpc } = require('./window/modeIpc');
+const {
+  registerFeatureIpcModules,
+  disposeFeatureIpcModules,
+} = require('./bootstrap/featureIpcRegistry');
+const {
+  LEGACY_MIRROR_DEPRECATIONS,
+  createConversationEnvelopeEvent,
+  validateConversationEnvelopeEvent,
+} = require('./contracts/conversationEnvelopeContract');
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -94,19 +90,8 @@ protocol.registerSchemesAsPrivileged([
 let mainWindow = null;
 let disposeChatStreamHandlers = null;
 let disposeConversationHandlers = null;
-let disposeOfficeStateHandlers = null;
-let disposeValueStateHandlers = null;
-let disposeModeHandlers = null;
-let disposeLive2DModelsHandlers = null;
-let disposePixelPackHandlers = null;
-let disposeStaticAvatarsHandlers = null;
-let disposeAppUpdaterHandlers = null;
-let disposeNanobotRuntimeHandlers = null;
-let disposeAcpRunnerRuntimeHandlers = null;
-let disposeNanobotSkillsHandlers = null;
-let disposeVoiceModelsHandlers = null;
 let disposeVoiceSessionHandlers = null;
-let disposeScreenshotCaptureHandlers = null;
+let featureIpcDisposers = {};
 let startChatStreamFromMain = null;
 let conversationRuntime = null;
 let officeStateStore = null;
@@ -147,6 +132,18 @@ const legacyConversationMirrorEnabled = (() => {
   const normalized = value.trim().toLowerCase();
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 })();
+const conversationContractWarningSet = new Set();
+
+function warnConversationContractIssue(key, payload = {}) {
+  if (conversationContractWarningSet.has(key)) {
+    return;
+  }
+  conversationContractWarningSet.add(key);
+  console.warn('Conversation contract warning:', {
+    key,
+    ...payload,
+  });
+}
 
 const forcedUserDataDir =
   typeof process.env.OPENCLAW_USER_DATA_DIR === 'string'
@@ -1039,23 +1036,16 @@ async function bootstrap() {
   registerAvatarProtocol();
   registerDisplayMediaHandler();
   registerMediaPermissionHandlers();
+  if (legacyConversationMirrorEnabled) {
+    for (const deprecation of LEGACY_MIRROR_DEPRECATIONS) {
+      warnConversationContractIssue(`legacy-mirror-enabled:${deprecation.channel}`, {
+        channel: deprecation.channel,
+        replacement: deprecation.replacement,
+        sunsetDate: deprecation.sunsetDate,
+      });
+    }
+  }
 
-  registerSettingsIpc({
-    ipcMain,
-    settingsStore,
-    getWindow: () => mainWindow,
-    backendManager: chatBackendManager,
-  });
-  disposeOfficeStateHandlers = registerOfficeStateIpc({
-    ipcMain,
-    officeStateStore,
-    officePresenceProducer,
-  });
-  disposeValueStateHandlers = registerValueStateIpc({
-    ipcMain,
-    valueStateStore,
-    valueProposalService,
-  });
   appUpdaterService = new AppUpdaterService({
     app,
     onBeforeInstallUpdate: () => {
@@ -1067,10 +1057,6 @@ async function bootstrap() {
       }
       mainWindow.webContents.send('app-updater:state', payload);
     },
-  });
-  disposeAppUpdaterHandlers = registerAppUpdaterIpc({
-    ipcMain,
-    appUpdaterService,
   });
 
   windowModeManager = new WindowModeManager();
@@ -1091,80 +1077,56 @@ async function bootstrap() {
     },
   });
   trayManager.create();
-
-  disposeModeHandlers = registerModeIpc({
+  registerWindowControlIpc();
+  featureIpcDisposers = registerFeatureIpcModules({
     ipcMain,
+    settingsStore,
+    getWindow: () => mainWindow,
+    backendManager: chatBackendManager,
+    officeStateStore,
+    officePresenceProducer,
+    valueStateStore,
+    valueProposalService,
+    appUpdaterService,
     windowModeManager,
     onModeChanged: (mode) => {
       trayManager?.setMode(mode);
     },
-  });
-
-  registerWindowControlIpc();
-  disposeLive2DModelsHandlers = registerLive2DModelsIpc({
-    ipcMain,
-    getWindow: () => mainWindow,
-    modelLibrary: live2dModelLibrary,
-  });
-  disposePixelPackHandlers = registerPixelPacksIpc({
-    ipcMain,
-    getWindow: () => mainWindow,
+    live2dModelLibrary,
     pixelPackLibrary,
-  });
-  disposeStaticAvatarsHandlers = registerStaticAvatarsIpc({
-    ipcMain,
-    getWindow: () => mainWindow,
-    avatarLibrary: staticAvatarLibrary,
-  });
-  disposeScreenshotCaptureHandlers = registerScreenshotCaptureIpc({
-    ipcMain,
-    getWindow: () => mainWindow,
+    staticAvatarLibrary,
     screenshotCaptureService,
     screenshotSelectionService,
-  });
-  disposeNanobotRuntimeHandlers = registerNanobotRuntimeIpc({
-    ipcMain,
     nanobotRuntimeManager,
-    emitProgress: (payload) => {
+    acpRunnerRuntimeManager,
+    nanobotSkillsLibrary,
+    voiceModelLibrary,
+    taskManager: downloadInstallTaskManager,
+    emitNanobotProgress: (payload) => {
       if (!mainWindow || mainWindow.isDestroyed()) {
         return;
       }
       mainWindow.webContents.send('nanobot-runtime:progress', payload);
     },
-  });
-  disposeAcpRunnerRuntimeHandlers = registerAcpRunnerRuntimeIpc({
-    ipcMain,
-    acpRunnerRuntimeManager,
-    settingsStore,
-    emitProgress: (payload) => {
+    emitAcpRunnerProgress: (payload) => {
       if (!mainWindow || mainWindow.isDestroyed()) {
         return;
       }
       mainWindow.webContents.send('acp-runner:progress', payload);
     },
-  });
-  disposeNanobotSkillsHandlers = registerNanobotSkillsIpc({
-    ipcMain,
-    getWindow: () => mainWindow,
-    skillsLibrary: nanobotSkillsLibrary,
-  });
-  disposeVoiceModelsHandlers = registerVoiceModelsIpc({
-    ipcMain,
-    voiceModelLibrary,
-    emitDownloadProgress: (payload) => {
+    emitVoiceModelDownloadProgress: (payload) => {
       if (!mainWindow || mainWindow.isDestroyed()) {
         return;
       }
       mainWindow.webContents.send('voice-models:download-progress', payload);
     },
-    emitTaskProgress: (payload) => {
+    emitDownloadTaskProgress: (payload) => {
       if (!mainWindow || mainWindow.isDestroyed()) {
         return;
       }
       mainWindow.webContents.send('download-task:progress', payload);
     },
-    taskManager: downloadInstallTaskManager,
-    onSelectionChanged: async () => {
+    onVoiceSelectionChanged: async () => {
       if (!disposeVoiceSessionHandlers || typeof disposeVoiceSessionHandlers.warmupRuntime !== 'function') {
         return;
       }
@@ -1551,7 +1513,17 @@ async function bootstrap() {
       }
     },
     emitConversationEvent: (payload) => {
-      const conversationEvent = payload && typeof payload === 'object' ? payload : {};
+      const conversationEvent = createConversationEnvelopeEvent(payload);
+      const validation = validateConversationEnvelopeEvent(conversationEvent);
+      if (!validation.ok) {
+        warnConversationContractIssue(
+          `invalid-envelope:${conversationEvent.channel || 'unknown'}:${conversationEvent.type || 'unknown'}`,
+          {
+            errors: validation.errors,
+            event: conversationEvent,
+          },
+        );
+      }
       if (conversationEvent.channel === 'chat') {
         const officeEvent = buildOfficeConversationUpdate(conversationEvent);
         if (officeEvent) {
@@ -1749,47 +1721,12 @@ app.on('before-quit', () => {
   if (disposeConversationHandlers) {
     disposeConversationHandlers();
   }
-  if (disposeOfficeStateHandlers) {
-    disposeOfficeStateHandlers();
-  }
-  if (disposeValueStateHandlers) {
-    disposeValueStateHandlers();
-  }
   if (disposeChatStreamHandlers) {
     disposeChatStreamHandlers();
   }
   startChatStreamFromMain = null;
-
-  if (disposeModeHandlers) {
-    disposeModeHandlers();
-  }
-  if (disposeLive2DModelsHandlers) {
-    disposeLive2DModelsHandlers();
-  }
-  if (disposePixelPackHandlers) {
-    disposePixelPackHandlers();
-  }
-  if (disposeStaticAvatarsHandlers) {
-    disposeStaticAvatarsHandlers();
-  }
-  if (disposeAppUpdaterHandlers) {
-    disposeAppUpdaterHandlers();
-  }
-  if (disposeNanobotRuntimeHandlers) {
-    disposeNanobotRuntimeHandlers();
-  }
-  if (disposeAcpRunnerRuntimeHandlers) {
-    disposeAcpRunnerRuntimeHandlers();
-  }
-  if (disposeNanobotSkillsHandlers) {
-    disposeNanobotSkillsHandlers();
-  }
-  if (disposeScreenshotCaptureHandlers) {
-    disposeScreenshotCaptureHandlers();
-  }
-  if (disposeVoiceModelsHandlers) {
-    disposeVoiceModelsHandlers();
-  }
+  disposeFeatureIpcModules(featureIpcDisposers);
+  featureIpcDisposers = {};
   if (disposeVoiceSessionHandlers) {
     disposeVoiceSessionHandlers();
   }

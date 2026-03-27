@@ -136,6 +136,41 @@ describe('desktopBridge conversation-only routing', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
+  it('normalizes conversation envelope schemaVersion when missing', () => {
+    const unsubscribe = vi.fn();
+    let listener = null;
+    globalThis.window = {
+      desktop: {
+        isElectron: true,
+        conversation: {
+          onEvent: vi.fn((handler) => {
+            listener = handler;
+            return unsubscribe;
+          }),
+        },
+      },
+    };
+
+    const conversationHandler = vi.fn();
+    const off = desktopBridge.conversation.onEvent(conversationHandler);
+    listener?.({
+      channel: 'chat',
+      type: 'done',
+      streamId: 'stream-2',
+      payload: {},
+    });
+
+    expect(conversationHandler).toHaveBeenCalledTimes(1);
+    expect(conversationHandler).toHaveBeenCalledWith(expect.objectContaining({
+      schemaVersion: '2026-03-27.v1',
+      channel: 'chat',
+      type: 'done',
+    }));
+
+    off();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
   it('routes voice.onToggleRequest through voice toggle channel', () => {
     const unsubscribe = vi.fn();
     let listener = null;

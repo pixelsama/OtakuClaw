@@ -1,4 +1,7 @@
 const { randomUUID } = require('node:crypto');
+const {
+  createConversationEnvelopeEvent,
+} = require('../../contracts/conversationEnvelopeContract');
 
 const DEFAULT_POLICY = 'latest-wins';
 const DEFAULT_AGENT_ID = 'main';
@@ -151,7 +154,7 @@ function createConversationRuntime({
     const normalizedPayload =
       payload.payload && typeof payload.payload === 'object' ? payload.payload : {};
 
-    emitConversationEvent({
+    emitConversationEvent(createConversationEnvelopeEvent({
       timestamp: new Date().toISOString(),
       ...payload,
       channel: typeof payload.channel === 'string' ? payload.channel : 'chat',
@@ -165,7 +168,7 @@ function createConversationRuntime({
       streamId: normalizeRouteSegment(payload.streamId, ''),
       type: typeof payload.type === 'string' ? payload.type : '',
       payload: normalizedPayload,
-    });
+    }));
   };
 
   const callHook = async (hook, payload = {}, label = 'hook') => {
