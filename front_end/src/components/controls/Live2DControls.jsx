@@ -307,10 +307,39 @@ function normalizeModelScale(scale) {
   return Math.max(0.1, Math.min(3, rounded));
 }
 
+function cloneDefaultMotions() {
+  return DEFAULT_MOTIONS.map((item) => ({ ...item }));
+}
+
+function cloneDefaultExpressions() {
+  return DEFAULT_EXPRESSIONS.map((item) => ({ ...item }));
+}
+
+function normalizeLive2dState(state = {}) {
+  return {
+    selectedModelPath:
+      typeof state.selectedModelPath === 'string'
+        ? state.selectedModelPath
+        : typeof state.selectedModel === 'string'
+          ? state.selectedModel
+          : '',
+    modelScale:
+      typeof state.modelScale === 'number' ? normalizeModelScale(state.modelScale) : 1,
+    autoEyeBlink: typeof state.autoEyeBlink === 'boolean' ? state.autoEyeBlink : true,
+    autoBreath: typeof state.autoBreath === 'boolean' ? state.autoBreath : true,
+    eyeTracking: typeof state.eyeTracking === 'boolean' ? state.eyeTracking : true,
+    motions: Array.isArray(state.motions) ? state.motions : cloneDefaultMotions(),
+    expressions: Array.isArray(state.expressions) ? state.expressions : cloneDefaultExpressions(),
+  };
+}
+
 export default function Live2DControls({
   live2dViewerRef,
   modelLoaded,
   isPetMode = false,
+  live2dState = null,
+  onLive2dStateChange,
+  persistState,
   onModelChange,
   onMotionsUpdate,
   onExpressionsUpdate,
@@ -322,18 +351,20 @@ export default function Live2DControls({
 }) {
   const { t } = useI18n();
   const desktopMode = desktopBridge.isDesktop();
+  const isControlled = live2dState !== null;
+  const shouldPersistState = typeof persistState === 'boolean' ? persistState : !isControlled;
 
   const [availableModels, setAvailableModels] = useState([]);
-  const [selectedModel, setSelectedModel] = useState('');
+  const [internalSelectedModel, setInternalSelectedModel] = useState('');
   const [modelLibraryError, setModelLibraryError] = useState('');
   const [isImportingModel, setIsImportingModel] = useState(false);
-  const [autoEyeBlink, setAutoEyeBlink] = useState(true);
-  const [autoBreath, setAutoBreath] = useState(true);
-  const [eyeTracking, setEyeTracking] = useState(true);
-  const [modelScale, setModelScale] = useState(1.0);
+  const [internalAutoEyeBlink, setInternalAutoEyeBlink] = useState(true);
+  const [internalAutoBreath, setInternalAutoBreath] = useState(true);
+  const [internalEyeTracking, setInternalEyeTracking] = useState(true);
+  const [internalModelScale, setInternalModelScale] = useState(1.0);
 
-  const [motions, setMotions] = useState(DEFAULT_MOTIONS.map((item) => ({ ...item })));
-  const [expressions, setExpressions] = useState(DEFAULT_EXPRESSIONS.map((item) => ({ ...item })));
+  const [internalMotions, setInternalMotions] = useState(cloneDefaultMotions);
+  const [internalExpressions, setInternalExpressions] = useState(cloneDefaultExpressions);
 
   const [manualMotionFiles, setManualMotionFiles] = useState('');
   const [availableMotionFiles, setAvailableMotionFiles] = useState([]);
@@ -358,9 +389,49 @@ export default function Live2DControls({
   const [selectedClickAreas, setSelectedClickAreas] = useState([]);
   const [availableClickAreas, setAvailableClickAreas] = useState(DEFAULT_CLICK_AREAS);
 
+  const resolvedLive2dState = useMemo(
+    () =>
+      normalizeLive2dState(
+        isControlled
+          ? live2dState || {}
+          : {
+              selectedModelPath: internalSelectedModel,
+              modelScale: internalModelScale,
+              autoEyeBlink: internalAutoEyeBlink,
+              autoBreath: internalAutoBreath,
+              eyeTracking: internalEyeTracking,
+              motions: internalMotions,
+              expressions: internalExpressions,
+            },
+      ),
+    [
+      internalAutoBreath,
+      internalAutoEyeBlink,
+      internalExpressions,
+      internalEyeTracking,
+      internalModelScale,
+      internalMotions,
+      internalSelectedModel,
+      isControlled,
+      live2dState,
+    ],
+  );
+
+  const {
+    selectedModelPath: selectedModel,
+    modelScale,
+    autoEyeBlink,
+    autoBreath,
+    eyeTracking,
+    motions,
+    expressions,
+  } = resolvedLive2dState;
+
   const motionsRef = useRef(motions);
   const expressionsRef = useRef(expressions);
   const parseRequestRef = useRef(0);
+  const live2dStateRef = useRef(resolvedLive2dState);
+  const syncedSelectedModelRef = useRef(selectedModel);
 
   useEffect(() => {
     motionsRef.current = motions;
@@ -369,6 +440,10 @@ export default function Live2DControls({
   useEffect(() => {
     expressionsRef.current = expressions;
   }, [expressions]);
+
+  useEffect(() => {
+    live2dStateRef.current = resolvedLive2dState;
+  }, [resolvedLive2dState]);
 
   const updateDebugInfo = useCallback((message) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -379,34 +454,88 @@ export default function Live2DControls({
     return live2dViewerRef?.current?.getManager?.() || null;
   }, [live2dViewerRef]);
 
+  const commitLive2dState = useCallback(
+    (patch) => {
+      const previousState = live2dStateRef.current;
+      const partial = typeof patch === 'function' ? patch(previousState) : patch;
+
+      if (!partial || typeof partial !== 'object') {
+        return previousState;
+      }
+
+      const nextState = normalizeLive2dState({
+        ...previousState,
+        ...partial,
+      });
+
+      if (!isControlled) {
+        if (Object.prototype.hasOwnProperty.call(partial, 'selectedModelPath')) {
+          setInternalSelectedModel(nextState.selectedModelPath);
+        }
+        if (Object.prototype.hasOwnProperty.call(partial, 'modelScale')) {
+          setInternalModelScale(nextState.modelScale);
+        }
+        if (Object.prototype.hasOwnProperty.call(partial, 'autoEyeBlink')) {
+          setInternalAutoEyeBlink(nextState.autoEyeBlink);
+        }
+        if (Object.prototype.hasOwnProperty.call(partial, 'autoBreath')) {
+          setInternalAutoBreath(nextState.autoBreath);
+        }
+        if (Object.prototype.hasOwnProperty.call(partial, 'eyeTracking')) {
+          setInternalEyeTracking(nextState.eyeTracking);
+        }
+        if (Object.prototype.hasOwnProperty.call(partial, 'motions')) {
+          setInternalMotions(nextState.motions);
+        }
+        if (Object.prototype.hasOwnProperty.call(partial, 'expressions')) {
+          setInternalExpressions(nextState.expressions);
+        }
+      }
+
+      live2dStateRef.current = nextState;
+      onLive2dStateChange?.(nextState);
+      return nextState;
+    },
+    [isControlled, onLive2dStateChange],
+  );
+
   const saveMotionConfig = useCallback(
     (nextMotions) => {
-      localStorage.setItem(
-        STORAGE_KEYS.motionConfig,
-        JSON.stringify({
-          motions: nextMotions.map(serializeMotion),
-        }),
-      );
-      onMotionsUpdate?.(nextMotions);
-      onExpressionsUpdate?.(expressions);
+      const nextState = commitLive2dState({ motions: nextMotions });
+      if (shouldPersistState) {
+        localStorage.setItem(
+          STORAGE_KEYS.motionConfig,
+          JSON.stringify({
+            motions: nextMotions.map(serializeMotion),
+          }),
+        );
+      }
+      onMotionsUpdate?.(nextState.motions);
+      onExpressionsUpdate?.(nextState.expressions);
     },
-    [expressions, onExpressionsUpdate, onMotionsUpdate],
+    [commitLive2dState, onExpressionsUpdate, onMotionsUpdate, shouldPersistState],
   );
 
   const saveExpressionConfig = useCallback(
     (nextExpressions) => {
-      localStorage.setItem(
-        STORAGE_KEYS.expressionConfig,
-        JSON.stringify(nextExpressions.map(serializeExpression)),
-      );
-      onExpressionsUpdate?.(nextExpressions);
+      const nextState = commitLive2dState({ expressions: nextExpressions });
+      if (shouldPersistState) {
+        localStorage.setItem(
+          STORAGE_KEYS.expressionConfig,
+          JSON.stringify(nextExpressions.map(serializeExpression)),
+        );
+      }
+      onExpressionsUpdate?.(nextState.expressions);
     },
-    [onExpressionsUpdate],
+    [commitLive2dState, onExpressionsUpdate, shouldPersistState],
   );
 
   const saveModelConfig = useCallback((config) => {
+    if (!shouldPersistState) {
+      return;
+    }
     localStorage.setItem(STORAGE_KEYS.modelConfig, JSON.stringify(config));
-  }, []);
+  }, [shouldPersistState]);
 
   const loadAvailableModels = useCallback(async () => {
     if (!desktopMode) {
@@ -488,9 +617,7 @@ export default function Live2DControls({
         setAvailableMotionFiles(motionFiles);
         setAvailableExpressionFiles(expressionFiles);
 
-        setMotions(finalMotions);
         saveMotionConfig(finalMotions);
-        setExpressions(finalExpressions);
         saveExpressionConfig(finalExpressions);
 
         updateDebugInfo(
@@ -522,41 +649,46 @@ export default function Live2DControls({
 
     const hydrate = async () => {
       try {
-        const storedMotion = JSON.parse(localStorage.getItem(STORAGE_KEYS.motionConfig) || '{}');
-        const mergedMotions = mergeById(DEFAULT_MOTIONS, storedMotion.motions);
-        setMotions(mergedMotions);
-        onMotionsUpdate?.(mergedMotions);
+        const initialPatch = {};
+        let initialModelPath = selectedModel;
 
-        const storedExpressions = JSON.parse(
-          localStorage.getItem(STORAGE_KEYS.expressionConfig) || '[]',
-        );
-        const mergedExpressions = mergeById(DEFAULT_EXPRESSIONS, storedExpressions);
-        setExpressions(mergedExpressions);
-        onExpressionsUpdate?.(mergedExpressions);
+        if (shouldPersistState) {
+          const storedMotion = JSON.parse(localStorage.getItem(STORAGE_KEYS.motionConfig) || '{}');
+          const mergedMotions = mergeById(DEFAULT_MOTIONS, storedMotion.motions);
+          initialPatch.motions = mergedMotions;
+          onMotionsUpdate?.(mergedMotions);
 
-        const storedModel = JSON.parse(localStorage.getItem(STORAGE_KEYS.modelConfig) || '{}');
-        let initialModelPath =
-          typeof storedModel.selectedModel === 'string' ? storedModel.selectedModel : '';
+          const storedExpressions = JSON.parse(
+            localStorage.getItem(STORAGE_KEYS.expressionConfig) || '[]',
+          );
+          const mergedExpressions = mergeById(DEFAULT_EXPRESSIONS, storedExpressions);
+          initialPatch.expressions = mergedExpressions;
+          onExpressionsUpdate?.(mergedExpressions);
 
-        if (typeof storedModel.modelScale === 'number') {
-          setModelScale(storedModel.modelScale);
-        }
-        if (typeof storedModel.autoEyeBlink === 'boolean') {
-          setAutoEyeBlink(storedModel.autoEyeBlink);
-        }
-        if (typeof storedModel.autoBreath === 'boolean') {
-          setAutoBreath(storedModel.autoBreath);
-        }
-        if (typeof storedModel.eyeTracking === 'boolean') {
-          setEyeTracking(storedModel.eyeTracking);
-        }
-        if (typeof storedModel.backgroundOpacity === 'number') {
-          setBackgroundOpacity(storedModel.backgroundOpacity);
-        }
+          const storedModel = JSON.parse(localStorage.getItem(STORAGE_KEYS.modelConfig) || '{}');
+          initialModelPath =
+            typeof storedModel.selectedModel === 'string' ? storedModel.selectedModel : initialModelPath;
 
-        const storedCache = JSON.parse(localStorage.getItem(STORAGE_KEYS.cachedBackgrounds) || '[]');
-        if (Array.isArray(storedCache)) {
-          setCachedBackgrounds(storedCache);
+          if (typeof storedModel.modelScale === 'number') {
+            initialPatch.modelScale = storedModel.modelScale;
+          }
+          if (typeof storedModel.autoEyeBlink === 'boolean') {
+            initialPatch.autoEyeBlink = storedModel.autoEyeBlink;
+          }
+          if (typeof storedModel.autoBreath === 'boolean') {
+            initialPatch.autoBreath = storedModel.autoBreath;
+          }
+          if (typeof storedModel.eyeTracking === 'boolean') {
+            initialPatch.eyeTracking = storedModel.eyeTracking;
+          }
+          if (typeof storedModel.backgroundOpacity === 'number') {
+            setBackgroundOpacity(storedModel.backgroundOpacity);
+          }
+
+          const storedCache = JSON.parse(localStorage.getItem(STORAGE_KEYS.cachedBackgrounds) || '[]');
+          if (Array.isArray(storedCache)) {
+            setCachedBackgrounds(storedCache);
+          }
         }
 
         const models = await loadAvailableModels();
@@ -568,7 +700,11 @@ export default function Live2DControls({
           initialModelPath = models[0]?.path || '';
         }
 
-        setSelectedModel(initialModelPath);
+        syncedSelectedModelRef.current = initialModelPath;
+        const nextState = commitLive2dState({
+          ...initialPatch,
+          selectedModelPath: initialModelPath,
+        });
         onModelChange?.(initialModelPath);
 
         if (initialModelPath) {
@@ -577,6 +713,13 @@ export default function Live2DControls({
           setAvailableMotionFiles([]);
           setAvailableExpressionFiles([]);
           updateDebugInfo(t('controls.noModelHint'));
+        }
+
+        if (initialPatch.motions && nextState.motions !== initialPatch.motions) {
+          onMotionsUpdate?.(nextState.motions);
+        }
+        if (initialPatch.expressions && nextState.expressions !== initialPatch.expressions) {
+          onExpressionsUpdate?.(nextState.expressions);
         }
       } catch (error) {
         console.error('Failed to restore state from localStorage:', error);
@@ -594,14 +737,41 @@ export default function Live2DControls({
     };
   }, [
     autoParseModelFiles,
+    commitLive2dState,
     isHydrated,
     loadAvailableModels,
     onExpressionsUpdate,
     onModelChange,
     onMotionsUpdate,
+    selectedModel,
+    shouldPersistState,
     t,
     updateDebugInfo,
   ]);
+
+  useEffect(() => {
+    if (!isHydrated) {
+      syncedSelectedModelRef.current = selectedModel;
+      return;
+    }
+
+    if (syncedSelectedModelRef.current === selectedModel) {
+      return;
+    }
+
+    syncedSelectedModelRef.current = selectedModel;
+    setManualMotionFiles('');
+    setManualExpressionFiles('');
+
+    if (!selectedModel) {
+      setAvailableMotionFiles([]);
+      setAvailableExpressionFiles([]);
+      updateDebugInfo('未选择模型');
+      return;
+    }
+
+    void autoParseModelFiles(selectedModel);
+  }, [autoParseModelFiles, isHydrated, selectedModel, updateDebugInfo]);
 
   useEffect(() => {
     if (!isHydrated || !modelLoaded) return;
@@ -780,7 +950,6 @@ export default function Live2DControls({
       },
     ];
 
-    setMotions(next);
     saveMotionConfig(next);
     setNewMotionName('');
     updateDebugInfo(`已添加新动作: ${trimmed}`);
@@ -801,7 +970,6 @@ export default function Live2DControls({
         return true;
       });
 
-      setMotions(next);
       saveMotionConfig(next);
       updateDebugInfo(`已删除动作: ${motionId}`);
     },
@@ -832,7 +1000,6 @@ export default function Live2DControls({
       },
     ];
 
-    setExpressions(next);
     saveExpressionConfig(next);
     setNewExpressionName('');
     updateDebugInfo(`已添加新表情: ${trimmed}`);
@@ -853,7 +1020,6 @@ export default function Live2DControls({
         return true;
       });
 
-      setExpressions(next);
       saveExpressionConfig(next);
       updateDebugInfo(`已删除表情: ${expressionId}`);
     },
@@ -921,7 +1087,6 @@ export default function Live2DControls({
           };
         });
 
-        setMotions(next);
         saveMotionConfig(next);
         updateDebugInfo(`动作文件已关联: ${file.name}`);
       } catch (error) {
@@ -960,7 +1125,6 @@ export default function Live2DControls({
           };
         });
 
-        setExpressions(next);
         saveExpressionConfig(next);
         updateDebugInfo(`表情文件已关联: ${file.name}`);
       } catch (error) {
@@ -983,7 +1147,6 @@ export default function Live2DControls({
           fileObject: null,
         };
       });
-      setMotions(next);
       saveMotionConfig(next);
     },
     [motions, saveMotionConfig],
@@ -1001,7 +1164,6 @@ export default function Live2DControls({
           fileObject: null,
         };
       });
-      setExpressions(next);
       saveExpressionConfig(next);
     },
     [expressions, saveExpressionConfig],
@@ -1035,7 +1197,6 @@ export default function Live2DControls({
         };
       });
 
-      setMotions(next);
       saveMotionConfig(next);
       updateDebugInfo(`动作 ${target.name} 已关联文件路径: ${motionFile.fileName}`);
     },
@@ -1070,7 +1231,6 @@ export default function Live2DControls({
         };
       });
 
-      setExpressions(next);
       saveExpressionConfig(next);
       updateDebugInfo(`表情 ${target.name} 已关联文件路径: ${expressionFile.fileName}`);
     },
@@ -1079,7 +1239,8 @@ export default function Live2DControls({
 
   const changeModel = useCallback(
     (modelPath) => {
-      setSelectedModel(modelPath);
+      syncedSelectedModelRef.current = modelPath || '';
+      commitLive2dState({ selectedModelPath: modelPath || '' });
       onModelChange?.(modelPath || '');
       setManualMotionFiles('');
       setManualExpressionFiles('');
@@ -1093,7 +1254,7 @@ export default function Live2DControls({
       updateDebugInfo(`切换模型: ${modelPath}`);
       void autoParseModelFiles(modelPath);
     },
-    [autoParseModelFiles, onModelChange, updateDebugInfo],
+    [autoParseModelFiles, commitLive2dState, onModelChange, updateDebugInfo],
   );
 
   const importModelZip = useCallback(async () => {
@@ -1125,7 +1286,8 @@ export default function Live2DControls({
 
       if (models.length === 0) {
         onModelChange?.('');
-        setSelectedModel('');
+        syncedSelectedModelRef.current = '';
+        commitLive2dState({ selectedModelPath: '' });
         return;
       }
 
@@ -1142,46 +1304,58 @@ export default function Live2DControls({
     } finally {
       setIsImportingModel(false);
     }
-  }, [changeModel, desktopMode, loadAvailableModels, onModelChange, selectedModel, t, updateDebugInfo]);
+  }, [
+    changeModel,
+    commitLive2dState,
+    desktopMode,
+    loadAvailableModels,
+    onModelChange,
+    selectedModel,
+    t,
+    updateDebugInfo,
+  ]);
 
   const toggleAutoEyeBlink = useCallback(
     (enabled) => {
-      setAutoEyeBlink(enabled);
+      commitLive2dState({ autoEyeBlink: enabled });
       getManager()?.setAutoEyeBlinkEnable(enabled);
       onAutoEyeBlinkChange?.(enabled);
       updateDebugInfo(`自动眨眼: ${enabled ? '开启' : '关闭'}`);
     },
-    [getManager, onAutoEyeBlinkChange, updateDebugInfo],
+    [commitLive2dState, getManager, onAutoEyeBlinkChange, updateDebugInfo],
   );
 
   const toggleAutoBreath = useCallback(
     (enabled) => {
-      setAutoBreath(enabled);
+      commitLive2dState({ autoBreath: enabled });
       getManager()?.setAutoBreathEnable(enabled);
       onAutoBreathChange?.(enabled);
       updateDebugInfo(`自动呼吸: ${enabled ? '开启' : '关闭'}`);
     },
-    [getManager, onAutoBreathChange, updateDebugInfo],
+    [commitLive2dState, getManager, onAutoBreathChange, updateDebugInfo],
   );
 
   const toggleEyeTracking = useCallback(
     (enabled) => {
-      setEyeTracking(enabled);
+      commitLive2dState({ eyeTracking: enabled });
       getManager()?.setEyeTracking(enabled);
       onEyeTrackingChange?.(enabled);
       updateDebugInfo(`眼神跟随: ${enabled ? '开启' : '关闭'}`);
     },
-    [getManager, onEyeTrackingChange, updateDebugInfo],
+    [commitLive2dState, getManager, onEyeTrackingChange, updateDebugInfo],
   );
 
   const updateModelScale = useCallback(
     (scale) => {
       const normalizedScale = normalizeModelScale(scale);
-      setModelScale((prev) => (prev === normalizedScale ? prev : normalizedScale));
+      if (modelScale === normalizedScale) {
+        return;
+      }
+      commitLive2dState({ modelScale: normalizedScale });
       getManager()?.setModelScale(normalizedScale);
       onModelScaleChange?.(normalizedScale);
     },
-    [getManager, onModelScaleChange],
+    [commitLive2dState, getManager, modelScale, onModelScaleChange],
   );
 
   const commitModelScale = useCallback(
@@ -1201,9 +1375,12 @@ export default function Live2DControls({
 
   const saveCacheToStorage = useCallback(
     (items) => {
+      if (!shouldPersistState) {
+        return;
+      }
       localStorage.setItem(STORAGE_KEYS.cachedBackgrounds, JSON.stringify(items));
     },
-    [],
+    [shouldPersistState],
   );
 
   const addToCache = useCallback(
@@ -1407,7 +1584,6 @@ export default function Live2DControls({
           ? { ...motion, clickAreas: [...selectedClickAreas] }
           : motion,
       );
-      setMotions(next);
       saveMotionConfig(next);
     } else {
       const next = expressions.map((expression) =>
@@ -1415,7 +1591,6 @@ export default function Live2DControls({
           ? { ...expression, clickAreas: [...selectedClickAreas] }
           : expression,
       );
-      setExpressions(next);
       saveExpressionConfig(next);
     }
 
