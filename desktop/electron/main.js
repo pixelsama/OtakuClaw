@@ -357,7 +357,7 @@ function normalizeMainText(value) {
 }
 
 function normalizeMainAgentId(value) {
-  return normalizeMainText(value) || 'main';
+  return normalizeMainText(value);
 }
 
 function normalizeMainBackendName(value) {
@@ -375,6 +375,54 @@ function normalizeMainBackendName(value) {
   }
 
   return normalized;
+}
+
+function listOfficeAgentIds(officeState = {}) {
+  if (!officeState || typeof officeState !== 'object' || !Array.isArray(officeState.agents)) {
+    return [];
+  }
+
+  return officeState.agents
+    .map((agent) => normalizeMainAgentId(agent?.id || agent?.agentId))
+    .filter(Boolean);
+}
+
+function resolveRuntimeAgentId(request = {}) {
+  const source = request && typeof request === 'object' ? request : {};
+  const options = source.options && typeof source.options === 'object' ? source.options : {};
+  const requestedAgentId = normalizeMainAgentId(source.agentId);
+  if (requestedAgentId) {
+    return requestedAgentId;
+  }
+
+  const optionsAgentId = normalizeMainAgentId(options.agentId);
+  if (optionsAgentId) {
+    return optionsAgentId;
+  }
+
+  const officeState = officeStateStore?.getState?.() || {};
+  const activeOfficeAgentId = normalizeMainAgentId(officeState.activeAgentId);
+  if (activeOfficeAgentId) {
+    return activeOfficeAgentId;
+  }
+
+  const firstAvailableOfficeAgentId = listOfficeAgentIds(officeState)[0] || '';
+  return firstAvailableOfficeAgentId || null;
+}
+
+function resolveRuntimeRouteRequest(request = {}) {
+  const source = request && typeof request === 'object' ? request : {};
+  const options = source.options && typeof source.options === 'object' ? source.options : {};
+  const agentId = resolveRuntimeAgentId(source) || '';
+
+  return {
+    ...source,
+    agentId,
+    options: {
+      ...options,
+      agentId,
+    },
+  };
 }
 
 function resolveOfficeAreaForBusinessState(businessState = '') {
@@ -506,10 +554,15 @@ function buildValueProposalUpdate(event = {}) {
     return null;
   }
 
+  const agentId = normalizeMainAgentId(event.agentId || payload.agentId);
+  if (!agentId) {
+    return null;
+  }
+
   return {
-    agentId: normalizeMainAgentId(event.agentId || payload.agentId),
+    agentId,
     backend: normalizeMainBackendName(event.backend || payload.backend),
-    characterId: normalizeMainText(event.characterId || payload.characterId || payload.avatarId) || 'default-character',
+    characterId: normalizeMainText(event.characterId || payload.characterId || payload.avatarId) || agentId,
     routeKey: normalizeMainText(event.routeKey || payload.routeKey),
     sessionId: normalizeMainText(event.sessionId || payload.sessionId),
     sessionNamespace: normalizeMainText(event.sessionNamespace || payload.sessionNamespace),
@@ -592,7 +645,7 @@ function buildPersonaEscalationContent({
 
   return [
     '[Desktop companion persona overlay]',
-    `Agent: ${normalizeMainText(routeContext.agentId || 'main')}`,
+    `Agent: ${normalizeMainText(routeContext.agentId) || '(unspecified)'}`,
     `Backend: ${normalizeMainText(routeContext.backend || 'nanobot')}`,
     `Mood: ${mood.label} (${mood.score})`,
     `Affinity: ${affinity}`,
@@ -1253,6 +1306,7 @@ async function bootstrap() {
     });
   };
   conversationRuntime = createConversationRuntime({
+    resolveRouteRequest: (request = {}) => resolveRuntimeRouteRequest(request),
     startChatStream: async (request = {}) => {
       if (typeof startChatStreamFromMain !== 'function') {
         return {
@@ -1279,10 +1333,13 @@ async function bootstrap() {
     },
     prepareTurn: async ({ request = {}, routeContext = {}, policy, emitEvent }) => {
       const settings = settingsStore.getForMain();
-      const valueState = valueStateStore?.getState?.({
-        agentId: routeContext.agentId || 'main',
-        characterId: routeContext.agentId || 'main',
-      }) || {};
+      const routeAgentId = normalizeMainAgentId(routeContext.agentId);
+      const valueState = routeAgentId
+        ? valueStateStore?.getState?.({
+            agentId: routeAgentId,
+            characterId: routeAgentId,
+          }) || {}
+        : {};
       const quickPersonaResolution = quickPersonaBackendManager?.resolveConfig?.(settings) || {
         ok: false,
         disabled: false,
@@ -1352,9 +1409,9 @@ async function bootstrap() {
 
       if (personaResult.statUpdates.length > 0) {
         const proposal = {
-          agentId: routeContext.agentId,
+          agentId: routeAgentId,
           backend: routeContext.backend,
-          characterId: routeContext.agentId || 'main',
+          characterId: routeAgentId,
           routeKey: routeContext.routeKey,
           sessionId: routeContext.sessionId,
           sessionNamespace: routeContext.sessionNamespace,
@@ -1383,8 +1440,8 @@ async function bootstrap() {
         profileId: routeContext.profileId,
         turnId: routeContext.turnId || '',
         payload: {
-          activeAgentId: routeContext.agentId,
-          agentId: routeContext.agentId,
+          activeAgentId: routeAgentId,
+          agentId: routeAgentId,
           source: 'fast',
           turnId: routeContext.turnId || '',
           intent: {

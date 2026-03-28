@@ -4,7 +4,7 @@ const {
 } = require('../../contracts/conversationEnvelopeContract');
 
 const DEFAULT_POLICY = 'latest-wins';
-const DEFAULT_AGENT_ID = 'main';
+const DEFAULT_AGENT_ID = '';
 const DEFAULT_BACKEND = 'nanobot';
 
 function normalizeSessionId(value) {
@@ -59,11 +59,32 @@ function normalizeAgentId(value) {
 }
 
 function buildRouteKey({ agentId, backend, sessionNamespace } = {}) {
+  const normalizedAgentId = normalizeAgentId(agentId);
+  if (!normalizedAgentId) {
+    return '';
+  }
+
   return [
-    normalizeAgentId(agentId),
+    normalizedAgentId,
     normalizeBackendName(backend),
     normalizeRouteSegment(sessionNamespace, 'default'),
   ].join(':');
+}
+
+function mergeResolvedRequest(request = {}, resolvedRequest = {}) {
+  const source = request && typeof request === 'object' ? request : {};
+  const resolved = resolvedRequest && typeof resolvedRequest === 'object' ? resolvedRequest : {};
+  const sourceOptions = source.options && typeof source.options === 'object' ? source.options : {};
+  const resolvedOptions = resolved.options && typeof resolved.options === 'object' ? resolved.options : {};
+
+  return {
+    ...source,
+    ...resolved,
+    options: {
+      ...sourceOptions,
+      ...resolvedOptions,
+    },
+  };
 }
 
 function normalizeConversationRouteContext(request = {}) {
@@ -119,6 +140,29 @@ function normalizePolicy(value) {
   return DEFAULT_POLICY;
 }
 
+function createRouteErrorResult(reason, routeContext = {}) {
+  const safeReason = normalizeRouteSegment(reason, 'route_error');
+  const safeRouteContext = routeContext && typeof routeContext === 'object' ? routeContext : {};
+  const errorMessages = {
+    agent_id_required: 'No runtime agent could be resolved for the conversation request.',
+  };
+
+  return {
+    ok: false,
+    reason: safeReason,
+    error: {
+      code: safeReason,
+      message: errorMessages[safeReason] || 'Conversation routing failed.',
+      sessionId: normalizeSessionId(safeRouteContext.sessionId),
+      sessionNamespace: normalizeRouteSegment(safeRouteContext.sessionNamespace, ''),
+      agentId: normalizeAgentId(safeRouteContext.agentId),
+      backend: normalizeBackendName(safeRouteContext.backend),
+      routeKey: normalizeRouteSegment(safeRouteContext.routeKey, ''),
+      profileId: normalizeRouteSegment(safeRouteContext.profileId, ''),
+    },
+  };
+}
+
 function createConversationRuntime({
   startChatStream,
   abortChatStream,
@@ -128,6 +172,7 @@ function createConversationRuntime({
   onTurnStarted,
   onTurnEvent,
   onTurnSettled,
+  resolveRouteRequest,
 } = {}) {
   const activeStreamByRouteKey = new Map();
   const activeTurnByRouteKey = new Map();
@@ -189,6 +234,12 @@ function createConversationRuntime({
       });
       return null;
     }
+  };
+
+  const resolveRequest = async (request = {}) => {
+    const source = request && typeof request === 'object' ? request : {};
+    const resolved = await callHook(resolveRouteRequest, source, 'resolve-route-request');
+    return mergeResolvedRequest(source, resolved);
   };
 
   const trackActiveStream = (streamId, context = {}) => {
@@ -490,6 +541,13 @@ function createConversationRuntime({
       };
     }
 
+    if (!normalizedContext.agentId) {
+      if (finishRouteTurn(safeRouteKey, turnToken)) {
+        drainQueue(safeRouteKey);
+      }
+      return createRouteErrorResult('agent_id_required', normalizedContext);
+    }
+
     if (typeof startChatStream !== 'function') {
       if (finishRouteTurn(safeRouteKey, turnToken)) {
         drainQueue(safeRouteKey);
@@ -786,13 +844,25 @@ function createConversationRuntime({
     const sessionId = normalizeSessionId(request?.sessionId);
     const content = normalizeContent(request?.content);
     const policy = normalizePolicy(request?.policy || request?.options?.concurrencyPolicy);
-    const routeContext = normalizeConversationRouteContext({
+    if (!content) {
+      return {
+        ok: false,
+        reason: 'content_required',
+      };
+    }
+
+    const resolvedRequest = await resolveRequest({
       ...request,
       sessionId,
       content,
     });
+    const routeContext = normalizeConversationRouteContext(resolvedRequest);
+    if (!routeContext.agentId) {
+      return createRouteErrorResult('agent_id_required', routeContext);
+    }
+
     const normalizedRequest = {
-      ...request,
+      ...resolvedRequest,
       sessionId,
       content,
       agentId: routeContext.agentId,
@@ -800,14 +870,17 @@ function createConversationRuntime({
       profileId: routeContext.profileId,
       sessionNamespace: routeContext.sessionNamespace,
       routeKey: routeContext.routeKey,
+      options: {
+        ...(resolvedRequest?.options && typeof resolvedRequest.options === 'object'
+          ? resolvedRequest.options
+          : {}),
+        agentId: routeContext.agentId,
+        backend: routeContext.backend,
+        profileId: routeContext.profileId,
+        sessionNamespace: routeContext.sessionNamespace,
+        routeKey: routeContext.routeKey,
+      },
     };
-
-    if (!content) {
-      return {
-        ok: false,
-        reason: 'content_required',
-      };
-    }
 
     const activeTurn = activeTurnByRouteKey.get(routeContext.routeKey) || null;
     if (policy === 'queue' && activeTurn) {

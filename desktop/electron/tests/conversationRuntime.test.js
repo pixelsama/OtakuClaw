@@ -19,11 +19,12 @@ const ROUTE_CASES = [
     expectedRouteKey: 'agent-alpha:codex:shared-session',
   },
   {
-    label: 'invalid agent id falls back to main route',
-    agentId: '',
+    label: 'agent from options route',
+    agentId: undefined,
+    optionsAgentId: 'agent-options',
     backend: 'nanobot',
-    expectedAgentId: 'main',
-    expectedRouteKey: 'main:nanobot:shared-session',
+    expectedAgentId: 'agent-options',
+    expectedRouteKey: 'agent-options:nanobot:shared-session',
   },
 ];
 
@@ -49,6 +50,7 @@ test('conversation runtime latest-wins aborts previous active stream in same ses
 
   const first = await runtime.submitUserText({
     sessionId: 's1',
+    agentId: 'agent-default',
     content: 'hello',
   });
   assert.equal(first.ok, true);
@@ -56,6 +58,7 @@ test('conversation runtime latest-wins aborts previous active stream in same ses
 
   const second = await runtime.submitUserText({
     sessionId: 's1',
+    agentId: 'agent-default',
     content: 'world',
   });
   assert.equal(second.ok, true);
@@ -135,6 +138,7 @@ for (const scenario of ROUTE_CASES) {
       agentId: scenario.agentId,
       backend: scenario.backend,
       content: 'hello',
+      options: scenario.optionsAgentId ? { agentId: scenario.optionsAgentId } : undefined,
     });
 
     assert.equal(result.ok, true);
@@ -181,6 +185,7 @@ test('conversation runtime queue policy starts next request after terminal event
 
   const first = await runtime.submitUserText({
     sessionId: 'queue-session',
+    agentId: 'agent-queue',
     content: 'first',
     policy: 'queue',
   });
@@ -189,6 +194,7 @@ test('conversation runtime queue policy starts next request after terminal event
 
   const queuedPromise = runtime.submitUserText({
     sessionId: 'queue-session',
+    agentId: 'agent-queue',
     content: 'second',
     policy: 'queue',
   });
@@ -373,11 +379,13 @@ test('conversation runtime latest-wins suppresses stale synthetic turn after asy
 
   const firstPromise = runtime.submitUserText({
     sessionId: 'race-session',
+    agentId: 'agent-race',
     content: 'first',
     policy: 'latest-wins',
   });
   const secondPromise = runtime.submitUserText({
     sessionId: 'race-session',
+    agentId: 'agent-race',
     content: 'second',
     policy: 'latest-wins',
   });
@@ -390,4 +398,30 @@ test('conversation runtime latest-wins suppresses stale synthetic turn after asy
     emitted.filter((event) => event.type === 'text-delta').map((event) => event.payload.content),
     ['reply:second'],
   );
+});
+
+test('conversation runtime returns structured error when no agent can be resolved', async () => {
+  const runtime = createConversationRuntime({
+    startChatStream: async () => ({ ok: true, streamId: 'stream-unused' }),
+    abortChatStream: async () => ({ ok: true }),
+    emitConversationEvent: () => {},
+  });
+
+  const result = await runtime.submitUserText({
+    sessionId: 'missing-agent-session',
+    content: 'hello',
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'agent_id_required');
+  assert.deepEqual(result.error, {
+    code: 'agent_id_required',
+    message: 'No runtime agent could be resolved for the conversation request.',
+    sessionId: 'missing-agent-session',
+    sessionNamespace: 'missing-agent-session',
+    agentId: '',
+    backend: 'nanobot',
+    routeKey: '',
+    profileId: '',
+  });
 });

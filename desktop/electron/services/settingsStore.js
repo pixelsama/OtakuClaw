@@ -19,7 +19,7 @@ const SETTINGS_FILE = 'openclaw-settings.json';
 
 const DEFAULT_OPENCLAW_SETTINGS = {
   baseUrl: 'http://127.0.0.1:18789',
-  agentId: 'main',
+  agentId: '',
 };
 
 const DEFAULT_NANOBOT_SETTINGS = {

@@ -127,6 +127,31 @@ test('migrates legacy openclaw token and settings shape', async () => {
   assert.equal(Object.prototype.hasOwnProperty.call(persisted.openclaw, 'token'), false);
 });
 
+test('defaults openclaw agentId to empty string and keeps flat agentId compatibility', async () => {
+  const { store, tmpDir } = await setupTempStore({
+    secretStore: new FakeSecretStore({ available: true }),
+  });
+
+  const publicSettings = store.getPublic();
+  const mainSettings = store.getForMain();
+  assert.equal(publicSettings.openclaw.agentId, '');
+  assert.equal(publicSettings.agentId, '');
+  assert.equal(mainSettings.openclaw.agentId, '');
+  assert.equal(mainSettings.agentId, '');
+
+  await store.save({
+    agentId: 'agent-flat',
+  });
+
+  const updatedPublicSettings = store.getPublic();
+  assert.equal(updatedPublicSettings.openclaw.agentId, 'agent-flat');
+  assert.equal(updatedPublicSettings.agentId, 'agent-flat');
+
+  const fileRaw = await fs.readFile(path.join(tmpDir, 'openclaw-settings.json'), 'utf-8');
+  const persisted = JSON.parse(fileRaw);
+  assert.equal(persisted.openclaw.agentId, 'agent-flat');
+});
+
 test('does not migrate legacy nanobot api key into ai model config', async () => {
   const secretStore = new FakeSecretStore({ available: true });
   const { store, tmpDir } = await setupTempStore({
