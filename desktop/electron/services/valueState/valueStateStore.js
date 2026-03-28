@@ -5,7 +5,7 @@ const { randomUUID } = require('node:crypto');
 const { createValueRuleEngine, cloneStats } = require('./valueRuleEngine');
 
 const STORE_FILE_NAME = 'value-state.json';
-const DEFAULT_AGENT_ID = 'main';
+const LEGACY_MAIN_AGENT_ID = 'main';
 
 function normalizeText(value, fallback = '') {
   if (typeof value !== 'string') {
@@ -16,11 +16,26 @@ function normalizeText(value, fallback = '') {
   return normalized || fallback;
 }
 
-function normalizeAgentId(value) {
-  return normalizeText(value, DEFAULT_AGENT_ID);
+function createAgentRequiredError() {
+  const error = new Error('Agent id is required.');
+  error.code = 'agent_required';
+  return error;
 }
 
-function normalizeCharacterId(value, fallbackAgentId = DEFAULT_AGENT_ID) {
+function normalizeAgentId(value, { allowLegacyFallback = false } = {}) {
+  const normalized = normalizeText(value);
+  if (normalized) {
+    return normalized;
+  }
+
+  if (allowLegacyFallback) {
+    return LEGACY_MAIN_AGENT_ID;
+  }
+
+  throw createAgentRequiredError();
+}
+
+function normalizeCharacterId(value, fallbackAgentId) {
   return normalizeText(value, fallbackAgentId);
 }
 
@@ -33,8 +48,8 @@ function buildEntityKey(agentId, characterId) {
   return `${normalizeAgentId(agentId)}::${normalizeCharacterId(characterId, agentId)}`;
 }
 
-function normalizeEntity(entity = {}, { agentId = DEFAULT_AGENT_ID, characterId = DEFAULT_AGENT_ID } = {}) {
-  const safeAgentId = normalizeAgentId(entity.agentId || agentId);
+function normalizeEntity(entity = {}, { agentId = '', characterId = '', allowLegacyFallback = false } = {}) {
+  const safeAgentId = normalizeAgentId(entity.agentId || agentId, { allowLegacyFallback });
   const safeCharacterId = normalizeCharacterId(entity.characterId || characterId, safeAgentId);
   return {
     agentId: safeAgentId,
@@ -45,6 +60,36 @@ function normalizeEntity(entity = {}, { agentId = DEFAULT_AGENT_ID, characterId 
     turnId: normalizeText(entity.turnId),
     version: normalizeInteger(entity.version, 1),
     stats: cloneStats(entity.stats),
+  };
+}
+
+function normalizePersistedEntity(entity = {}) {
+  const persistedAgentId = normalizeText(entity?.agentId);
+
+  if (!persistedAgentId) {
+    // TODO: remove this alias after pre-agent_required snapshots are no longer supported.
+    return normalizeEntity(entity, {
+      agentId: LEGACY_MAIN_AGENT_ID,
+      characterId: entity?.characterId || LEGACY_MAIN_AGENT_ID,
+      allowLegacyFallback: true,
+    });
+  }
+
+  return normalizeEntity(entity, {
+    agentId: persistedAgentId,
+    characterId: entity?.characterId || persistedAgentId,
+  });
+}
+
+function normalizePersistedHistoryEvent(event = {}) {
+  const persistedAgentId = normalizeText(event?.agentId);
+  const agentId = persistedAgentId || LEGACY_MAIN_AGENT_ID;
+  const characterId = normalizeCharacterId(event?.characterId, persistedAgentId || LEGACY_MAIN_AGENT_ID);
+
+  return {
+    ...event,
+    agentId,
+    characterId,
   };
 }
 
@@ -84,14 +129,13 @@ class ValueStateStore {
       const entities = Array.isArray(parsed.entities) ? parsed.entities : [];
       this.entities = new Map(
         entities.map((entity) => {
-          const normalized = normalizeEntity(entity, {
-            agentId: entity?.agentId || DEFAULT_AGENT_ID,
-            characterId: entity?.characterId || entity?.agentId || DEFAULT_AGENT_ID,
-          });
+          const normalized = normalizePersistedEntity(entity);
           return [buildEntityKey(normalized.agentId, normalized.characterId), normalized];
         }),
       );
-      this.history = Array.isArray(parsed.history) ? parsed.history : [];
+      this.history = Array.isArray(parsed.history)
+        ? parsed.history.map((event) => normalizePersistedHistoryEvent(event))
+        : [];
       this.revision = normalizeInteger(parsed.revision, this.history.length || 0);
     } catch (error) {
       if (error?.code !== 'ENOENT') {
@@ -102,7 +146,7 @@ class ValueStateStore {
 
   persistSoon() {
     const storeFilePath = this.resolveStoreFilePath();
-    const payload = JSON.stringify(this.getState(), null, 2);
+    const payload = JSON.stringify(this.buildPersistedState(), null, 2);
     this.persistChain = this.persistChain
       .catch(() => {})
       .then(() => fs.mkdir(path.dirname(storeFilePath), { recursive: true }))
@@ -131,8 +175,8 @@ class ValueStateStore {
 
   emitChange(mutation = {}) {
     const state = this.getState({
-      agentId: mutation.agentId || '',
-      characterId: mutation.characterId || '',
+      agentId: mutation.agentId,
+      characterId: mutation.characterId,
     });
     for (const listener of [...this.listeners]) {
       try {
@@ -150,7 +194,15 @@ class ValueStateStore {
     }));
   }
 
-  getEntity({ agentId = DEFAULT_AGENT_ID, characterId = '' } = {}) {
+  buildPersistedState() {
+    return {
+      revision: this.revision,
+      entities: this.listEntities(),
+      history: [...this.history],
+    };
+  }
+
+  getEntity({ agentId = '', characterId = '' } = {}) {
     const safeAgentId = normalizeAgentId(agentId);
     const safeCharacterId = normalizeCharacterId(characterId, safeAgentId);
     const key = buildEntityKey(safeAgentId, safeCharacterId);
@@ -177,7 +229,7 @@ class ValueStateStore {
         && normalizeCharacterId(event.characterId, event.agentId) === entity.characterId
       )) || null;
     return {
-      revision: this.revision,
+      ...this.buildPersistedState(),
       updatedAt: entity.updatedAt,
       agentId: entity.agentId,
       characterId: entity.characterId,
@@ -186,15 +238,13 @@ class ValueStateStore {
       turnId: entity.turnId,
       stats: cloneStats(entity.stats),
       lastEvent,
-      entities: this.listEntities(),
-      history: [...this.history],
     };
   }
 
   upsertEntity(request = {}) {
     const entity = normalizeEntity(request, {
-      agentId: request?.agentId || DEFAULT_AGENT_ID,
-      characterId: request?.characterId || request?.agentId || DEFAULT_AGENT_ID,
+      agentId: request?.agentId,
+      characterId: request?.characterId || request?.agentId,
     });
     const key = buildEntityKey(entity.agentId, entity.characterId);
     const current = this.entities.get(key);

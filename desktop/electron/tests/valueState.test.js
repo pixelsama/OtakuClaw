@@ -97,6 +97,29 @@ test('value proposal service extracts structured stat updates from chat events',
   assert.equal(result.state.history[0].source, 'chat');
 });
 
+test('value state services reject requests without an explicit agent id', () => {
+  const store = createValueStateStore();
+  const service = createValueProposalService({
+    valueStateStore: store,
+  });
+
+  assert.throws(() => store.getState({}), { code: 'agent_required' });
+  assert.throws(() => store.upsertEntity({ characterId: 'character-a' }), { code: 'agent_required' });
+  assert.throws(() => store.applyStatUpdates({
+    characterId: 'character-a',
+    statUpdates: [{ stat: 'mood', delta: 1 }],
+  }), { code: 'agent_required' });
+  assert.throws(() => service.applyConversationEvent({
+    channel: 'chat',
+    payload: {
+      stat_updates: [{ stat: 'mood', delta: 1 }],
+    },
+  }), { code: 'agent_required' });
+  assert.throws(() => service.applyInteraction({
+    actionType: 'feed',
+  }), { code: 'agent_required' });
+});
+
 test('value state store serializes persistence so the latest snapshot wins', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'value-state-store-'));
   const store = createValueStateStore({
@@ -143,6 +166,48 @@ test('value state store serializes persistence so the latest snapshot wins', asy
   assert.equal(entity.stats.mood.value, 2);
   assert.equal(entity.stats.affinity.value, 101);
   assert.equal(persisted.history.at(-1)?.turnId, 'turn-2');
+});
+
+test('value state store upgrades legacy persisted main records only during init', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'value-state-legacy-'));
+  const storeFilePath = path.join(tempDir, 'value-state.json');
+
+  await fs.writeFile(storeFilePath, JSON.stringify({
+    revision: 3,
+    entities: [
+      {
+        routeKey: 'legacy:nanobot:shared',
+        sessionId: 'session-legacy',
+        turnId: 'turn-legacy',
+        stats: {
+          mood: {
+            value: 2,
+          },
+        },
+      },
+    ],
+    history: [
+      {
+        type: 'stat-updated',
+        stat: 'mood',
+        routeKey: 'legacy:nanobot:shared',
+      },
+    ],
+  }), 'utf8');
+
+  const store = createValueStateStore({ storeFilePath });
+  await store.init();
+
+  const state = store.getState({
+    agentId: 'main',
+    characterId: 'main',
+  });
+
+  assert.equal(state.stats.mood.value, 2);
+  assert.equal(state.lastEvent.agentId, 'main');
+  assert.equal(state.lastEvent.characterId, 'main');
+  assert.equal(state.entities[0].agentId, 'main');
+  assert.equal(state.entities[0].characterId, 'main');
 });
 
 test('value state ipc delegates get upsert and propose handlers', async () => {
@@ -202,7 +267,10 @@ test('value state ipc delegates get upsert and propose handlers', async () => {
     },
   });
 
-  const stateResult = await ipcMain.invoke('value-state:get');
+  const stateResult = await ipcMain.invoke('value-state:get', {
+    agentId: 'agent-a',
+    characterId: 'character-a',
+  });
   assert.equal(stateResult.ok, true);
   assert.equal(stateResult.state.revision, 1);
 

@@ -7,6 +7,24 @@ function normalizeText(value, fallback = '') {
   return normalized || fallback;
 }
 
+function createAgentRequiredError() {
+  const error = new Error('Agent id is required.');
+  error.code = 'agent_required';
+  return error;
+}
+
+function resolveEntityContext(primary = {}, fallback = {}) {
+  const agentId = normalizeText(primary.agentId || fallback.agentId);
+  if (!agentId) {
+    throw createAgentRequiredError();
+  }
+
+  return {
+    agentId,
+    characterId: normalizeText(primary.characterId || fallback.characterId, agentId),
+  };
+}
+
 function normalizeStatUpdates(input = []) {
   if (!Array.isArray(input)) {
     return [];
@@ -94,6 +112,10 @@ class ValueProposalService {
 
   applyConversationEvent(event = {}) {
     const payload = event?.payload && typeof event.payload === 'object' ? event.payload : {};
+    const entity = resolveEntityContext(payload, {
+      agentId: event.agentId,
+      characterId: event.characterId || payload.agentId || event.agentId,
+    });
     const statUpdates = normalizeStatUpdates(
       payload.statUpdates
       || payload.stat_updates
@@ -105,16 +127,12 @@ class ValueProposalService {
         ok: true,
         changed: false,
         reason: 'no_stat_updates',
-        state: this.requireStore().getState({
-          agentId: payload.agentId || event.agentId || 'main',
-          characterId: payload.characterId || event.characterId || payload.agentId || event.agentId || 'main',
-        }),
+        state: this.requireStore().getState(entity),
       };
     }
 
     return this.applyProposal({
-      agentId: payload.agentId || event.agentId || 'main',
-      characterId: payload.characterId || event.characterId || payload.agentId || event.agentId || 'main',
+      ...entity,
       routeKey: payload.routeKey || event.routeKey || '',
       sessionId: payload.sessionId || event.sessionId || '',
       turnId: payload.turnId || event.turnId || event.streamId || '',
@@ -124,6 +142,9 @@ class ValueProposalService {
   }
 
   applyInteraction(request = {}) {
+    const entity = resolveEntityContext(request, {
+      characterId: request.agentId,
+    });
     const statUpdates = buildInteractionStatUpdates(request.actionType || request.action || '');
     if (!statUpdates.length) {
       return {
@@ -136,8 +157,7 @@ class ValueProposalService {
     }
 
     return this.applyProposal({
-      agentId: request.agentId || 'main',
-      characterId: request.characterId || request.agentId || 'main',
+      ...entity,
       routeKey: request.routeKey || '',
       sessionId: request.sessionId || '',
       turnId: request.turnId || '',

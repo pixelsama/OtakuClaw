@@ -38,6 +38,12 @@ function normalizeText(value, fallback = '') {
   return normalized || fallback;
 }
 
+function createAgentRequiredError() {
+  const error = new Error('Agent id is required.');
+  error.code = 'agent_required';
+  return error;
+}
+
 function normalizeBackendName(value) {
   const normalized = normalizeText(value, 'nanobot').toLowerCase();
   if (normalized === 'claude code' || normalized === 'claudecode' || normalized === 'claude_code') {
@@ -53,9 +59,26 @@ function normalizeSessionId(value) {
   return normalizeText(value, 'default');
 }
 
-function normalizeMemoryKey(input = {}) {
+function resolveMemoryKeySource(input = {}) {
   const source = isObject(input) ? input : {};
-  const agentId = normalizeText(source.agentId, 'main');
+  if (isObject(source.key)) {
+    return source.key;
+  }
+  if (isObject(source.memoryKey)) {
+    return source.memoryKey;
+  }
+  if (isObject(source.context)) {
+    return source.context;
+  }
+  return source;
+}
+
+function normalizeMemoryKey(input = {}) {
+  const source = resolveMemoryKeySource(input);
+  const agentId = normalizeText(source.agentId);
+  if (!agentId) {
+    throw createAgentRequiredError();
+  }
   const backend = normalizeBackendName(source.backend);
   const routeKey = normalizeText(source.routeKey, `${agentId}:${backend}`);
   const sessionId = normalizeSessionId(source.sessionId);
@@ -66,6 +89,26 @@ function normalizeMemoryKey(input = {}) {
     routeKey,
     sessionId,
   };
+}
+
+function normalizeSnapshotKey(input = {}) {
+  try {
+    return normalizeMemoryKey(input);
+  } catch (error) {
+    if (error?.code !== 'agent_required') {
+      throw error;
+    }
+
+    const source = isObject(input) ? input : {};
+    const backend = normalizeBackendName(source.backend);
+    const agentId = normalizeText(source.agentId);
+    return {
+      agentId,
+      backend,
+      routeKey: normalizeText(source.routeKey, agentId ? `${agentId}:${backend}` : ''),
+      sessionId: normalizeSessionId(source.sessionId),
+    };
+  }
 }
 
 function safePathSegment(value, fallback = 'default') {
@@ -89,7 +132,7 @@ function resolveMemoryFilePath(baseDir, keyInput = {}) {
   return path.join(
     baseDir,
     'persona-short-term',
-    safePathSegment(key.agentId, 'main'),
+    safePathSegment(key.agentId, 'agent'),
     safePathSegment(key.backend, 'nanobot'),
     safePathSegment(key.routeKey, 'default'),
     `${safePathSegment(key.sessionId, 'default')}.json`,
@@ -180,7 +223,8 @@ function normalizeTurns(input = []) {
 
 function normalizeMemorySnapshot(input = {}) {
   const source = isObject(input) ? input : {};
-  const key = normalizeMemoryKey(source.key || source.memoryKey || source.context || source);
+  const keySource = resolveMemoryKeySource(source);
+  const key = normalizeSnapshotKey(keySource);
   const createdAt = normalizeText(source.createdAt, new Date().toISOString());
   const updatedAt = normalizeText(source.updatedAt, createdAt);
 

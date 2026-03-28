@@ -7,6 +7,7 @@ const test = require('node:test');
 const {
   applyMemoryPatch,
   createShortTermMemoryStore,
+  normalizeMemoryKey,
   normalizeMemorySnapshot,
   resolveMemoryFilePath,
 } = require('../services/persona/shortTermMemoryStore');
@@ -136,4 +137,64 @@ test('memory patch helper merges state and appended turns without losing existin
   assert.equal(result.snapshot.state.mood, 'calm');
   assert.equal(result.snapshot.state.affinity, 4);
   assert.equal(result.snapshot.metadata.lastReason, 'unit-test');
+});
+
+test('short term memory store rejects missing agent ids instead of defaulting to main', async () => {
+  const baseDir = await fs.mkdtemp(path.join(os.tmpdir(), 'persona-memory-agent-required-'));
+  const store = createShortTermMemoryStore({ baseDir });
+
+  assert.throws(() => normalizeMemoryKey({ backend: 'nanobot' }), { code: 'agent_required' });
+  await assert.rejects(
+    () => store.appendTurn(
+      {
+        backend: 'nanobot',
+        routeKey: 'route-missing-agent',
+        sessionId: 'session-1',
+      },
+      {
+        role: 'user',
+        content: '这次没有 agent。',
+      },
+    ),
+    { code: 'agent_required' },
+  );
+});
+
+test('short term memory store preserves explicit key when reading legacy snapshot payloads', async () => {
+  const baseDir = await fs.mkdtemp(path.join(os.tmpdir(), 'persona-memory-legacy-read-'));
+  const store = createShortTermMemoryStore({ baseDir });
+  const key = {
+    agentId: 'agent-a',
+    backend: 'nanobot',
+    routeKey: 'route-legacy',
+    sessionId: 'session-1',
+  };
+  const filePath = resolveMemoryFilePath(baseDir, key);
+
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, JSON.stringify({
+    version: 1,
+    key: {
+      backend: 'nanobot',
+      routeKey: 'route-legacy',
+      sessionId: 'session-1',
+    },
+    state: {
+      mood: 'warm',
+      affinity: 3,
+    },
+    turns: [
+      {
+        role: 'user',
+        content: '请记住我是旧格式快照。',
+      },
+    ],
+  }), 'utf8');
+
+  const snapshot = await store.read(key);
+
+  assert.equal(snapshot.key.agentId, 'agent-a');
+  assert.equal(snapshot.key.routeKey, 'route-legacy');
+  assert.equal(snapshot.turns.length, 1);
+  assert.equal(snapshot.state.affinity, 3);
 });
