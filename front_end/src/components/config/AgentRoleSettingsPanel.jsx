@@ -10,12 +10,51 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import StaticAvatarControls from '../avatar/StaticAvatarControls.jsx';
+import AvatarRenderer from '../avatar/AvatarRenderer.jsx';
+import AgentRoleLive2DPreviewEditor from './AgentRoleLive2DPreviewEditor.jsx';
 import { desktopBridge } from '../../services/desktopBridge.js';
 import { useI18n } from '../../i18n/I18nContext.jsx';
 import { normalizeOfficeState } from '../office/officeSceneConfig.js';
 
 const AGENT_STATE_OPTIONS = ['idle', 'writing', 'researching', 'executing', 'syncing', 'error'];
 const AGENT_BACKEND_OPTIONS = ['nanobot', 'claude-code', 'codex'];
+const DEFAULT_AGENT_AVATAR = {
+  renderMode: 'live2d',
+  live2d: {
+    selectedModelPath: '',
+    modelScale: 1,
+    autoEyeBlink: true,
+    autoBreath: true,
+    eyeTracking: true,
+    background: {
+      hasBackground: false,
+      opacity: 1,
+      imageDataUrl: '',
+      imageName: '',
+    },
+  },
+  static: {
+    selectedPackId: '',
+    scale: 1,
+    hitTest: {
+      mode: 'alpha',
+      alphaThreshold: 10,
+    },
+  },
+};
+
+function clamp(value, min, max, fallback) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, numericValue));
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
 
 function normalizeAgentId(value) {
   if (typeof value !== 'string') {
@@ -40,6 +79,69 @@ function normalizeBusinessState(value, fallback = 'idle') {
   return AGENT_STATE_OPTIONS.includes(normalized) ? normalized : fallback;
 }
 
+function normalizeAvatarRenderMode(value) {
+  return typeof value === 'string' && value.trim().toLowerCase() === 'static' ? 'static' : 'live2d';
+}
+
+function normalizeStaticHitTest(value = {}) {
+  const source = isPlainObject(value) ? value : {};
+  return {
+    mode: source.mode === 'rect' ? 'rect' : 'alpha',
+    alphaThreshold: clamp(source.alphaThreshold, 0, 255, DEFAULT_AGENT_AVATAR.static.hitTest.alphaThreshold),
+  };
+}
+
+function normalizeStaticAvatar(value = {}) {
+  const source = isPlainObject(value) ? value : {};
+  return {
+    selectedPackId: typeof source.selectedPackId === 'string' ? source.selectedPackId.trim() : '',
+    scale: clamp(source.scale, 0.1, 3, DEFAULT_AGENT_AVATAR.static.scale),
+    hitTest: normalizeStaticHitTest(source.hitTest),
+  };
+}
+
+function normalizeLive2dBackground(value = {}) {
+  const source = isPlainObject(value) ? value : {};
+  return {
+    hasBackground: Boolean(source.hasBackground),
+    opacity: clamp(source.opacity, 0, 1, DEFAULT_AGENT_AVATAR.live2d.background.opacity),
+    imageDataUrl:
+      typeof source.imageDataUrl === 'string' && source.imageDataUrl.trim()
+        ? source.imageDataUrl
+        : '',
+    imageName: typeof source.imageName === 'string' ? source.imageName.trim() : '',
+  };
+}
+
+function normalizeLive2dAvatar(value = {}, legacyModelPath = '') {
+  const source = isPlainObject(value) ? value : {};
+  return {
+    selectedModelPath:
+      typeof source.selectedModelPath === 'string' && source.selectedModelPath.trim()
+        ? source.selectedModelPath.trim()
+        : (typeof legacyModelPath === 'string' ? legacyModelPath.trim() : ''),
+    modelScale: clamp(source.modelScale, 0.1, 3, DEFAULT_AGENT_AVATAR.live2d.modelScale),
+    autoEyeBlink:
+      typeof source.autoEyeBlink === 'boolean'
+        ? source.autoEyeBlink
+        : DEFAULT_AGENT_AVATAR.live2d.autoEyeBlink,
+    autoBreath:
+      typeof source.autoBreath === 'boolean' ? source.autoBreath : DEFAULT_AGENT_AVATAR.live2d.autoBreath,
+    eyeTracking:
+      typeof source.eyeTracking === 'boolean' ? source.eyeTracking : DEFAULT_AGENT_AVATAR.live2d.eyeTracking,
+    background: normalizeLive2dBackground(source.background),
+  };
+}
+
+function normalizeAvatar(value = {}, legacyModelPath = '') {
+  const source = isPlainObject(value) ? value : {};
+  return {
+    renderMode: normalizeAvatarRenderMode(source.renderMode),
+    live2d: normalizeLive2dAvatar(source.live2d, legacyModelPath),
+    static: normalizeStaticAvatar(source.static),
+  };
+}
+
 function isValidAgentId(value) {
   return /^[a-z0-9_-]+$/.test(value);
 }
@@ -52,7 +154,7 @@ function createEmptyDraft(defaultBackend = 'nanobot') {
     businessState: 'idle',
     detail: '',
     backend: normalizeAgentBackend(defaultBackend, 'nanobot'),
-    live2dModelPath: '',
+    avatar: normalizeAvatar(DEFAULT_AGENT_AVATAR),
   };
 }
 
@@ -72,6 +174,8 @@ function normalizeConfiguredAgent(entry = {}, index = 0, defaultBackend = 'nanob
   if (!agentId) {
     return null;
   }
+
+  const avatar = normalizeAvatar(source.avatar, source.live2dModelPath);
   return {
     agentId,
     id: agentId,
@@ -82,7 +186,8 @@ function normalizeConfiguredAgent(entry = {}, index = 0, defaultBackend = 'nanob
     businessState: normalizeBusinessState(source.businessState, 'idle'),
     detail: typeof source.detail === 'string' ? source.detail.trim() : '',
     backend: normalizeAgentBackend(source.backend, defaultBackend),
-    live2dModelPath: typeof source.live2dModelPath === 'string' ? source.live2dModelPath.trim() : '',
+    avatar,
+    live2dModelPath: avatar.live2d.selectedModelPath,
   };
 }
 
@@ -95,6 +200,7 @@ export default function AgentRoleSettingsPanel({
   onSetActiveAgent,
 }) {
   const { t } = useI18n();
+  const desktopMode = desktopBridge.isDesktop();
   const normalizedOfficeState = useMemo(() => normalizeOfficeState(officeState), [officeState]);
   const normalizedDefaultBackend = normalizeAgentBackend(defaultBackend, 'nanobot');
   const [draft, setDraft] = useState(() => createEmptyDraft(normalizedDefaultBackend));
@@ -103,9 +209,7 @@ export default function AgentRoleSettingsPanel({
   const [feedback, setFeedback] = useState('');
   const [error, setError] = useState('');
   const [availableModels, setAvailableModels] = useState([]);
-  const [isLoadingModels, setIsLoadingModels] = useState(false);
-  const [isImportingModel, setIsImportingModel] = useState(false);
-  const [modelLibraryError, setModelLibraryError] = useState('');
+  const [availableStaticPacks, setAvailableStaticPacks] = useState([]);
 
   const activeAgentId = typeof normalizedOfficeState.activeAgentId === 'string'
     ? normalizedOfficeState.activeAgentId.trim()
@@ -129,28 +233,37 @@ export default function AgentRoleSettingsPanel({
     return byPath;
   }, [availableModels]);
 
+  const staticPackNameById = useMemo(() => {
+    const byId = new Map();
+    for (const pack of availableStaticPacks) {
+      if (typeof pack?.packId === 'string' && pack.packId.trim()) {
+        byId.set(pack.packId.trim(), typeof pack?.name === 'string' && pack.name.trim() ? pack.name.trim() : pack.packId.trim());
+      }
+    }
+    return byId;
+  }, [availableStaticPacks]);
+
   const loadAvailableModels = useCallback(async () => {
-    setIsLoadingModels(true);
     try {
-      if (!desktopBridge.isDesktop()) {
+      if (!desktopMode) {
         setAvailableModels([]);
-        setModelLibraryError(t('controls.unsupportedModelImport'));
         return;
       }
       const result = await desktopBridge.models.list();
       setAvailableModels(Array.isArray(result?.models) ? result.models : []);
-      setModelLibraryError('');
-    } catch (loadError) {
+    } catch {
       setAvailableModels([]);
-      setModelLibraryError(loadError?.message || t('controls.loadModelLibraryFailed'));
-    } finally {
-      setIsLoadingModels(false);
     }
-  }, [t]);
+  }, [desktopMode]);
 
   useEffect(() => {
     void loadAvailableModels();
   }, [loadAvailableModels]);
+
+  const selectedStaticPack = useMemo(
+    () => availableStaticPacks.find((pack) => pack?.packId === draft.avatar.static.selectedPackId) || null,
+    [availableStaticPacks, draft.avatar.static.selectedPackId],
+  );
 
   const resetDraft = useCallback(() => {
     setEditingAgentId('');
@@ -169,11 +282,63 @@ export default function AgentRoleSettingsPanel({
       businessState: normalizeBusinessState(agent.businessState, 'idle'),
       detail: agent.detail || '',
       backend: normalizeAgentBackend(agent.backend, normalizedDefaultBackend),
-      live2dModelPath: agent.live2dModelPath || '',
+      avatar: normalizeAvatar(agent.avatar, agent.live2dModelPath),
     });
     setFeedback('');
     setError('');
   };
+
+  const updateDraftAvatarRenderMode = useCallback((renderMode) => {
+    setDraft((current) => ({
+      ...current,
+      avatar: {
+        ...current.avatar,
+        renderMode: normalizeAvatarRenderMode(renderMode),
+      },
+    }));
+  }, []);
+
+  const updateDraftStaticAvatar = useCallback((patch = {}) => {
+    setDraft((current) => ({
+      ...current,
+      avatar: {
+        ...current.avatar,
+        static: normalizeStaticAvatar({
+          ...current.avatar.static,
+          ...patch,
+          ...(isPlainObject(patch.hitTest)
+            ? {
+                hitTest: {
+                  ...current.avatar.static.hitTest,
+                  ...patch.hitTest,
+                },
+              }
+            : {}),
+        }),
+      },
+    }));
+  }, []);
+
+  const updateDraftLive2dAvatar = useCallback((patch = {}) => {
+    setDraft((current) => ({
+      ...current,
+      avatar: {
+        ...current.avatar,
+        live2d: normalizeLive2dAvatar({
+          ...current.avatar.live2d,
+          ...patch,
+          ...(isPlainObject(patch.background)
+            ? {
+                background: {
+                  ...current.avatar.live2d.background,
+                  ...patch.background,
+                },
+              }
+            : {}),
+        }, current.avatar.live2d.selectedModelPath),
+      },
+    }));
+  }, []);
 
   const handleSave = async () => {
     const nextAgentId = normalizeAgentId(draft.agentId);
@@ -195,6 +360,7 @@ export default function AgentRoleSettingsPanel({
       return;
     }
 
+    const normalizedAvatar = normalizeAvatar(draft.avatar, draft.avatar?.live2d?.selectedModelPath);
     const normalizedAgent = {
       agentId: nextAgentId,
       id: nextAgentId,
@@ -203,7 +369,8 @@ export default function AgentRoleSettingsPanel({
       businessState: normalizeBusinessState(draft.businessState, 'idle'),
       detail: typeof draft.detail === 'string' ? draft.detail.trim() : '',
       backend: normalizeAgentBackend(draft.backend, normalizedDefaultBackend),
-      live2dModelPath: typeof draft.live2dModelPath === 'string' ? draft.live2dModelPath.trim() : '',
+      avatar: normalizedAvatar,
+      live2dModelPath: normalizedAvatar.live2d.selectedModelPath,
     };
 
     setBusy(true);
@@ -251,23 +418,7 @@ export default function AgentRoleSettingsPanel({
     }
   };
 
-  const handleImportModelZip = async () => {
-    setIsImportingModel(true);
-    setFeedback('');
-    setError('');
-    try {
-      const result = await desktopBridge.models.importZip();
-      if (!result?.ok) {
-        throw new Error(result?.error?.message || t('agent.role.error.importModelFailed'));
-      }
-      await loadAvailableModels();
-      setFeedback(t('agent.role.feedback.modelImported'));
-    } catch (importError) {
-      setError(importError?.message || t('agent.role.error.importModelFailed'));
-    } finally {
-      setIsImportingModel(false);
-    }
-  };
+  const live2dEditorKey = editingAgentId || normalizeAgentId(draft.agentId) || 'draft-agent';
 
   return (
     <Stack spacing={2}>
@@ -282,8 +433,13 @@ export default function AgentRoleSettingsPanel({
         ) : (
           configuredAgents.map((agent) => {
             const isActive = agent.agentId === activeAgentId;
-            const modelLabel = agent.live2dModelPath
+            const isStaticAvatar = agent.avatar.renderMode === 'static';
+            const live2dModelLabel = agent.live2dModelPath
               ? (modelNameByPath.get(agent.live2dModelPath) || agent.live2dModelPath)
+              : t('agent.role.modelNone');
+            const staticPackId = agent.avatar.static.selectedPackId;
+            const staticPackLabel = staticPackId
+              ? (staticPackNameById.get(staticPackId) || staticPackId)
               : t('agent.role.modelNone');
             return (
               <Box
@@ -294,6 +450,11 @@ export default function AgentRoleSettingsPanel({
                   <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                     <Chip size="small" label={agent.agentId} />
                     <Typography variant="body2" sx={{ fontWeight: 600 }}>{agent.displayName}</Typography>
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      label={isStaticAvatar ? t('avatar.controls.renderModeStatic') : t('avatar.controls.renderModeLive2d')}
+                    />
                     {isActive && <Chip size="small" color="success" label={t('agent.role.active')} />}
                   </Stack>
                   <Typography variant="caption" color="text.secondary">
@@ -303,7 +464,9 @@ export default function AgentRoleSettingsPanel({
                     {t('agent.role.backendLabel', { backend: resolveBackendLabel(t, agent.backend) })}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {t('agent.role.modelLabel', { model: modelLabel })}
+                    {isStaticAvatar
+                      ? `${t('avatar.controls.packLabel')}: ${staticPackLabel}`
+                      : t('agent.role.modelLabel', { model: live2dModelLabel })}
                   </Typography>
                   <Stack direction="row" spacing={1} flexWrap="wrap">
                     <Button size="small" variant="outlined" disabled={busy} onClick={() => applyEdit(agent)}>
@@ -342,7 +505,7 @@ export default function AgentRoleSettingsPanel({
 
       <Divider />
 
-      <Stack spacing={1}>
+      <Stack spacing={1.5}>
         <Typography variant="subtitle2">
           {editingAgentId ? t('agent.role.editTitle') : t('agent.role.createTitle')}
         </Typography>
@@ -404,44 +567,75 @@ export default function AgentRoleSettingsPanel({
           <MenuItem value="codex">{t('app.backend.codex')}</MenuItem>
         </TextField>
 
-        <TextField
-          select
-          label={t('agent.role.live2dModel')}
-          value={draft.live2dModelPath}
-          onChange={(event) => setDraft((current) => ({ ...current, live2dModelPath: event.target.value }))}
-          fullWidth
-          disabled={busy || isLoadingModels}
-        >
-          <MenuItem value="">{t('agent.role.modelNone')}</MenuItem>
-          {availableModels.map((model) => {
-            const modelPath = typeof model?.path === 'string' ? model.path : '';
-            if (!modelPath) {
-              return null;
-            }
-            const modelName = typeof model?.name === 'string' && model.name.trim() ? model.name.trim() : modelPath;
-            return (
-              <MenuItem key={modelPath} value={modelPath}>{modelName}</MenuItem>
-            );
-          })}
-        </TextField>
+        <Divider />
 
-        <Stack direction="row" spacing={1}>
-          <Button variant="outlined" disabled={busy || isLoadingModels} onClick={() => { void loadAvailableModels(); }}>
-            {isLoadingModels ? t('agent.role.loadingModels') : t('agent.role.refreshModels')}
-          </Button>
-          <Button
-            variant="outlined"
-            disabled={busy || isImportingModel}
-            onClick={() => {
-              void handleImportModelZip();
+        <Typography variant="subtitle2">{t('agent.role.live2dModel')}</Typography>
+
+        <StaticAvatarControls
+          desktopMode={desktopMode}
+          renderMode={draft.avatar.renderMode}
+          onRenderModeChange={updateDraftAvatarRenderMode}
+          selectedPackId={draft.avatar.static.selectedPackId}
+          onSelectedPackIdChange={(selectedPackId) => {
+            updateDraftStaticAvatar({ selectedPackId });
+          }}
+          staticScale={draft.avatar.static.scale}
+          onStaticScaleChange={(scale) => {
+            updateDraftStaticAvatar({ scale });
+          }}
+          staticHitTest={draft.avatar.static.hitTest}
+          onStaticHitTestChange={(hitTestPatch) => {
+            updateDraftStaticAvatar({ hitTest: hitTestPatch });
+          }}
+          onPacksChange={(packs) => {
+            setAvailableStaticPacks(Array.isArray(packs) ? packs : []);
+          }}
+        />
+
+        {draft.avatar.renderMode === 'static' ? (
+          <Stack spacing={1.5}>
+            <Box
+              sx={{
+                border: 1,
+                borderColor: 'divider',
+                borderRadius: 1,
+                minHeight: 280,
+                overflow: 'hidden',
+                background:
+                  'linear-gradient(180deg, rgba(250,251,245,0.95) 0%, rgba(230,236,230,0.92) 100%)',
+              }}
+            >
+              <Stack sx={{ height: '100%' }}>
+                <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: 'divider' }}>
+                  <Typography variant="subtitle2">Static Avatar Preview</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Preview follows the draft agent only and will not switch the active stage avatar.
+                  </Typography>
+                </Box>
+                <Box sx={{ flex: 1, minHeight: 220 }}>
+                  <AvatarRenderer
+                    renderMode="static"
+                    staticPack={selectedStaticPack}
+                    staticBusinessState={draft.businessState}
+                    staticScale={draft.avatar.static.scale}
+                    staticHitTest={draft.avatar.static.hitTest}
+                  />
+                </Box>
+              </Stack>
+            </Box>
+            {!selectedStaticPack && (
+              <Alert severity="info">{t('avatar.noStaticAvatarSelected')}</Alert>
+            )}
+          </Stack>
+        ) : (
+          <AgentRoleLive2DPreviewEditor
+            agentKey={live2dEditorKey}
+            value={draft.avatar.live2d}
+            onChange={(live2dPatch) => {
+              updateDraftLive2dAvatar(live2dPatch);
+              void loadAvailableModels();
             }}
-          >
-            {isImportingModel ? t('modelSettings.importing') : t('modelSettings.importZip')}
-          </Button>
-        </Stack>
-
-        {modelLibraryError && (
-          <Typography variant="caption" color="error">{modelLibraryError}</Typography>
+          />
         )}
 
         <TextField
