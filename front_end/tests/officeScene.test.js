@@ -15,6 +15,21 @@ import {
 } from '../src/components/office/officeSceneAssets.js';
 import { buildOfficeSceneAssetRegistry } from '../src/components/office/pixelPack.js';
 
+const OFFICE_AGENT_CASES = [
+  {
+    label: 'main',
+    activeAgentId: 'main',
+    displayName: 'OtakuClaw',
+    role: 'primary',
+  },
+  {
+    label: 'agent-alpha',
+    activeAgentId: 'agent-alpha',
+    displayName: 'Agent Alpha',
+    role: 'support',
+  },
+];
+
 describe('resolveContainedStageSize', () => {
   it('fits the 16:9 office scene inside wide windows without cropping', () => {
     expect(resolveContainedStageSize({ containerWidth: 960, containerHeight: 648 })).toEqual({
@@ -124,6 +139,67 @@ describe('normalizeOfficeState', () => {
       revision: 3,
     });
   });
+
+  it('normalizes main and non-main agent rows without losing identity metadata', () => {
+    for (const scenario of OFFICE_AGENT_CASES) {
+      const state = normalizeOfficeState({
+        revision: 1,
+        activeAgentId: scenario.activeAgentId,
+        agents: [
+          {
+            agentId: scenario.activeAgentId,
+            displayName: scenario.displayName,
+            businessState: 'idle',
+            detail: 'Standing by.',
+            role: scenario.role,
+            backend: scenario.activeAgentId === 'main' ? 'nanobot' : 'codex',
+            profileId: `${scenario.activeAgentId}-profile`,
+            routeKey: `${scenario.activeAgentId}:nanobot:session-1`,
+            sessionId: 'session-1',
+            sessionNamespace: 'session-1',
+            turnId: 'turn-1',
+            mood: 12,
+            affinity: '330',
+            stats: {
+              trust: 8,
+            },
+            valueState: {
+              revision: 3,
+            },
+          },
+        ],
+      });
+
+      expect(state.activeAgentId).toBe(scenario.activeAgentId);
+      expect(state.agents[0]).toMatchObject({
+        agentId: scenario.activeAgentId,
+        id: scenario.activeAgentId,
+        displayName: scenario.displayName,
+        role: scenario.role,
+        isPrimary: true,
+      });
+    }
+  });
+
+  it('keeps empty and invalid office state inputs stable', () => {
+    const emptyState = normalizeOfficeState({
+      revision: 0,
+      activeAgentId: '',
+      agents: [],
+    });
+    const invalidState = normalizeOfficeState({
+      revision: 'invalid',
+      activeAgentId: ' ',
+      agents: null,
+    });
+
+    expect(emptyState.activeAgentId).toBe('main');
+    expect(emptyState.agents).toHaveLength(1);
+    expect(emptyState.agents[0].agentId).toBe('main');
+    expect(invalidState.activeAgentId).toBe('main');
+    expect(invalidState.agents).toHaveLength(1);
+    expect(invalidState.agents[0].agentId).toBe('main');
+  });
 });
 
 describe('resolveOfficeSceneState', () => {
@@ -145,6 +221,48 @@ describe('resolveOfficeSceneState', () => {
     expect(scene.occupants.find((agent) => agent.agentId === 'main')?.areaId).toBe('desk');
     expect(scene.occupants.find((agent) => agent.agentId === 'voice')?.areaId).toBe('syncDock');
     expect(scene.occupants.find((agent) => agent.agentId === 'watcher')?.areaId).toBe('lounge');
+  });
+
+  it('keeps the primary occupant selection and layout stable for main and non-main active agents', () => {
+    for (const scenario of OFFICE_AGENT_CASES) {
+      const scene = resolveOfficeSceneState({
+        officeState: normalizeOfficeState({
+          revision: 2,
+          activeAgentId: scenario.activeAgentId,
+          agents: [
+            { agentId: scenario.activeAgentId, displayName: scenario.displayName, businessState: 'writing', detail: 'Replying now.' },
+            { agentId: scenario.activeAgentId === 'main' ? 'voice' : 'support', displayName: scenario.activeAgentId === 'main' ? 'Voice' : 'Support', businessState: 'syncing', detail: 'Preparing audio.' },
+            { agentId: scenario.activeAgentId === 'main' ? 'watcher' : 'observer', displayName: scenario.activeAgentId === 'main' ? 'Watcher' : 'Observer', businessState: 'idle', detail: 'Standing by.' },
+          ],
+        }),
+      });
+
+      expect(scene.primaryAgent.agentId).toBe(scenario.activeAgentId);
+      expect(scene.occupants.find((agent) => agent.agentId === scenario.activeAgentId)?.areaId).toBe('desk');
+      expect(scene.occupants.some((agent) => agent.agentId === scene.primaryAgent.agentId)).toBe(true);
+    }
+  });
+
+  it('renders gracefully for empty and invalid office state inputs', () => {
+    const emptyScene = resolveOfficeSceneState({
+      officeState: normalizeOfficeState({
+        revision: 0,
+        activeAgentId: '',
+        agents: [],
+      }),
+    });
+    const invalidScene = resolveOfficeSceneState({
+      officeState: normalizeOfficeState({
+        revision: 'invalid',
+        activeAgentId: undefined,
+        agents: null,
+      }),
+    });
+
+    expect(emptyScene.primaryAgent.agentId).toBe('main');
+    expect(emptyScene.occupants).toHaveLength(1);
+    expect(invalidScene.primaryAgent.agentId).toBe('main');
+    expect(invalidScene.occupants).toHaveLength(1);
   });
 
   it('keeps route-aware agent metadata on scene occupants for immersive actions', () => {
@@ -590,32 +708,52 @@ describe('resolveOfficeSceneEditorState', () => {
 
 describe('buildOfficeDisplayState', () => {
   it('forces the primary agent into error mode during error preview without mutating support agents', () => {
-    const officeState = buildOfficeDisplayState({
-      officeState: normalizeOfficeState({
-        revision: 2,
-        activeAgentId: 'main',
-        agents: [
-          { agentId: 'main', displayName: 'Main', businessState: 'writing', detail: 'Replying now.' },
-          { agentId: 'voice', displayName: 'Voice', businessState: 'syncing', detail: 'Preparing audio.' },
-        ],
-      }),
-      primaryAgent: {
-        agentId: 'main',
-        displayName: 'Main',
-        businessState: 'writing',
-        detail: 'Replying now.',
-      },
-      previewMode: 'error',
-    });
+    for (const scenario of OFFICE_AGENT_CASES) {
+      const officeState = buildOfficeDisplayState({
+        officeState: normalizeOfficeState({
+          revision: 2,
+          activeAgentId: scenario.activeAgentId,
+          agents: [
+            {
+              agentId: scenario.activeAgentId,
+              displayName: scenario.displayName,
+              businessState: 'writing',
+              detail: 'Replying now.',
+            },
+            {
+              agentId: scenario.activeAgentId === 'main' ? 'voice' : 'support',
+              displayName: scenario.activeAgentId === 'main' ? 'Voice' : 'Support',
+              businessState: 'syncing',
+              detail: 'Preparing audio.',
+            },
+          ],
+        }),
+        primaryAgent: {
+          agentId: scenario.activeAgentId,
+          displayName: scenario.displayName,
+          businessState: 'writing',
+          detail: 'Replying now.',
+        },
+        previewMode: 'error',
+      });
 
-    expect(officeState.agents.find((agent) => agent.agentId === 'main')).toMatchObject({
-      businessState: 'error',
-      detail: 'Previewing error-state furniture.',
-    });
-    expect(officeState.agents.find((agent) => agent.agentId === 'voice')).toMatchObject({
-      businessState: 'syncing',
-      detail: 'Preparing audio.',
-    });
+      expect(officeState.activeAgentId).toBe('main');
+      if (scenario.activeAgentId === 'main') {
+        expect(officeState.agents.find((agent) => agent.agentId === scenario.activeAgentId)).toMatchObject({
+          businessState: 'error',
+          detail: 'Previewing error-state furniture.',
+        });
+      } else {
+        expect(officeState.agents.find((agent) => agent.agentId === scenario.activeAgentId)).toMatchObject({
+          businessState: 'writing',
+          detail: 'Replying now.',
+        });
+      }
+      expect(officeState.agents.find((agent) => agent.agentId !== scenario.activeAgentId)).toMatchObject({
+        businessState: 'syncing',
+        detail: 'Preparing audio.',
+      });
+    }
   });
 });
 

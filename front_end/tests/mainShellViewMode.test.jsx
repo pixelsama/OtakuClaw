@@ -30,15 +30,15 @@ vi.mock('../src/i18n/I18nContext.jsx', () => ({
   useI18n: () => ({ t: (key) => key }),
 }));
 
-function createOfficeScene() {
+function createOfficeScene(agentId = 'main') {
   return resolveOfficeSceneState({
     officeState: normalizeOfficeState({
       revision: 1,
-      activeAgentId: 'main',
+      activeAgentId: agentId,
       agents: [
         {
-          agentId: 'main',
-          displayName: 'OtakuClaw',
+          agentId,
+          displayName: agentId === 'main' ? 'OtakuClaw' : 'Agent Alpha',
           businessState: 'writing',
           detail: 'Replying now.',
         },
@@ -112,6 +112,28 @@ describe('MainShell window view mode', () => {
     expect(html).toContain('office-room--browse');
     expect(html).not.toContain('data-testid="live2d-viewer-mock"');
     expect(html).toContain('Decorate');
+    expect(html).not.toContain('Pixel room editor');
+  });
+
+  it('renders the office page when the active office agent is agent-alpha', () => {
+    const html = renderMainShell({
+      officeScene: createOfficeScene('agent-alpha'),
+    });
+
+    expect(html).toContain('office-room--browse');
+    expect(html).toContain('Decorate');
+    expect(html).not.toContain('data-testid="live2d-viewer-mock"');
+    expect(html).not.toContain('Pixel room editor');
+  });
+
+  it('falls back to avatar mode when office scene data is missing', () => {
+    const html = renderMainShell({
+      officeScene: null,
+      initialWindowViewMode: 'office',
+    });
+
+    expect(html).toContain('data-testid="live2d-viewer-mock"');
+    expect(html).not.toContain('office-room--browse');
     expect(html).not.toContain('Pixel room editor');
   });
 

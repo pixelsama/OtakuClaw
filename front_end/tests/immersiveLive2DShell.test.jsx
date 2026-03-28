@@ -36,10 +36,10 @@ describe('ImmersiveLive2DShell', () => {
         motions: [],
         expressions: [],
         immersiveContext: {
-          agentId: 'main',
+          agentId: 'agent-alpha',
           agent: {
-            agentId: 'main',
-            displayName: 'OtakuClaw',
+            agentId: 'agent-alpha',
+            displayName: 'Agent Alpha',
             stats: {
               mood: { value: 12 },
               affinity: { value: 330 },
@@ -69,6 +69,32 @@ describe('ImmersiveLive2DShell', () => {
     expect(html).toContain('Workbench');
     expect(html).toContain('Mood 12');
     expect(html).toContain('Affinity 330');
+  });
+
+  it('renders safely when immersive context is empty or invalid', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ImmersiveLive2DShell, {
+        desktopMode: false,
+        platform: 'darwin',
+        currentModelPath: '/models/star.model3.json',
+        motions: [],
+        expressions: [],
+        immersiveContext: {
+          agentId: '',
+          sourceAreaId: 'unknown-area',
+          sourceAreaPoint: { x: 'invalid', y: null },
+        },
+        valueSnapshot: null,
+        onOpenChatPanel: () => {},
+        onBackToRoom: () => {},
+        onActionRequested: () => {},
+      }),
+    );
+
+    expect(html).toContain('Studio Default');
+    expect(html).toContain('Mood --');
+    expect(html).toContain('Affinity --');
+    expect(html).toContain('返回房间');
   });
 
   it('uses source area coordinates for immersive backdrop framing and allows size overrides', () => {

@@ -6,6 +6,29 @@ import {
   formatOpenClawSettingsError,
 } from '../src/hooks/settings/useOpenClawSettings.js';
 
+const OPENCLAW_AGENT_CASES = [
+  {
+    label: 'main',
+    agentId: 'main',
+    expectedAgentId: 'main',
+  },
+  {
+    label: 'non-main agent-alpha',
+    agentId: 'agent-alpha',
+    expectedAgentId: 'agent-alpha',
+  },
+  {
+    label: 'empty string',
+    agentId: '',
+    expectedAgentId: '',
+  },
+  {
+    label: 'invalid undefined input',
+    agentId: undefined,
+    expectedAgentId: '',
+  },
+];
+
 describe('buildOpenClawSettingsPayload', () => {
   it('keeps base fields and trims token', () => {
     const payload = buildOpenClawSettingsPayload({
@@ -33,6 +56,22 @@ describe('buildOpenClawSettingsPayload', () => {
       agentId: 'main',
     });
   });
+
+  for (const scenario of OPENCLAW_AGENT_CASES) {
+    it(`preserves agent id for ${scenario.label}`, () => {
+      const payload = buildOpenClawSettingsPayload({
+        baseUrl: 'http://127.0.0.1:18789',
+        agentId: scenario.agentId,
+        token: '  secret-token  ',
+      });
+
+      expect(payload).toEqual({
+        baseUrl: 'http://127.0.0.1:18789',
+        agentId: scenario.expectedAgentId,
+        token: 'secret-token',
+      });
+    });
+  }
 });
 
 describe('formatOpenClawSettingsError', () => {
@@ -81,6 +120,20 @@ describe('buildChatBackendSettingsPayload', () => {
     expect(payload.nanobot.apiKey).toBe('sk-or-v1-demo');
     expect(payload.nanobot.allowHighRiskTools).toBe(true);
     expect(payload.nanobot.maxTokens).toBe(2048);
+  });
+
+  it('keeps openclaw agent ids stable across main, non-main, and invalid inputs', () => {
+    for (const scenario of OPENCLAW_AGENT_CASES) {
+      const payload = buildChatBackendSettingsPayload({
+        chatBackend: 'nanobot',
+        openclaw: {
+          baseUrl: 'http://127.0.0.1:18789',
+          agentId: scenario.agentId,
+        },
+      });
+
+      expect(payload.openclaw.agentId).toBe(scenario.expectedAgentId);
+    }
   });
 
   it('preserves codex backend and acp runner config', () => {

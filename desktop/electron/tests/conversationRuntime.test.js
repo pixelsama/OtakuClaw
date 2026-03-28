@@ -3,6 +3,30 @@ const test = require('node:test');
 
 const { createConversationRuntime } = require('../services/chat/conversationRuntime');
 
+const ROUTE_CASES = [
+  {
+    label: 'legacy main agent',
+    agentId: 'main',
+    backend: 'nanobot',
+    expectedAgentId: 'main',
+    expectedRouteKey: 'main:nanobot:shared-session',
+  },
+  {
+    label: 'non-main agent-alpha route',
+    agentId: 'agent-alpha',
+    backend: 'codex',
+    expectedAgentId: 'agent-alpha',
+    expectedRouteKey: 'agent-alpha:codex:shared-session',
+  },
+  {
+    label: 'invalid agent id falls back to main route',
+    agentId: '',
+    backend: 'nanobot',
+    expectedAgentId: 'main',
+    expectedRouteKey: 'main:nanobot:shared-session',
+  },
+];
+
 test('conversation runtime latest-wins aborts previous active stream in same session', async () => {
   const startedRequests = [];
   const aborted = [];
@@ -86,6 +110,55 @@ test('conversation runtime latest-wins aborts previous active stream across back
   assert.notEqual(startedRequests[0].routeKey, startedRequests[1].routeKey);
   assert.deepEqual(aborted, ['stream-1']);
 });
+
+for (const scenario of ROUTE_CASES) {
+  test(`conversation runtime keeps agent metadata aligned for ${scenario.label}`, async () => {
+    const emitted = [];
+    const startedRequests = [];
+    let streamSeq = 0;
+    const runtime = createConversationRuntime({
+      startChatStream: async (request = {}) => {
+        streamSeq += 1;
+        startedRequests.push(request);
+        return {
+          ok: true,
+          streamId: `stream-${streamSeq}`,
+          backend: request.backend,
+        };
+      },
+      abortChatStream: async () => ({ ok: true }),
+      emitConversationEvent: (payload) => emitted.push(payload),
+    });
+
+    const result = await runtime.submitUserText({
+      sessionId: 'shared-session',
+      agentId: scenario.agentId,
+      backend: scenario.backend,
+      content: 'hello',
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(startedRequests.length, 1);
+    assert.equal(startedRequests[0].agentId, scenario.expectedAgentId);
+    assert.equal(startedRequests[0].routeKey, scenario.expectedRouteKey);
+
+    runtime.onChatStreamEvent({
+      streamId: result.streamId,
+      type: 'text-delta',
+      payload: {
+        content: 'hello',
+      },
+    });
+
+    const textDeltaEvent = emitted.find((event) => event.type === 'text-delta');
+    assert.equal(textDeltaEvent.channel, 'chat');
+    assert.equal(textDeltaEvent.agentId, scenario.expectedAgentId);
+    assert.equal(textDeltaEvent.backend, scenario.backend);
+    assert.equal(textDeltaEvent.routeKey, scenario.expectedRouteKey);
+    assert.equal(textDeltaEvent.payload.routeKey, scenario.expectedRouteKey);
+    assert.equal(textDeltaEvent.payload.turnId, result.streamId);
+  });
+}
 
 test('conversation runtime queue policy starts next request after terminal event', async () => {
   const started = [];

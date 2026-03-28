@@ -3,6 +3,17 @@ const test = require('node:test');
 
 const { createOfficeStateStore } = require('../services/officeStateStore');
 
+const OFFICE_AGENT_CASES = [
+  {
+    label: 'main agent',
+    agentId: 'main',
+  },
+  {
+    label: 'non-main agent-alpha',
+    agentId: 'agent-alpha',
+  },
+];
+
 test('office state store upserts agents, updates active agent, and bumps revision', () => {
   const store = createOfficeStateStore();
   const snapshots = [];
@@ -258,6 +269,130 @@ test('office state store reduces scene-intent and execution-fact into effective 
   assert.equal(clearFactResult.state.agents[0].businessState, 'researching');
   assert.equal(clearFactResult.state.agents[0].sceneState, 'desk');
   assert.equal(clearFactResult.state.agents[0].factState, null);
+});
+
+for (const scenario of OFFICE_AGENT_CASES) {
+  test(`office state store applies layered office events for ${scenario.label}`, () => {
+    const baseTimestampMs = Date.now();
+    const intentTimestamp = new Date(baseTimestampMs).toISOString();
+    const factTimestamp = new Date(baseTimestampMs + 1000).toISOString();
+    const clearFactTimestamp = new Date(baseTimestampMs + 2000).toISOString();
+
+    const store = createOfficeStateStore({
+      initialState: {
+        revision: 0,
+        activeAgentId: scenario.agentId,
+        agents: [
+          {
+            id: scenario.agentId,
+            name: scenario.agentId === 'main' ? 'OtakuClaw' : 'Agent Alpha',
+          },
+        ],
+      },
+    });
+
+    const intentResult = store.applyConversationEvent({
+      channel: 'office',
+      type: 'scene-intent',
+      timestamp: intentTimestamp,
+      payload: {
+        agentId: scenario.agentId,
+        intent: {
+          businessState: 'researching',
+          areaId: 'desk',
+          detail: 'Let me check this first.',
+          ttlMs: 4000,
+        },
+      },
+    });
+
+    assert.equal(intentResult.ok, true);
+    assert.equal(intentResult.state.activeAgentId, scenario.agentId);
+    assert.equal(intentResult.state.agents[0].businessState, 'researching');
+    assert.equal(intentResult.state.agents[0].sceneState, 'desk');
+
+    const factResult = store.applyConversationEvent({
+      channel: 'office',
+      type: 'execution-fact',
+      timestamp: factTimestamp,
+      payload: {
+        agentId: scenario.agentId,
+        fact: {
+          businessState: 'executing',
+          areaId: 'desk',
+          detail: 'Running local command.',
+        },
+      },
+    });
+
+    assert.equal(factResult.ok, true);
+    assert.equal(factResult.state.agents[0].businessState, 'executing');
+    assert.equal(factResult.state.agents[0].detail, 'Running local command.');
+    assert.equal(factResult.state.agents[0].factState?.businessState, 'executing');
+
+    const clearFactResult = store.applyConversationEvent({
+      channel: 'office',
+      type: 'execution-fact',
+      timestamp: clearFactTimestamp,
+      payload: {
+        agentId: scenario.agentId,
+        clearFact: true,
+      },
+    });
+
+    assert.equal(clearFactResult.ok, true);
+    assert.equal(clearFactResult.state.agents[0].businessState, 'researching');
+    assert.equal(clearFactResult.state.agents[0].sceneState, 'desk');
+    assert.equal(clearFactResult.state.agents[0].factState, null);
+  });
+}
+
+test('office state store preserves empty office state and no-ops on empty upserts', () => {
+  const store = createOfficeStateStore({
+    initialState: {
+      revision: 3,
+      activeAgentId: '',
+      agents: [],
+    },
+  });
+
+  const result = store.upsertAgents([]);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.changed, false);
+  assert.equal(result.state.activeAgentId, '');
+  assert.equal(result.state.agents.length, 0);
+  assert.equal(result.state.revision, 3);
+});
+
+test('office state store rejects invalid office intent and fact events without agent ids', () => {
+  const store = createOfficeStateStore();
+
+  const invalidIntent = store.applyConversationEvent({
+    channel: 'office',
+    type: 'scene-intent',
+    payload: {
+      intent: {
+        businessState: 'researching',
+      },
+    },
+  });
+
+  assert.equal(invalidIntent.ok, false);
+  assert.equal(invalidIntent.reason, 'invalid_scene_intent');
+
+  const invalidFact = store.applyConversationEvent({
+    channel: 'office',
+    type: 'execution-fact',
+    payload: {
+      fact: {
+        businessState: 'executing',
+      },
+    },
+  });
+
+  assert.equal(invalidFact.ok, false);
+  assert.equal(invalidFact.reason, 'invalid_execution_fact');
 });
 
 test('office state store expires stale scene-intent and falls back to idle', () => {
