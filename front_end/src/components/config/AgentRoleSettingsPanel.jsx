@@ -27,6 +27,8 @@ const DEFAULT_AGENT_AVATAR = {
     autoEyeBlink: true,
     autoBreath: true,
     eyeTracking: true,
+    motions: [],
+    expressions: [],
     background: {
       hasBackground: false,
       opacity: 1,
@@ -113,6 +115,15 @@ function normalizeLive2dBackground(value = {}) {
   };
 }
 
+function normalizeLive2dAssets(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => ({ ...item }));
+}
+
 function normalizeLive2dAvatar(value = {}, legacyModelPath = '') {
   const source = isPlainObject(value) ? value : {};
   return {
@@ -129,6 +140,8 @@ function normalizeLive2dAvatar(value = {}, legacyModelPath = '') {
       typeof source.autoBreath === 'boolean' ? source.autoBreath : DEFAULT_AGENT_AVATAR.live2d.autoBreath,
     eyeTracking:
       typeof source.eyeTracking === 'boolean' ? source.eyeTracking : DEFAULT_AGENT_AVATAR.live2d.eyeTracking,
+    motions: normalizeLive2dAssets(source.motions),
+    expressions: normalizeLive2dAssets(source.expressions),
     background: normalizeLive2dBackground(source.background),
   };
 }
@@ -198,6 +211,7 @@ export default function AgentRoleSettingsPanel({
   onUpsertAgent,
   onRemoveAgent,
   onSetActiveAgent,
+  onStaticAvatarPacksChange,
 }) {
   const { t } = useI18n();
   const desktopMode = desktopBridge.isDesktop();
@@ -588,7 +602,9 @@ export default function AgentRoleSettingsPanel({
             updateDraftStaticAvatar({ hitTest: hitTestPatch });
           }}
           onPacksChange={(packs) => {
-            setAvailableStaticPacks(Array.isArray(packs) ? packs : []);
+            const nextPacks = Array.isArray(packs) ? packs : [];
+            setAvailableStaticPacks(nextPacks);
+            onStaticAvatarPacksChange?.(nextPacks);
           }}
         />
 

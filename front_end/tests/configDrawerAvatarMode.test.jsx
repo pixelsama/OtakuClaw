@@ -5,15 +5,8 @@ import ConfigDrawer from '../src/components/config/ConfigDrawer.jsx';
 
 globalThis.React = React;
 
-vi.mock('../src/components/controls/Live2DControls.jsx', () => ({
-  default: () => React.createElement('div', { 'data-testid': 'live2d-controls-mock' }),
-}));
-
-vi.mock('../src/components/avatar/StaticAvatarControls.jsx', () => ({
-  default: ({ renderMode }) => React.createElement('div', {
-    'data-testid': 'static-avatar-controls-mock',
-    'data-render-mode': renderMode,
-  }),
+vi.mock('../src/components/config/AgentRoleSettingsPanel.jsx', () => ({
+  default: () => React.createElement('div', { 'data-testid': 'agent-role-settings-panel-mock' }),
 }));
 
 vi.mock('../src/components/config/VoiceSettingsPanel.jsx', () => ({
@@ -40,28 +33,14 @@ vi.mock('../src/theme/ThemeModeContext.jsx', () => ({
   }),
 }));
 
-function renderDrawer(avatarRenderMode) {
+function renderDrawer() {
   return renderToStaticMarkup(
     React.createElement(ConfigDrawer, {
       open: true,
       isPetMode: false,
       isNarrowViewport: false,
       onClose: () => {},
-      modelLoaded: false,
       desktopMode: false,
-      live2dViewerRef: { current: null },
-      avatarRenderMode,
-      selectedStaticAvatarId: '',
-      staticAvatarScale: 1,
-      staticAvatarHitTest: { mode: 'alpha', alphaThreshold: 10 },
-      onAvatarRenderModeChange: () => {},
-      onSelectedStaticAvatarChange: () => {},
-      onStaticAvatarScaleChange: () => {},
-      onStaticAvatarHitTestChange: () => {},
-      onStaticAvatarPacksChange: () => {},
-      onModelChange: () => {},
-      onMotionsUpdate: () => {},
-      onExpressionsUpdate: () => {},
       chatBackendSettings: {
         chatBackend: 'nanobot',
         nanobot: {
@@ -76,18 +55,18 @@ function renderDrawer(avatarRenderMode) {
   );
 }
 
-describe('ConfigDrawer avatar mode section', () => {
-  it('renders avatar controls and hides live2d-only controls in static mode', () => {
-    const html = renderDrawer('static');
-    expect(html).toContain('data-testid="static-avatar-controls-mock"');
-    expect(html).not.toContain('data-testid="live2d-controls-mock"');
-    expect(html).toContain('data-render-mode="static"');
+describe('ConfigDrawer tabs after avatar-tab removal', () => {
+  it('renders agent role panel by default and no avatar tab', () => {
+    const html = renderDrawer();
+    expect(html).toContain('data-testid="agent-role-settings-panel-mock"');
+    expect(html).not.toContain('app.tab.avatar');
   });
 
-  it('renders live2d controls when mode is live2d', () => {
-    const html = renderDrawer('live2d');
-    expect(html).toContain('data-testid="static-avatar-controls-mock"');
-    expect(html).toContain('data-testid="live2d-controls-mock"');
-    expect(html).toContain('data-render-mode="live2d"');
+  it('still renders core settings tabs', () => {
+    const html = renderDrawer();
+    expect(html).toContain('app.tab.agentRoles');
+    expect(html).toContain('app.tab.backendResources');
+    expect(html).toContain('app.tab.voice');
+    expect(html).toContain('app.tab.preferences');
   });
 });

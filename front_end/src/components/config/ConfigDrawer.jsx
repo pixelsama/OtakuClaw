@@ -171,6 +171,7 @@ export default function ConfigDrawer({
   onUpsertOfficeAgent,
   onRemoveOfficeAgent,
   onSetActiveOfficeAgent,
+  onStaticAvatarPacksChange,
   chatBackendSettings = {},
   settingsSaving = false,
   settingsTesting = false,
@@ -479,6 +480,7 @@ export default function ConfigDrawer({
                 onUpsertAgent={onUpsertOfficeAgent}
                 onRemoveAgent={onRemoveOfficeAgent}
                 onSetActiveAgent={onSetActiveOfficeAgent}
+                onStaticAvatarPacksChange={onStaticAvatarPacksChange}
               />
             )}
 

@@ -139,6 +139,18 @@ const DEFAULT_AVATAR_SETTINGS = {
   renderMode: 'live2d',
   live2d: {
     selectedModelPath: '',
+    modelScale: 1,
+    autoEyeBlink: true,
+    autoBreath: true,
+    eyeTracking: true,
+    motions: [],
+    expressions: [],
+    background: {
+      hasBackground: false,
+      opacity: 1,
+      imageDataUrl: '',
+      imageName: '',
+    },
   },
   static: {
     selectedPackId: '',
@@ -159,6 +171,11 @@ function normalizeAvatarSettings(source = {}) {
   const live2d = avatar.live2d && typeof avatar.live2d === 'object' ? avatar.live2d : {};
   const staticAvatar = avatar.static && typeof avatar.static === 'object' ? avatar.static : {};
   const hitTest = staticAvatar.hitTest && typeof staticAvatar.hitTest === 'object' ? staticAvatar.hitTest : {};
+  const normalizeEntries = (value) => (
+    Array.isArray(value)
+      ? value.filter((entry) => entry && typeof entry === 'object').map((entry) => ({ ...entry }))
+      : []
+  );
 
   return {
     renderMode: normalizeAvatarRenderMode(avatar.renderMode),
@@ -167,6 +184,32 @@ function normalizeAvatarSettings(source = {}) {
         typeof live2d.selectedModelPath === 'string'
           ? live2d.selectedModelPath.trim()
           : DEFAULT_AVATAR_SETTINGS.live2d.selectedModelPath,
+      modelScale: Number.isFinite(live2d.modelScale)
+        ? Math.max(0.1, Math.min(3, live2d.modelScale))
+        : DEFAULT_AVATAR_SETTINGS.live2d.modelScale,
+      autoEyeBlink: typeof live2d.autoEyeBlink === 'boolean'
+        ? live2d.autoEyeBlink
+        : DEFAULT_AVATAR_SETTINGS.live2d.autoEyeBlink,
+      autoBreath: typeof live2d.autoBreath === 'boolean'
+        ? live2d.autoBreath
+        : DEFAULT_AVATAR_SETTINGS.live2d.autoBreath,
+      eyeTracking: typeof live2d.eyeTracking === 'boolean'
+        ? live2d.eyeTracking
+        : DEFAULT_AVATAR_SETTINGS.live2d.eyeTracking,
+      motions: normalizeEntries(live2d.motions),
+      expressions: normalizeEntries(live2d.expressions),
+      background: {
+        hasBackground: Boolean(live2d?.background?.hasBackground),
+        opacity: Number.isFinite(live2d?.background?.opacity)
+          ? Math.max(0, Math.min(1, live2d.background.opacity))
+          : DEFAULT_AVATAR_SETTINGS.live2d.background.opacity,
+        imageDataUrl: typeof live2d?.background?.imageDataUrl === 'string'
+          ? live2d.background.imageDataUrl
+          : '',
+        imageName: typeof live2d?.background?.imageName === 'string'
+          ? live2d.background.imageName.trim()
+          : '',
+      },
     },
     static: {
       selectedPackId:
@@ -208,10 +251,8 @@ function AppContent({ desktopMode }) {
   const isNarrowViewport = useMediaQuery('(max-width:900px)');
   const { t } = useI18n();
 
-  const [, setModelLoaded] = useState(false);
+  const [modelLoaded, setModelLoaded] = useState(false);
   const [staticAvatarPacks, setStaticAvatarPacks] = useState([]);
-  const motions = useMemo(() => [], []);
-  const expressions = useMemo(() => [], []);
   const [officeStateSnapshot, setOfficeStateSnapshot] = useState(() => normalizeOfficeState());
   const [officeSceneLayout, setOfficeSceneLayout] = useState(() => normalizeOfficeSceneLayout());
   const [officeActivityHint, setOfficeActivityHint] = useState(null);
@@ -358,6 +399,8 @@ function AppContent({ desktopMode }) {
   const currentModelPath = activeAvatarConfig.live2d.selectedModelPath || DEFAULT_MODEL;
   const staticAvatarScale = activeAvatarConfig.static.scale;
   const staticAvatarHitTest = activeAvatarConfig.static.hitTest;
+  const motions = activeAvatarConfig.live2d.motions;
+  const expressions = activeAvatarConfig.live2d.expressions;
   const selectedStaticAvatarId = useMemo(() => {
     const configuredPackId = activeAvatarConfig.static.selectedPackId;
     if (staticAvatarPacks.some((pack) => pack.packId === configuredPackId)) {
@@ -1022,6 +1065,28 @@ function AppContent({ desktopMode }) {
     setModelLoaded(false);
     console.error('Model error in App:', error);
   }, []);
+
+  useEffect(() => {
+    if (!modelLoaded || avatarRenderMode !== 'live2d') {
+      return;
+    }
+    const manager = live2dViewerRef.current?.getManager?.();
+    if (!manager) {
+      return;
+    }
+
+    manager.setModelScale?.(activeAvatarConfig.live2d.modelScale);
+    manager.setAutoEyeBlinkEnable?.(activeAvatarConfig.live2d.autoEyeBlink);
+    manager.setAutoBreathEnable?.(activeAvatarConfig.live2d.autoBreath);
+    manager.setEyeTracking?.(activeAvatarConfig.live2d.eyeTracking);
+  }, [
+    activeAvatarConfig.live2d.autoBreath,
+    activeAvatarConfig.live2d.autoEyeBlink,
+    activeAvatarConfig.live2d.eyeTracking,
+    activeAvatarConfig.live2d.modelScale,
+    avatarRenderMode,
+    modelLoaded,
+  ]);
 
   const handlePixelPackAction = useCallback(
     async (action, payload = {}) => {
@@ -1944,6 +2009,7 @@ function AppContent({ desktopMode }) {
         onUpsertOfficeAgent={handleUpsertOfficeAgent}
         onRemoveOfficeAgent={handleRemoveOfficeAgent}
         onSetActiveOfficeAgent={handleSetActiveOfficeAgent}
+        onStaticAvatarPacksChange={setStaticAvatarPacks}
         chatBackendSettings={chatBackendSettings}
         settingsSaving={settingsSaving}
         settingsTesting={settingsTesting}

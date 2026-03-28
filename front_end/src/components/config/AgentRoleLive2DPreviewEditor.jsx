@@ -7,7 +7,6 @@ import {
 } from '@mui/material';
 import AvatarRenderer from '../avatar/AvatarRenderer.jsx';
 import Live2DControls from '../controls/Live2DControls.jsx';
-import { STORAGE_KEYS } from '../controls/constants.js';
 
 const DEFAULT_LIVE2D_DRAFT = {
   selectedModelPath: '',
@@ -15,6 +14,8 @@ const DEFAULT_LIVE2D_DRAFT = {
   autoEyeBlink: true,
   autoBreath: true,
   eyeTracking: true,
+  motions: [],
+  expressions: [],
   background: {
     hasBackground: false,
     opacity: 1,
@@ -48,6 +49,15 @@ function normalizeBackground(background = {}) {
   };
 }
 
+function normalizeAssetEntries(entries) {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+  return entries
+    .filter((entry) => entry && typeof entry === 'object')
+    .map((entry) => ({ ...entry }));
+}
+
 function normalizeValue(value = {}) {
   const source = isPlainObject(value) ? value : {};
   return {
@@ -62,56 +72,10 @@ function normalizeValue(value = {}) {
       typeof source.autoBreath === 'boolean' ? source.autoBreath : DEFAULT_LIVE2D_DRAFT.autoBreath,
     eyeTracking:
       typeof source.eyeTracking === 'boolean' ? source.eyeTracking : DEFAULT_LIVE2D_DRAFT.eyeTracking,
+    motions: normalizeAssetEntries(source.motions),
+    expressions: normalizeAssetEntries(source.expressions),
     background: normalizeBackground(source.background),
   };
-}
-
-function readStorageSnapshot() {
-  if (typeof window === 'undefined' || !window.localStorage) {
-    return null;
-  }
-
-  return Object.values(STORAGE_KEYS).reduce((snapshot, key) => {
-    snapshot[key] = window.localStorage.getItem(key);
-    return snapshot;
-  }, {});
-}
-
-function restoreStorageSnapshot(snapshot) {
-  if (!snapshot || typeof window === 'undefined' || !window.localStorage) {
-    return;
-  }
-
-  Object.entries(snapshot).forEach(([key, value]) => {
-    if (value === null || typeof value === 'undefined') {
-      window.localStorage.removeItem(key);
-      return;
-    }
-    window.localStorage.setItem(key, value);
-  });
-}
-
-function seedStorage(value = {}) {
-  if (typeof window === 'undefined' || !window.localStorage) {
-    return;
-  }
-
-  const normalized = normalizeValue(value);
-  window.localStorage.setItem(
-    STORAGE_KEYS.modelConfig,
-    JSON.stringify({
-      selectedModel: normalized.selectedModelPath,
-      modelScale: normalized.modelScale,
-      autoEyeBlink: normalized.autoEyeBlink,
-      autoBreath: normalized.autoBreath,
-      eyeTracking: normalized.eyeTracking,
-      backgroundOpacity: normalized.background.opacity,
-      hasBackground: normalized.background.hasBackground,
-    }),
-  );
-  window.localStorage.setItem(STORAGE_KEYS.motionConfig, JSON.stringify({ motions: [] }));
-  window.localStorage.setItem(STORAGE_KEYS.expressionConfig, JSON.stringify([]));
-  window.localStorage.setItem(STORAGE_KEYS.cachedBackgrounds, JSON.stringify([]));
 }
 
 async function fileLikeToDataUrl(fileLike) {
@@ -152,29 +116,8 @@ export default function AgentRoleLive2DPreviewEditor({
 }) {
   const normalizedValue = useMemo(() => normalizeValue(value), [value]);
   const live2dViewerRef = useRef(null);
-  const originalStorageRef = useRef(null);
-  const seedValueRef = useRef(normalizedValue);
-  const [controlsKey, setControlsKey] = useState(0);
   const [modelLoaded, setModelLoaded] = useState(false);
   const [backgroundError, setBackgroundError] = useState('');
-
-  useEffect(() => {
-    seedValueRef.current = normalizedValue;
-  }, [normalizedValue]);
-
-  useEffect(() => {
-    if (originalStorageRef.current === null) {
-      originalStorageRef.current = readStorageSnapshot();
-    }
-    seedStorage(seedValueRef.current);
-    setControlsKey((current) => current + 1);
-    setModelLoaded(false);
-  }, [agentKey]);
-
-  useEffect(() => () => {
-    restoreStorageSnapshot(originalStorageRef.current);
-    originalStorageRef.current = null;
-  }, []);
 
   useEffect(() => {
     setModelLoaded(false);
@@ -226,7 +169,25 @@ export default function AgentRoleLive2DPreviewEditor({
     return () => {
       cancelled = true;
     };
-  }, [controlsKey, normalizedValue.background]);
+  }, [normalizedValue.background]);
+
+  const controlledLive2dState = useMemo(() => ({
+    selectedModelPath: normalizedValue.selectedModelPath,
+    modelScale: normalizedValue.modelScale,
+    autoEyeBlink: normalizedValue.autoEyeBlink,
+    autoBreath: normalizedValue.autoBreath,
+    eyeTracking: normalizedValue.eyeTracking,
+    motions: normalizedValue.motions,
+    expressions: normalizedValue.expressions,
+  }), [
+    normalizedValue.autoBreath,
+    normalizedValue.autoEyeBlink,
+    normalizedValue.expressions,
+    normalizedValue.eyeTracking,
+    normalizedValue.modelScale,
+    normalizedValue.motions,
+    normalizedValue.selectedModelPath,
+  ]);
 
   const handleBackgroundChange = useCallback(
     async (backgroundConfig = {}) => {
@@ -275,8 +236,8 @@ export default function AgentRoleLive2DPreviewEditor({
               ref={live2dViewerRef}
               renderMode="live2d"
               modelPath={normalizedValue.selectedModelPath}
-              motions={[]}
-              expressions={[]}
+              motions={normalizedValue.motions}
+              expressions={normalizedValue.expressions}
               width={320}
               height={320}
               onModelLoaded={() => {
@@ -293,27 +254,23 @@ export default function AgentRoleLive2DPreviewEditor({
       {backgroundError ? <Alert severity="warning">{backgroundError}</Alert> : null}
 
       <Live2DControls
-        key={`${agentKey}-${controlsKey}`}
+        key={agentKey}
         live2dViewerRef={live2dViewerRef}
         modelLoaded={modelLoaded}
         isPetMode={false}
-        onModelChange={(selectedModelPath) => {
-          onChange?.({ selectedModelPath: selectedModelPath || '' });
+        live2dState={controlledLive2dState}
+        onLive2dStateChange={(nextState) => {
+          onChange?.({
+            selectedModelPath: nextState.selectedModelPath || '',
+            modelScale: clamp(nextState.modelScale, 0.1, 3, normalizedValue.modelScale),
+            autoEyeBlink: Boolean(nextState.autoEyeBlink),
+            autoBreath: Boolean(nextState.autoBreath),
+            eyeTracking: Boolean(nextState.eyeTracking),
+            motions: normalizeAssetEntries(nextState.motions),
+            expressions: normalizeAssetEntries(nextState.expressions),
+          });
         }}
-        onMotionsUpdate={() => {}}
-        onExpressionsUpdate={() => {}}
-        onAutoEyeBlinkChange={(autoEyeBlink) => {
-          onChange?.({ autoEyeBlink: Boolean(autoEyeBlink) });
-        }}
-        onAutoBreathChange={(autoBreath) => {
-          onChange?.({ autoBreath: Boolean(autoBreath) });
-        }}
-        onEyeTrackingChange={(eyeTracking) => {
-          onChange?.({ eyeTracking: Boolean(eyeTracking) });
-        }}
-        onModelScaleChange={(modelScale) => {
-          onChange?.({ modelScale: clamp(modelScale, 0.1, 3, normalizedValue.modelScale) });
-        }}
+        persistState={false}
         onBackgroundChange={(backgroundConfig) => {
           void handleBackgroundChange(backgroundConfig);
         }}
