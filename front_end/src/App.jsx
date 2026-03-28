@@ -45,7 +45,7 @@ import { I18nProvider, useI18n } from './i18n/I18nContext.jsx';
 import { normalizeErrorMessage } from './utils/normalizeErrorMessage.js';
 
 const DEFAULT_MODEL = '';
-const CONFIG_DRAWER_WIDTH = 420;
+const RIGHT_PANEL_WIDTH = 420;
 const AGENT_ROLE_CONFIG_STORAGE_KEY = 'openclaw.agentRoleConfig.v1';
 const SUPPORTED_AGENT_BACKENDS = new Set(['nanobot', 'claude-code', 'codex']);
 const SUPPORTED_AGENT_ROLE_STATES = new Set([
@@ -1897,8 +1897,8 @@ function AppContent({ desktopMode }) {
       minHeight: '100dvh',
       transition: 'padding-right 220ms ease',
       paddingRight:
-        (showConfigPanel || showChatPanel) && !isPetMode && !isNarrowViewport
-          ? `${CONFIG_DRAWER_WIDTH}px`
+        showChatPanel && !isPetMode && !isNarrowViewport
+          ? `${RIGHT_PANEL_WIDTH}px`
           : 0,
       background: isPetMode
         ? 'transparent'
@@ -1906,7 +1906,7 @@ function AppContent({ desktopMode }) {
           ? 'radial-gradient(circle at top, rgba(39, 57, 92, 0.45), rgba(12, 16, 24, 0.15)), linear-gradient(180deg, #131c2d 0%, #0b111c 100%)'
           : 'radial-gradient(circle at top, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.06)), linear-gradient(180deg, #e5eeff 0%, #f9fbff 100%)',
     }),
-    [isNarrowViewport, isPetMode, muiTheme.palette.mode, showConfigPanel, showChatPanel],
+    [isNarrowViewport, isPetMode, muiTheme.palette.mode, showChatPanel],
   );
 
   useEffect(() => {

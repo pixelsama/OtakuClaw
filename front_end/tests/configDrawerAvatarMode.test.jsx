@@ -33,7 +33,7 @@ vi.mock('../src/theme/ThemeModeContext.jsx', () => ({
   }),
 }));
 
-function renderDrawer() {
+function renderDrawer(props = {}) {
   return renderToStaticMarkup(
     React.createElement(ConfigDrawer, {
       open: true,
@@ -51,22 +51,37 @@ function renderDrawer() {
       onChatBackendChange: () => {},
       onNanobotSettingChange: () => {},
       onAcpBackendSettingChange: () => {},
+      ...props,
     }),
   );
 }
 
 describe('ConfigDrawer tabs after avatar-tab removal', () => {
-  it('renders agent role panel by default and no avatar tab', () => {
+  it('renders the full-window settings workspace and agent role panel by default', () => {
     const html = renderDrawer();
+    expect(html).toContain('settings-workspace-overlay');
+    expect(html).toContain('settings-workspace-nav');
+    expect(html).not.toContain('MuiDrawer-root');
     expect(html).toContain('data-testid="agent-role-settings-panel-mock"');
     expect(html).not.toContain('app.tab.avatar');
   });
 
-  it('still renders core settings tabs', () => {
+  it('still renders core settings navigation entries', () => {
     const html = renderDrawer();
     expect(html).toContain('app.tab.agentRoles');
     expect(html).toContain('app.tab.backendResources');
     expect(html).toContain('app.tab.voice');
     expect(html).toContain('app.tab.preferences');
+    expect(html).toContain('Pixel Pack');
+  });
+
+  it('renders compact navigation layout on narrow viewports', () => {
+    const html = renderDrawer({ isNarrowViewport: true });
+    expect(html).toContain('settings-workspace-overlay--compact');
+  });
+
+  it('renders a dedicated close button in the workspace header', () => {
+    const html = renderDrawer();
+    expect(html).toContain('aria-label="common.close"');
   });
 });

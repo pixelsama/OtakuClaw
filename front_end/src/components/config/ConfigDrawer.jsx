@@ -7,14 +7,10 @@ import {
   Box,
   Button,
   Chip,
-  Divider,
-  Drawer,
   IconButton,
   LinearProgress,
   MenuItem,
   Stack,
-  Tab,
-  Tabs,
   TextField,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
@@ -38,7 +34,7 @@ import {
   NANOBOT_PROVIDER_OPTIONS,
 } from '../../constants/nanobotProviders.js';
 
-const CONFIG_DRAWER_WIDTH = 420;
+const DESKTOP_TITLEBAR_HEIGHT = 44;
 const MASKED_SECRET_VALUE = '********';
 const DEFAULT_APP_UPDATER_STATE = {
   status: 'idle',
@@ -294,6 +290,16 @@ export default function ConfigDrawer({
     ? pixelPackStateError
     : '';
   const [selectedPixelPackId, setSelectedPixelPackId] = useState('');
+  const configSections = useMemo(
+    () => [
+      { tab: 0, label: t('app.tab.agentRoles') },
+      { tab: 1, label: t('app.tab.backendResources') },
+      { tab: 2, label: t('app.tab.voice') },
+      { tab: 3, label: t('app.tab.preferences') },
+      { tab: 4, label: 'Pixel Pack' },
+    ],
+    [t],
+  );
   const selectedPixelPack = useMemo(() => {
     return pixelPackEntries.find((pack) => pack.id === selectedPixelPackId)
       || pixelPackState?.activePack
@@ -434,58 +440,80 @@ export default function ConfigDrawer({
     };
   }, [desktopMode, open, t]);
 
+  useEffect(() => {
+    if (!open || isPetMode) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+      event.preventDefault();
+      onClose?.();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isPetMode, onClose, open]);
+
+  if (!open || isPetMode) {
+    return null;
+  }
+
   return (
-    <Drawer
-      anchor="right"
-      open={open && !isPetMode}
-      onClose={onClose}
-      variant={isNarrowViewport ? 'temporary' : 'persistent'}
-      ModalProps={{ keepMounted: true }}
-      PaperProps={{
-        sx: {
-          width: {
-            xs: '100%',
-            sm: CONFIG_DRAWER_WIDTH,
-          },
-          maxWidth: '100vw',
-        },
-      }}
+    <Box
+      className={`settings-workspace-overlay${isNarrowViewport ? ' settings-workspace-overlay--compact' : ''}`}
+      sx={{ top: desktopMode ? `${DESKTOP_TITLEBAR_HEIGHT}px` : 0 }}
+      role="dialog"
+      aria-label={t('app.settingsPanel')}
+      aria-modal="true"
     >
-      <Stack sx={{ height: '100%' }}>
-        <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }}>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <IconButton onClick={onClose}>
+      <Box className="settings-workspace-surface">
+        <Box className="settings-workspace-header">
+          <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ width: '100%' }}>
+            <Box component="h2" className="settings-workspace-title">
+              {t('app.settingsPanel')}
+            </Box>
+            <IconButton onClick={onClose} aria-label={t('common.close')}>
               <CloseIcon />
             </IconButton>
-            <span>{t('app.settingsPanel')}</span>
           </Stack>
         </Box>
 
-        <Box sx={{ flex: 1, overflowY: 'auto', px: 2, py: 2 }}>
-          <Stack spacing={2}>
-            <Tabs value={activeConfigTab} onChange={(_event, tab) => setActiveConfigTab(tab)} variant="fullWidth">
-              <Tab label={t('app.tab.agentRoles')} />
-              <Tab label={t('app.tab.backendResources')} />
-              <Tab label={t('app.tab.voice')} />
-              <Tab label={t('app.tab.preferences')} />
-              <Tab label="Pixel Pack" />
-            </Tabs>
-            <Divider />
+        <Box className="settings-workspace-body">
+          <Box className="settings-workspace-nav">
+            <Stack className="settings-workspace-nav-list" spacing={0.5}>
+              {configSections.map((section) => (
+                <Button
+                  key={section.tab}
+                  className={`settings-workspace-nav-item${activeConfigTab === section.tab ? ' is-active' : ''}`}
+                  onClick={() => setActiveConfigTab(section.tab)}
+                >
+                  {section.label}
+                </Button>
+              ))}
+            </Stack>
+          </Box>
 
-            {activeConfigTab === 0 && (
-              <AgentRoleSettingsPanel
-                officeState={officeState}
-                agentRoleConfig={agentRoleConfig}
-                defaultBackend={defaultChatBackend}
-                onUpsertAgent={onUpsertOfficeAgent}
-                onRemoveAgent={onRemoveOfficeAgent}
-                onSetActiveAgent={onSetActiveOfficeAgent}
-                onStaticAvatarPacksChange={onStaticAvatarPacksChange}
-              />
-            )}
+          <Box className="settings-workspace-content">
+            <Stack spacing={2}>
+              {activeConfigTab === 0 && (
+                <AgentRoleSettingsPanel
+                  officeState={officeState}
+                  agentRoleConfig={agentRoleConfig}
+                  defaultBackend={defaultChatBackend}
+                  onUpsertAgent={onUpsertOfficeAgent}
+                  onRemoveAgent={onRemoveOfficeAgent}
+                  onSetActiveAgent={onSetActiveOfficeAgent}
+                  onStaticAvatarPacksChange={onStaticAvatarPacksChange}
+                />
+              )}
 
-            {activeConfigTab === 1 && (
-              <Stack spacing={1.5}>
+              {activeConfigTab === 1 && (
+                <Stack spacing={1.5}>
                 {!desktopMode && <Alert severity="warning">{t('app.webModeWarning')}</Alert>}
 
                 {desktopMode && !hasSecureStorage && (
@@ -1003,18 +1031,18 @@ export default function ConfigDrawer({
                   {settingsFeedback && <Alert severity="success">{settingsFeedback}</Alert>}
                 </SectionAccordion>
               </Stack>
-            )}
+              )}
 
-            {activeConfigTab === 2 && (
-              <VoiceSettingsPanel
-                desktopMode={desktopMode}
-                onOpenDownloadCenter={onOpenDownloadCenter}
-                onBuiltinTtsEnabledChange={onBuiltinTtsEnabledChange}
-              />
-            )}
+              {activeConfigTab === 2 && (
+                <VoiceSettingsPanel
+                  desktopMode={desktopMode}
+                  onOpenDownloadCenter={onOpenDownloadCenter}
+                  onBuiltinTtsEnabledChange={onBuiltinTtsEnabledChange}
+                />
+              )}
 
-            {activeConfigTab === 3 && (
-              <Stack spacing={1.5}>
+              {activeConfigTab === 3 && (
+                <Stack spacing={1.5}>
                 <SectionAccordion title={t('preferences.language')}>
                   <Stack direction="row" spacing={1}>
                     <Button
@@ -1132,10 +1160,10 @@ export default function ConfigDrawer({
                   {!!appUpdaterFeedback && <Alert severity="success">{appUpdaterFeedback}</Alert>}
                 </SectionAccordion>
               </Stack>
-            )}
+              )}
 
-            {activeConfigTab === 4 && (
-              <Stack spacing={1.5}>
+              {activeConfigTab === 4 && (
+                <Stack spacing={1.5}>
                 <Alert severity={desktopMode ? 'info' : 'warning'}>
                   {desktopMode
                     ? 'Pixel packs can override the room backdrop, characters, and furniture. Missing pack art still falls back to the built-in office assets.'
@@ -1280,10 +1308,11 @@ export default function ConfigDrawer({
                   </SectionAccordion>
                 )}
               </Stack>
-            )}
-          </Stack>
+              )}
+            </Stack>
+          </Box>
         </Box>
-      </Stack>
-    </Drawer>
+      </Box>
+    </Box>
   );
 }
