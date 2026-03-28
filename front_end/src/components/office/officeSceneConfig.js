@@ -1,6 +1,4 @@
 import { OFFICE_SCENE_ASSET_REGISTRY, resolveOfficeSceneAsset } from './officeSceneAssets.js';
-
-export const OFFICE_PRIMARY_AGENT_ID = 'main';
 export const DEFAULT_OFFICE_THEME_ID = 'star-office-classic';
 const OFFICE_FURNITURE_CATEGORY_LABELS = {
   workstation: 'Workstations',
@@ -1082,20 +1080,25 @@ function normalizeStateMap(map = {}) {
   };
 }
 
-export function normalizeOfficeAgent(agent = {}, fallbackId = OFFICE_PRIMARY_AGENT_ID) {
+export function normalizeOfficeAgent(agent = {}, fallbackId = '') {
   const source = agent && typeof agent === 'object' ? agent : {};
   const agentId = normalizeString(source.agentId || source.id, fallbackId);
+  if (!agentId) {
+    return null;
+  }
   const businessState = normalizeString(source.businessState, 'idle').toLowerCase();
+  const activeAgentId = normalizeString(source.activeAgentId, '');
+  const isPrimary = Boolean(source.isPrimary) || (activeAgentId ? agentId === activeAgentId : false);
   return {
     agentId,
     id: agentId,
-    displayName: normalizeString(source.displayName || source.name, agentId === OFFICE_PRIMARY_AGENT_ID ? 'OtakuClaw' : 'Agent'),
+    displayName: normalizeString(source.displayName || source.name, 'Agent'),
     businessState,
     detail: normalizeString(source.detail, ''),
     sceneState: normalizeString(source.sceneState, ''),
-    role: normalizeString(source.role, agentId === OFFICE_PRIMARY_AGENT_ID ? 'primary' : 'support'),
+    role: normalizeString(source.role, isPrimary ? 'primary' : 'support'),
     updatedAt: normalizeString(source.updatedAt, ''),
-    isPrimary: source.isPrimary !== false && agentId === normalizeString(source.activeAgentId || agentId, agentId),
+    isPrimary,
     backend: normalizeString(source.backend, ''),
     profileId: normalizeString(source.profileId, ''),
     routeKey: normalizeString(source.routeKey, ''),
@@ -1117,37 +1120,17 @@ export function normalizeOfficeState(state = {}) {
       ? Object.values(source.agents)
       : [];
   const agents = rawAgents
-    .map((agent, index) => normalizeOfficeAgent(agent, index === 0 ? OFFICE_PRIMARY_AGENT_ID : `agent-${index + 1}`))
+    .map((agent, index) => normalizeOfficeAgent(agent, `agent-${index + 1}`))
     .filter(Boolean);
-  const activeAgentId = normalizeString(source.activeAgentId, agents[0]?.agentId || OFFICE_PRIMARY_AGENT_ID);
-  const normalizedAgents = agents.length > 0
-    ? agents.map((agent) => ({
-        ...agent,
-        isPrimary: agent.agentId === activeAgentId,
-      }))
-    : [
-        {
-          agentId: OFFICE_PRIMARY_AGENT_ID,
-          id: OFFICE_PRIMARY_AGENT_ID,
-          displayName: 'OtakuClaw',
-          businessState: 'idle',
-          detail: '',
-          sceneState: '',
-          role: 'primary',
-          updatedAt: '',
-          isPrimary: true,
-          backend: '',
-          profileId: '',
-          routeKey: '',
-          sessionId: '',
-          sessionNamespace: '',
-          turnId: '',
-          mood: null,
-          affinity: null,
-          stats: null,
-          valueState: null,
-        },
-      ];
+  const requestedActiveAgentId = normalizeString(source.activeAgentId, '');
+  const activeAgentId = agents.some((agent) => agent.agentId === requestedActiveAgentId)
+    ? requestedActiveAgentId
+    : normalizeString(agents[0]?.agentId, '');
+  const normalizedAgents = agents.map((agent) => ({
+    ...agent,
+    role: normalizeString(agent.role, agent.agentId === activeAgentId ? 'primary' : 'support'),
+    isPrimary: agent.agentId === activeAgentId,
+  }));
 
   return {
     revision: Number.isFinite(source.revision) ? source.revision : 0,
@@ -1157,7 +1140,7 @@ export function normalizeOfficeState(state = {}) {
 }
 
 export function derivePrimaryOfficeAgent({
-  agentId = OFFICE_PRIMARY_AGENT_ID,
+  agentId = 'primary',
   displayName = 'OtakuClaw',
   isStreaming = false,
   activeDownloadTasks = [],
@@ -1199,7 +1182,7 @@ export function derivePrimaryOfficeAgent({
     role: 'primary',
     updatedAt: normalizeString(updatedAt, new Date().toISOString()),
     isPrimary: true,
-  }, agentId);
+  }, agentId || 'primary');
 }
 
 export function reduceOfficeActivityHint(currentHint = null, event = {}) {
@@ -1274,26 +1257,25 @@ export function buildOfficeDisplayState({
   previewMode = 'live',
 } = {}) {
   const normalizedSnapshot = normalizeOfficeState(officeState);
-  const normalizedPrimaryAgent = primaryAgent ? normalizeOfficeAgent(primaryAgent, OFFICE_PRIMARY_AGENT_ID) : null;
-  const hasPrimaryAgent = normalizedSnapshot.agents.some((agent) => agent.agentId === OFFICE_PRIMARY_AGENT_ID);
-  const baseState =
-    hasPrimaryAgent || !normalizedPrimaryAgent
-      ? normalizedSnapshot
-      : normalizeOfficeState({
-          ...normalizedSnapshot,
-          activeAgentId: OFFICE_PRIMARY_AGENT_ID,
-          agents: [normalizedPrimaryAgent, ...normalizedSnapshot.agents],
-        });
+  const normalizedPrimaryAgent = primaryAgent ? normalizeOfficeAgent(primaryAgent, 'primary') : null;
+  const baseState = normalizedSnapshot;
 
   if (normalizeString(previewMode, 'live') !== 'error') {
     return baseState;
   }
 
+  const previewAgentId = normalizedPrimaryAgent?.agentId
+    || normalizeString(baseState.activeAgentId, '')
+    || normalizeString(baseState.agents[0]?.agentId, '');
+  if (!previewAgentId) {
+    return baseState;
+  }
+
   return normalizeOfficeState({
     ...baseState,
-    activeAgentId: OFFICE_PRIMARY_AGENT_ID,
+    activeAgentId: normalizeString(baseState.activeAgentId, previewAgentId),
     agents: baseState.agents.map((agent) => (
-      agent.agentId !== OFFICE_PRIMARY_AGENT_ID
+      agent.agentId !== previewAgentId
         ? agent
         : {
             ...agent,

@@ -1,7 +1,6 @@
 import {
   normalizeOfficeAgent,
   normalizeOfficeState,
-  OFFICE_PRIMARY_AGENT_ID,
 } from '../components/office/officeSceneConfig.js';
 import { normalizePixelPackState } from '../components/office/pixelPack.js';
 
@@ -180,7 +179,7 @@ function mergeWebOfficeAgents(currentState, incomingAgents, options = {}) {
   let changed = false;
 
   for (const item of Array.isArray(incomingAgents) ? incomingAgents : []) {
-    const normalizedAgent = normalizeOfficeAgent(item, normalizedState.activeAgentId || OFFICE_PRIMARY_AGENT_ID);
+    const normalizedAgent = normalizeOfficeAgent(item, '');
     if (!normalizedAgent?.agentId) {
       continue;
     }
@@ -263,10 +262,12 @@ function removeWebOfficeAgent(currentState, agentId, options = {}) {
   });
 }
 
-function normalizeOfficePresenceRequest(request = {}, fallbackId = OFFICE_PRIMARY_AGENT_ID) {
+function normalizeOfficePresenceRequest(request = {}, fallbackId = '') {
   if (Array.isArray(request)) {
     return {
-      agents: request.map((item, index) => normalizeOfficeAgent(item, index === 0 ? fallbackId : `agent-${index + 1}`)),
+      agents: request
+        .map((item, index) => normalizeOfficeAgent(item, fallbackId || `agent-${index + 1}`))
+        .filter(Boolean),
     };
   }
 
@@ -277,9 +278,11 @@ function normalizeOfficePresenceRequest(request = {}, fallbackId = OFFICE_PRIMAR
   }
 
   const agents = Array.isArray(request.agents)
-    ? request.agents.map((item, index) => normalizeOfficeAgent(item, index === 0 ? fallbackId : `agent-${index + 1}`))
+    ? request.agents
+      .map((item, index) => normalizeOfficeAgent(item, fallbackId || `agent-${index + 1}`))
+      .filter(Boolean)
     : request.agent
-      ? [normalizeOfficeAgent(request.agent, fallbackId)]
+      ? [normalizeOfficeAgent(request.agent, fallbackId || 'agent-1')].filter(Boolean)
       : [];
 
   return {
@@ -499,7 +502,7 @@ function normalizeSettingsResponse(settings = {}) {
           ? openclaw.agentId.trim()
           : typeof settings.agentId === 'string'
             ? settings.agentId.trim()
-            : 'main',
+            : '',
       hasToken,
     },
     nanobot: {
@@ -1527,7 +1530,7 @@ export const desktopBridge = {
       return normalizeOfficeState(webOfficeState);
     },
     async publishPresence(request = {}) {
-      const normalizedRequest = normalizeOfficePresenceRequest(request, OFFICE_PRIMARY_AGENT_ID);
+      const normalizedRequest = normalizeOfficePresenceRequest(request);
       const api = getDesktopApi();
       if (api?.office?.publishPresence) {
         const result = await api.office.publishPresence(normalizedRequest);
@@ -1562,7 +1565,7 @@ export const desktopBridge = {
         mergeWebOfficeAgents(current, normalizedRequest.agents, normalizedRequest));
     },
     async heartbeat(request = {}) {
-      const normalizedRequest = normalizeOfficePresenceRequest(request, OFFICE_PRIMARY_AGENT_ID);
+      const normalizedRequest = normalizeOfficePresenceRequest(request);
       const api = getDesktopApi();
       if (api?.office?.heartbeat) {
         const result = await api.office.heartbeat(normalizedRequest);

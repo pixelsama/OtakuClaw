@@ -105,7 +105,7 @@ const defaultChatBackendSettings = {
   openclaw: {
     baseUrl: '',
     token: '',
-    agentId: 'main',
+    agentId: '',
     hasToken: false,
   },
   nanobot: {

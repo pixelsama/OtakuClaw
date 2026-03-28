@@ -333,6 +333,22 @@ describe('desktopBridge conversation-only routing', () => {
 });
 
 describe('desktopBridge office bridge', () => {
+  it('keeps an empty office fallback store before any agents are published', async () => {
+    globalThis.window = {
+      desktop: {
+        isElectron: true,
+      },
+    };
+
+    const state = await desktopBridge.office.getState();
+
+    expect(state).toEqual({
+      revision: 0,
+      activeAgentId: '',
+      agents: [],
+    });
+  });
+
   it('keeps a local office fallback store when preload office API is unavailable', async () => {
     globalThis.window = {
       desktop: {
@@ -346,17 +362,34 @@ describe('desktopBridge office bridge', () => {
     });
 
     const updated = await desktopBridge.office.upsertAgent({
-      agentId: 'main',
-      displayName: 'OtakuClaw',
+      agentId: 'agent-alpha',
+      displayName: 'Alpha',
       businessState: 'writing',
       detail: 'Streaming a reply.',
     });
 
-    expect(updated.activeAgentId).toBe('main');
+    expect(updated.activeAgentId).toBe('agent-alpha');
     expect(updated.agents[0].businessState).toBe('writing');
     expect(snapshots.at(-1)?.agents[0]?.businessState).toBe('writing');
 
     off();
+  });
+
+  it('selects the first available agent when publishPresence omits activeAgentId', async () => {
+    globalThis.window = {
+      desktop: {
+        isElectron: true,
+      },
+    };
+
+    const updated = await desktopBridge.office.publishPresence({
+      agents: [
+        { agentId: 'agent-alpha', displayName: 'Alpha', businessState: 'idle' },
+        { agentId: 'agent-beta', displayName: 'Beta', businessState: 'syncing' },
+      ],
+    });
+
+    expect(updated.activeAgentId).toBe('agent-alpha');
   });
 
   it('preserves the current active agent when upserting additional agents', async () => {
@@ -426,8 +459,8 @@ describe('desktopBridge office bridge', () => {
       ok: true,
       state: {
         revision: 4,
-        activeAgentId: 'main',
-        agents: [{ agentId: 'main', businessState: 'idle' }],
+        activeAgentId: '',
+        agents: [],
       },
     }));
 
@@ -468,7 +501,7 @@ describe('desktopBridge office bridge', () => {
     expect(published.activeAgentId).toBe('agent-beta');
     expect(heartbeatState.activeAgentId).toBe('agent-beta');
     expect(activeState.activeAgentId).toBe('agent-beta');
-    expect(removedState.activeAgentId).toBe('main');
+    expect(removedState.activeAgentId).toBe('');
   });
 
   it('routes office.onEvent through preload office changed channel', () => {
@@ -492,8 +525,8 @@ describe('desktopBridge office bridge', () => {
     listener?.({
       state: {
         revision: 2,
-        activeAgentId: 'main',
-        agents: [{ agentId: 'main', businessState: 'syncing' }],
+        activeAgentId: 'agent-alpha',
+        agents: [{ agentId: 'agent-alpha', businessState: 'syncing' }],
       },
       mutation: { type: 'update' },
     });
@@ -504,10 +537,10 @@ describe('desktopBridge office bridge', () => {
       type: 'update',
       payload: expect.objectContaining({
         revision: 2,
-        activeAgentId: 'main',
+        activeAgentId: 'agent-alpha',
         agents: [
           expect.objectContaining({
-            agentId: 'main',
+            agentId: 'agent-alpha',
             businessState: 'syncing',
           }),
         ],

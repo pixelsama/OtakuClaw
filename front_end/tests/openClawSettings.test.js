@@ -33,13 +33,13 @@ describe('buildOpenClawSettingsPayload', () => {
   it('keeps base fields and trims token', () => {
     const payload = buildOpenClawSettingsPayload({
       baseUrl: 'http://127.0.0.1:18789',
-      agentId: 'main',
+      agentId: 'agent-alpha',
       token: '  secret-token  ',
     });
 
     expect(payload).toEqual({
       baseUrl: 'http://127.0.0.1:18789',
-      agentId: 'main',
+      agentId: 'agent-alpha',
       token: 'secret-token',
     });
   });
@@ -47,13 +47,13 @@ describe('buildOpenClawSettingsPayload', () => {
   it('omits token when token is empty after trim', () => {
     const payload = buildOpenClawSettingsPayload({
       baseUrl: 'http://127.0.0.1:18789',
-      agentId: 'main',
+      agentId: 'agent-alpha',
       token: '   ',
     });
 
     expect(payload).toEqual({
       baseUrl: 'http://127.0.0.1:18789',
-      agentId: 'main',
+      agentId: 'agent-alpha',
     });
   });
 
@@ -100,7 +100,7 @@ describe('buildChatBackendSettingsPayload', () => {
       chatBackend: 'nanobot',
       openclaw: {
         baseUrl: 'http://127.0.0.1:18789',
-        agentId: 'main',
+        agentId: 'agent-alpha',
       },
       nanobot: {
         enabled: true,

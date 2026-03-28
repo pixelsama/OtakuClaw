@@ -96,6 +96,44 @@ describe('derivePrimaryOfficeAgent', () => {
 });
 
 describe('normalizeOfficeState', () => {
+  it('keeps empty office state empty instead of injecting a default main agent', () => {
+    expect(normalizeOfficeState()).toEqual({
+      revision: 0,
+      activeAgentId: '',
+      agents: [],
+    });
+  });
+
+  it('selects the first agent when activeAgentId is missing or invalid', () => {
+    const state = normalizeOfficeState({
+      revision: 1,
+      activeAgentId: '',
+      agents: [
+        {
+          agentId: 'agent-alpha',
+          displayName: 'Alpha',
+          businessState: 'idle',
+        },
+        {
+          agentId: 'agent-beta',
+          displayName: 'Beta',
+          businessState: 'writing',
+        },
+      ],
+    });
+
+    expect(state.activeAgentId).toBe('agent-alpha');
+    expect(state.agents[0]).toMatchObject({
+      agentId: 'agent-alpha',
+      isPrimary: true,
+    });
+    expect(state.agents[1]).toMatchObject({
+      agentId: 'agent-beta',
+      isPrimary: false,
+      role: 'support',
+    });
+  });
+
   it('preserves optional mood and affinity fields for future value overlays', () => {
     const state = normalizeOfficeState({
       revision: 1,
@@ -193,12 +231,16 @@ describe('normalizeOfficeState', () => {
       agents: null,
     });
 
-    expect(emptyState.activeAgentId).toBe('main');
-    expect(emptyState.agents).toHaveLength(1);
-    expect(emptyState.agents[0].agentId).toBe('main');
-    expect(invalidState.activeAgentId).toBe('main');
-    expect(invalidState.agents).toHaveLength(1);
-    expect(invalidState.agents[0].agentId).toBe('main');
+    expect(emptyState).toEqual({
+      revision: 0,
+      activeAgentId: '',
+      agents: [],
+    });
+    expect(invalidState).toEqual({
+      revision: 0,
+      activeAgentId: '',
+      agents: [],
+    });
   });
 });
 
@@ -259,10 +301,10 @@ describe('resolveOfficeSceneState', () => {
       }),
     });
 
-    expect(emptyScene.primaryAgent.agentId).toBe('main');
-    expect(emptyScene.occupants).toHaveLength(1);
-    expect(invalidScene.primaryAgent.agentId).toBe('main');
-    expect(invalidScene.occupants).toHaveLength(1);
+    expect(emptyScene.primaryAgent).toBeUndefined();
+    expect(emptyScene.occupants).toHaveLength(0);
+    expect(invalidScene.primaryAgent).toBeUndefined();
+    expect(invalidScene.occupants).toHaveLength(0);
   });
 
   it('keeps route-aware agent metadata on scene occupants for immersive actions', () => {
@@ -707,6 +749,23 @@ describe('resolveOfficeSceneEditorState', () => {
 });
 
 describe('buildOfficeDisplayState', () => {
+  it('does not inject a synthetic primary agent into an empty office state', () => {
+    expect(
+      buildOfficeDisplayState({
+        officeState: normalizeOfficeState(),
+        primaryAgent: derivePrimaryOfficeAgent({
+          agentId: 'agent-alpha',
+          displayName: 'Alpha',
+          businessState: 'writing',
+        }),
+      }),
+    ).toEqual({
+      revision: 0,
+      activeAgentId: '',
+      agents: [],
+    });
+  });
+
   it('forces the primary agent into error mode during error preview without mutating support agents', () => {
     for (const scenario of OFFICE_AGENT_CASES) {
       const officeState = buildOfficeDisplayState({
@@ -737,18 +796,11 @@ describe('buildOfficeDisplayState', () => {
         previewMode: 'error',
       });
 
-      expect(officeState.activeAgentId).toBe('main');
-      if (scenario.activeAgentId === 'main') {
-        expect(officeState.agents.find((agent) => agent.agentId === scenario.activeAgentId)).toMatchObject({
-          businessState: 'error',
-          detail: 'Previewing error-state furniture.',
-        });
-      } else {
-        expect(officeState.agents.find((agent) => agent.agentId === scenario.activeAgentId)).toMatchObject({
-          businessState: 'writing',
-          detail: 'Replying now.',
-        });
-      }
+      expect(officeState.activeAgentId).toBe(scenario.activeAgentId);
+      expect(officeState.agents.find((agent) => agent.agentId === scenario.activeAgentId)).toMatchObject({
+        businessState: 'error',
+        detail: 'Previewing error-state furniture.',
+      });
       expect(officeState.agents.find((agent) => agent.agentId !== scenario.activeAgentId)).toMatchObject({
         businessState: 'syncing',
         detail: 'Preparing audio.',

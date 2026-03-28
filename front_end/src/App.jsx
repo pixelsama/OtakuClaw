@@ -28,7 +28,6 @@ import {
   normalizeOfficeAgent,
   normalizeOfficeSceneLayout,
   normalizeOfficeState,
-  OFFICE_PRIMARY_AGENT_ID,
   resolveOfficeRoomTheme,
   resolveOfficeSceneEditorState,
   resolveOfficeSceneState,
@@ -70,7 +69,7 @@ function normalizeStoredAgentRole(entry = {}, fallbackId = '') {
   const source = entry && typeof entry === 'object' ? entry : {};
   const normalized = normalizeOfficeAgent(entry, fallbackId);
   const agentId = typeof normalized?.agentId === 'string' ? normalized.agentId.trim() : '';
-  if (!agentId || agentId === OFFICE_PRIMARY_AGENT_ID) {
+  if (!agentId) {
     return null;
   }
   const businessState = SUPPORTED_AGENT_ROLE_STATES.has(normalized.businessState)
@@ -105,7 +104,7 @@ function loadStoredAgentRoleConfig() {
     const activeAgentId = typeof parsed?.activeAgentId === 'string' ? parsed.activeAgentId.trim() : '';
     return {
       agents,
-      activeAgentId: activeAgentId === OFFICE_PRIMARY_AGENT_ID ? '' : activeAgentId,
+      activeAgentId,
     };
   } catch (error) {
     console.warn('Failed to parse stored agent role config:', error);
@@ -128,6 +127,10 @@ function saveStoredAgentRoleConfig(config = {}) {
   } catch (error) {
     console.warn('Failed to persist agent role config:', error);
   }
+}
+
+function normalizeAgentId(value) {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 const DEFAULT_AVATAR_SETTINGS = {
@@ -304,26 +307,21 @@ function AppContent({ desktopMode }) {
   }, [agentRoleConfig?.agents]);
 
   const resolvedConversationAgentId = useMemo(() => {
-    const immersiveAgentId =
-      typeof immersiveContext?.agentId === 'string' && immersiveContext.agentId.trim()
-        ? immersiveContext.agentId.trim()
-        : '';
+    const immersiveAgentId = normalizeAgentId(immersiveContext?.agentId);
     if (immersiveAgentId) {
       return immersiveAgentId;
     }
-    const officeActiveAgentId =
-      typeof officeStateSnapshot?.activeAgentId === 'string' && officeStateSnapshot.activeAgentId.trim()
-        ? officeStateSnapshot.activeAgentId.trim()
-        : '';
+    const officeActiveAgentId = normalizeAgentId(officeStateSnapshot?.activeAgentId);
     if (officeActiveAgentId) {
       return officeActiveAgentId;
     }
-    const storedActiveAgentId =
-      typeof agentRoleConfig?.activeAgentId === 'string' && agentRoleConfig.activeAgentId.trim()
-        ? agentRoleConfig.activeAgentId.trim()
-        : '';
-    return storedActiveAgentId || OFFICE_PRIMARY_AGENT_ID;
-  }, [agentRoleConfig?.activeAgentId, immersiveContext?.agentId, officeStateSnapshot?.activeAgentId]);
+    const storedActiveAgentId = normalizeAgentId(agentRoleConfig?.activeAgentId);
+    if (storedActiveAgentId) {
+      return storedActiveAgentId;
+    }
+    return normalizeAgentId(officeStateSnapshot?.agents?.[0]?.agentId)
+      || normalizeAgentId(agentRoleConfig?.agents?.[0]?.agentId);
+  }, [agentRoleConfig?.activeAgentId, agentRoleConfig?.agents, immersiveContext?.agentId, officeStateSnapshot?.activeAgentId, officeStateSnapshot?.agents]);
 
   const activeConfiguredAgent = useMemo(
     () => configuredAgentMap.get(resolvedConversationAgentId) || null,
@@ -378,7 +376,9 @@ function AppContent({ desktopMode }) {
           : '';
       const mergedOptions = {
         ...options,
-        ...(explicitAgentId ? { agentId: explicitAgentId } : { agentId: resolvedConversationAgentId }),
+        ...((explicitAgentId || resolvedConversationAgentId)
+          ? { agentId: explicitAgentId || resolvedConversationAgentId }
+          : {}),
       };
       const mergedExtras = {
         ...safeExtras,
@@ -1203,7 +1203,7 @@ function AppContent({ desktopMode }) {
   const primaryOfficeAgent = useMemo(
     () =>
       derivePrimaryOfficeAgent({
-        agentId: OFFICE_PRIMARY_AGENT_ID,
+        agentId: resolvedConversationAgentId || 'primary',
         displayName: 'OtakuClaw',
         isStreaming,
         activeDownloadTasks,
@@ -1226,6 +1226,7 @@ function AppContent({ desktopMode }) {
       officeActivityHint?.detail,
       officeActivityHint?.updatedAt,
       officeErrorMessage,
+      resolvedConversationAgentId,
       showChatPanel,
       subtitleText,
     ],
@@ -1270,11 +1271,7 @@ function AppContent({ desktopMode }) {
   }, [agentRoleConfig]);
 
   useEffect(() => {
-    const nextActiveAgentId =
-      typeof officeStateSnapshot?.activeAgentId === 'string' && officeStateSnapshot.activeAgentId.trim()
-        ? officeStateSnapshot.activeAgentId.trim()
-        : '';
-    const normalizedActiveAgentId = nextActiveAgentId === OFFICE_PRIMARY_AGENT_ID ? '' : nextActiveAgentId;
+    const normalizedActiveAgentId = normalizeAgentId(officeStateSnapshot?.activeAgentId);
     setAgentRoleConfig((current) => {
       if ((current?.activeAgentId || '') === normalizedActiveAgentId) {
         return current;
@@ -1289,13 +1286,13 @@ function AppContent({ desktopMode }) {
   useEffect(() => {
     const storedConfig = initialAgentRoleConfigRef.current || {};
     const storedAgents = Array.isArray(storedConfig.agents) ? storedConfig.agents : [];
-    const normalizedActiveAgentId =
-      typeof storedConfig.activeAgentId === 'string' ? storedConfig.activeAgentId.trim() : '';
+    const normalizedActiveAgentId = normalizeAgentId(storedConfig.activeAgentId);
     if (storedAgents.length === 0 && !normalizedActiveAgentId) {
       return;
     }
     void desktopBridge.office.publishPresence({
       source: 'renderer-agent-role-config-bootstrap',
+      ...(storedAgents.length > 0 && !normalizedActiveAgentId ? { activateIfUnset: true } : {}),
       agents: storedAgents.map((agent) => ({
         ...agent,
         updatedAt: new Date().toISOString(),
@@ -1350,9 +1347,9 @@ function AppContent({ desktopMode }) {
   }, []);
 
   const handleRemoveOfficeAgent = useCallback(async (agentId = '') => {
-    const normalizedAgentId = typeof agentId === 'string' ? agentId.trim() : '';
-    if (!normalizedAgentId || normalizedAgentId === OFFICE_PRIMARY_AGENT_ID) {
-      throw new Error('Primary agent cannot be removed.');
+    const normalizedAgentId = normalizeAgentId(agentId);
+    if (!normalizedAgentId) {
+      throw new Error('Agent id is required.');
     }
 
     await desktopBridge.office.removeAgent(normalizedAgentId);
@@ -1369,14 +1366,11 @@ function AppContent({ desktopMode }) {
   }, []);
 
   const handleSetActiveOfficeAgent = useCallback(async (agentId = '') => {
-    const normalizedAgentId = typeof agentId === 'string' ? agentId.trim() : '';
-    if (!normalizedAgentId) {
-      throw new Error('Agent id is required.');
-    }
+    const normalizedAgentId = normalizeAgentId(agentId);
     await desktopBridge.office.setActiveAgent(normalizedAgentId);
     setAgentRoleConfig((current) => ({
       ...current,
-      activeAgentId: normalizedAgentId === OFFICE_PRIMARY_AGENT_ID ? '' : normalizedAgentId,
+      activeAgentId: normalizedAgentId,
     }));
   }, []);
 
@@ -1416,10 +1410,8 @@ function AppContent({ desktopMode }) {
 
   useEffect(() => {
     let cancelled = false;
-    const trackedAgentId =
-      typeof immersiveContext?.agentId === 'string' && immersiveContext.agentId.trim()
-        ? immersiveContext.agentId.trim()
-        : OFFICE_PRIMARY_AGENT_ID;
+    const trackedAgentId = normalizeAgentId(immersiveContext?.agentId)
+      || normalizeAgentId(officeStateSnapshot?.activeAgentId);
 
     const applyValueState = (nextState) => {
       if (!cancelled) {
@@ -1435,10 +1427,7 @@ function AppContent({ desktopMode }) {
 
     const detach = desktopBridge.valueState.onEvent((event = {}) => {
       const nextState = event?.payload || event || null;
-      const eventAgentId =
-        typeof nextState?.agentId === 'string' && nextState.agentId.trim()
-          ? nextState.agentId.trim()
-          : OFFICE_PRIMARY_AGENT_ID;
+      const eventAgentId = normalizeAgentId(nextState?.agentId);
       if (eventAgentId !== trackedAgentId) {
         return;
       }
@@ -1450,16 +1439,7 @@ function AppContent({ desktopMode }) {
       cancelled = true;
       detach?.();
     };
-  }, [immersiveContext?.agentId]);
-
-  useEffect(() => {
-    void desktopBridge.office.publishPresence({
-      source: 'renderer-primary',
-      agents: [primaryOfficeAgent],
-    }).catch((error) => {
-      console.warn('Failed to sync office state:', error);
-    });
-  }, [primaryOfficeAgent]);
+  }, [immersiveContext?.agentId, officeStateSnapshot?.activeAgentId]);
 
   const updateOfficeSceneLayout = useCallback((updater) => {
     setOfficeSceneLayout((currentLayout) => {
@@ -1765,10 +1745,9 @@ function AppContent({ desktopMode }) {
           ? agent.sessionId.trim()
           : '';
 
+    const nextImmersiveAgentId = normalizeAgentId(payload.agentId) || normalizeAgentId(agent?.agentId);
     setImmersiveContext({
-      agentId: typeof payload.agentId === 'string' && payload.agentId.trim()
-        ? payload.agentId.trim()
-        : agent?.agentId || OFFICE_PRIMARY_AGENT_ID,
+      agentId: nextImmersiveAgentId,
       agent,
       routeKey,
       sessionId,
@@ -1788,7 +1767,9 @@ function AppContent({ desktopMode }) {
       sceneTitle: typeof scene?.title === 'string' ? scene.title.trim() : '',
     });
     setMainWindowViewMode('immersive');
-    void desktopBridge.office.setActiveAgent(agent?.agentId || payload.agentId || OFFICE_PRIMARY_AGENT_ID).catch(() => {});
+    if (nextImmersiveAgentId) {
+      void desktopBridge.office.setActiveAgent(nextImmersiveAgentId).catch(() => {});
+    }
   }, []);
 
   const handleExitImmersiveMode = useCallback(() => {
@@ -1805,7 +1786,7 @@ function AppContent({ desktopMode }) {
       const agentId =
         typeof context?.agent?.agentId === 'string' && context.agent.agentId.trim()
           ? context.agent.agentId.trim()
-          : immersiveContext?.agentId || OFFICE_PRIMARY_AGENT_ID;
+          : normalizeAgentId(immersiveContext?.agentId);
       const routeKey =
         typeof context?.immersiveContext?.routeKey === 'string' && context.immersiveContext.routeKey.trim()
           ? context.immersiveContext.routeKey.trim()

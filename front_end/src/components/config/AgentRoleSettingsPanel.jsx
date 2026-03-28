@@ -12,7 +12,7 @@ import {
 } from '@mui/material';
 import { desktopBridge } from '../../services/desktopBridge.js';
 import { useI18n } from '../../i18n/I18nContext.jsx';
-import { normalizeOfficeState, OFFICE_PRIMARY_AGENT_ID } from '../office/officeSceneConfig.js';
+import { normalizeOfficeState } from '../office/officeSceneConfig.js';
 
 const AGENT_STATE_OPTIONS = ['idle', 'writing', 'researching', 'executing', 'syncing', 'error'];
 const AGENT_BACKEND_OPTIONS = ['nanobot', 'claude-code', 'codex'];
@@ -69,7 +69,7 @@ function resolveBackendLabel(t, backend = '') {
 function normalizeConfiguredAgent(entry = {}, index = 0, defaultBackend = 'nanobot') {
   const source = entry && typeof entry === 'object' ? entry : {};
   const agentId = normalizeAgentId(source.agentId || source.id || `agent-${index + 1}`);
-  if (!agentId || agentId === OFFICE_PRIMARY_AGENT_ID) {
+  if (!agentId) {
     return null;
   }
   return {
@@ -188,10 +188,6 @@ export default function AgentRoleSettingsPanel({
     }
     if (!nextDisplayName) {
       setError(t('agent.role.error.displayNameRequired'));
-      return;
-    }
-    if (nextAgentId === OFFICE_PRIMARY_AGENT_ID) {
-      setError(t('agent.role.error.primaryReserved'));
       return;
     }
     if (!editingAgentId && configuredAgents.some((agent) => agent.agentId === nextAgentId)) {
