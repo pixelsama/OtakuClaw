@@ -22,6 +22,7 @@ const RAW_VOICE_TOGGLE_HOTKEY =
   import.meta.env.VITE_VOICE_TOGGLE_ACCELERATOR || getDefaultVoiceToggleHotkey();
 const RAW_AUTO_SUBMIT_DELAY_MS = import.meta.env.VITE_VOICE_AUTO_SUBMIT_DELAY_MS;
 const RAW_INTERRUPT_CONFIRM_MS = import.meta.env.VITE_VOICE_INTERRUPT_CONFIRM_MS;
+const DEFAULT_IMMERSIVE_REQUIRED_MESSAGE = 'Please enter an agent immersive page before starting voice input.';
 
 function clampToInt16(sample) {
   const clamped = Math.max(-1, Math.min(1, sample));
@@ -72,6 +73,25 @@ function normalizePositiveInteger(value, fallback) {
   }
 
   return Math.floor(parsed);
+}
+
+export function resolveImmersiveVoiceGuard({
+  requireImmersiveContext = false,
+  hasImmersiveContext = true,
+  missingContextMessage = DEFAULT_IMMERSIVE_REQUIRED_MESSAGE,
+} = {}) {
+  if (!requireImmersiveContext || hasImmersiveContext) {
+    return null;
+  }
+
+  const message = typeof missingContextMessage === 'string' && missingContextMessage.trim()
+    ? missingContextMessage.trim()
+    : DEFAULT_IMMERSIVE_REQUIRED_MESSAGE;
+  return {
+    ok: false,
+    reason: 'immersive_context_required',
+    message,
+  };
 }
 
 function previewText(value, limit = 80) {
@@ -180,6 +200,9 @@ export function useVoiceMicToggle({
   toggleHotkey = RAW_VOICE_TOGGLE_HOTKEY,
   autoSubmitDelayMs = RAW_AUTO_SUBMIT_DELAY_MS,
   interruptConfirmMs = RAW_INTERRUPT_CONFIRM_MS,
+  requireImmersiveContext = false,
+  hasImmersiveContext = true,
+  missingContextMessage = DEFAULT_IMMERSIVE_REQUIRED_MESSAGE,
 } = {}) {
   const seqRef = useRef(0);
   const sentSeqRef = useRef(0);
@@ -212,6 +235,13 @@ export function useVoiceMicToggle({
   const [microphonePermission, setMicrophonePermission] = useState('unknown');
   const [localError, setLocalError] = useState('');
   const normalizedHotkey = useMemo(() => normalizeHotkeyLabel(toggleHotkey), [toggleHotkey]);
+  const normalizedMissingContextMessage = useMemo(() => {
+    if (typeof missingContextMessage !== 'string') {
+      return DEFAULT_IMMERSIVE_REQUIRED_MESSAGE;
+    }
+    const trimmed = missingContextMessage.trim();
+    return trimmed || DEFAULT_IMMERSIVE_REQUIRED_MESSAGE;
+  }, [missingContextMessage]);
   const silenceSubmitDelayMs = useMemo(
     () => normalizePositiveInteger(autoSubmitDelayMs, DEFAULT_AUTO_SUBMIT_DELAY_MS),
     [autoSubmitDelayMs],
@@ -779,6 +809,16 @@ export function useVoiceMicToggle({
   );
 
   const enableVoice = useCallback(async () => {
+    const immersiveGuard = resolveImmersiveVoiceGuard({
+      requireImmersiveContext,
+      hasImmersiveContext,
+      missingContextMessage: normalizedMissingContextMessage,
+    });
+    if (immersiveGuard) {
+      setLocalError(immersiveGuard.message);
+      return immersiveGuard;
+    }
+
     if (!desktopMode) {
       const errorMessage = 'Voice mode requires desktop runtime.';
       setLocalError(errorMessage);
@@ -896,6 +936,9 @@ export function useVoiceMicToggle({
     stopPlayback,
     stopSession,
     stopTts,
+    hasImmersiveContext,
+    normalizedMissingContextMessage,
+    requireImmersiveContext,
   ]);
 
   const toggleVoice = useCallback(async () => {
@@ -982,13 +1025,39 @@ export function useVoiceMicToggle({
     }
 
     return desktopBridge.voice.onToggleRequest((payload = {}) => {
+      const immersiveGuard = resolveImmersiveVoiceGuard({
+        requireImmersiveContext,
+        hasImmersiveContext,
+        missingContextMessage: normalizedMissingContextMessage,
+      });
+      if (immersiveGuard) {
+        setLocalError(immersiveGuard.message);
+        return;
+      }
+
       logVoice('Received global voice toggle request.', {
         hotkey: payload.accelerator || normalizedHotkey,
         source: payload.source || 'unknown',
       });
       void toggleVoice();
     });
-  }, [desktopMode, normalizedHotkey, toggleVoice]);
+  }, [
+    desktopMode,
+    hasImmersiveContext,
+    normalizedHotkey,
+    normalizedMissingContextMessage,
+    requireImmersiveContext,
+    toggleVoice,
+  ]);
+
+  useEffect(() => {
+    if (!hasImmersiveContext && requireImmersiveContext) {
+      return;
+    }
+    setLocalError((current) =>
+      current === normalizedMissingContextMessage ? '' : current,
+    );
+  }, [hasImmersiveContext, normalizedMissingContextMessage, requireImmersiveContext]);
 
   useEffect(() => {
     mountedRef.current = true;

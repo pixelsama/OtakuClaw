@@ -103,6 +103,7 @@ describe('MainShell window view mode', () => {
     expect(html).toContain('office-room--browse');
     expect(html).not.toContain('data-testid="live2d-viewer-mock"');
     expect(html).toContain('Decorate');
+    expect(html).not.toContain('chat.openChat');
     expect(html).not.toContain('Pixel room editor');
     expect(html).not.toContain('data-testid="room-studio-shell-mock"');
   });

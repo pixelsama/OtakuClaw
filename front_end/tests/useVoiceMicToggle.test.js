@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  resolveImmersiveVoiceGuard,
   shouldPreserveVoiceSessionAfterDisable,
   stopVoiceCaptureAndSubmit,
 } from '../src/hooks/voice/useVoiceMicToggle.js';
@@ -74,5 +75,27 @@ describe('shouldPreserveVoiceSessionAfterDisable', () => {
     expect(shouldPreserveVoiceSessionAfterDisable('manual')).toBe(true);
     expect(shouldPreserveVoiceSessionAfterDisable('session_stop')).toBe(false);
     expect(shouldPreserveVoiceSessionAfterDisable('toggle_unmount')).toBe(false);
+  });
+});
+
+describe('resolveImmersiveVoiceGuard', () => {
+  it('blocks voice toggle when immersive context is required but missing', () => {
+    expect(resolveImmersiveVoiceGuard({
+      requireImmersiveContext: true,
+      hasImmersiveContext: false,
+      missingContextMessage: 'need immersive',
+    })).toEqual({
+      ok: false,
+      reason: 'immersive_context_required',
+      message: 'need immersive',
+    });
+  });
+
+  it('allows voice toggle when immersive context exists', () => {
+    expect(resolveImmersiveVoiceGuard({
+      requireImmersiveContext: true,
+      hasImmersiveContext: true,
+      missingContextMessage: 'need immersive',
+    })).toBeNull();
   });
 });

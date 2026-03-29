@@ -1018,6 +1018,11 @@ function AppContent({ desktopMode }) {
     onInterruptAssistant: async () => {
       await cancelStreaming();
     },
+    requireImmersiveContext: true,
+    hasImmersiveContext:
+      mainWindowViewMode === 'immersive'
+      && Boolean(normalizeAgentId(immersiveContext?.agentId)),
+    missingContextMessage: t('voice.immersiveRequired'),
   });
   const voicePermissionWarningText = t('voice.permissionDeniedBanner');
   const showVoicePermissionWarning = Boolean(voiceMicToggle.microphonePermissionDenied);
@@ -1388,7 +1393,12 @@ function AppContent({ desktopMode }) {
         activeAgentId,
       };
     });
-  }, []);
+    if (normalizeAgentId(immersiveContext?.agentId) === normalizedAgentId) {
+      setImmersiveContext(null);
+      setMainWindowViewMode('office');
+      setShowChatPanel(false);
+    }
+  }, [immersiveContext?.agentId]);
 
   const handleSetActiveOfficeAgent = useCallback(async (agentId = '') => {
     const normalizedAgentId = normalizeAgentId(agentId);

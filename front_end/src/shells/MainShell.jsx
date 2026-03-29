@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Box, Button, IconButton } from '@mui/material';
 import TuneIcon from '@mui/icons-material/Tune';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
-import ChatIcon from '@mui/icons-material/Chat';
 import HomeRepairServiceRoundedIcon from '@mui/icons-material/HomeRepairServiceRounded';
 import AvatarRenderer from '../components/avatar/AvatarRenderer.jsx';
 import SubtitleBar from '../components/subtitle/SubtitleBar.jsx';
@@ -37,7 +36,6 @@ export default function MainShell({
   onOpenConfigPanel,
   onSwitchToPetMode,
   onWindowControl,
-  showChatPanel = false,
   onOpenChatPanel,
   showVoicePermissionWarning = false,
   voicePermissionWarningText = '',
@@ -237,15 +235,6 @@ export default function MainShell({
               <SwapHorizIcon />
             </IconButton>
           )}
-          <IconButton
-            className="mode-toggle"
-            color={showChatPanel ? 'secondary' : 'primary'}
-            onClick={onOpenChatPanel}
-            title={t('chat.openChat')}
-            aria-label={t('chat.openChat')}
-          >
-            <ChatIcon />
-          </IconButton>
         </Box>
       ) : null}
 
