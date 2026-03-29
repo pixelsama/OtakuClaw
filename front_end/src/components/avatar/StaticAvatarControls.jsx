@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -41,11 +41,20 @@ export default function StaticAvatarControls({
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState('');
+  const onPacksChangeRef = useRef(onPacksChange);
+
+  useEffect(() => {
+    onPacksChangeRef.current = onPacksChange;
+  }, [onPacksChange]);
+
+  const emitPacksChange = useCallback((nextPacks) => {
+    onPacksChangeRef.current?.(nextPacks);
+  }, []);
 
   const loadPacks = useCallback(async () => {
     if (!desktopMode) {
       setPacks([]);
-      onPacksChange?.([]);
+      emitPacksChange([]);
       return [];
     }
 
@@ -55,18 +64,18 @@ export default function StaticAvatarControls({
       const result = await desktopBridge.staticAvatars.list();
       const nextPacks = Array.isArray(result?.packs) ? result.packs : [];
       setPacks(nextPacks);
-      onPacksChange?.(nextPacks);
+      emitPacksChange(nextPacks);
       return nextPacks;
     } catch (listError) {
       const message = typeof listError?.message === 'string' ? listError.message : t('avatar.controls.listFailed');
       setError(message);
       setPacks([]);
-      onPacksChange?.([]);
+      emitPacksChange([]);
       return [];
     } finally {
       setLoading(false);
     }
-  }, [desktopMode, onPacksChange, t]);
+  }, [desktopMode, emitPacksChange, t]);
 
   useEffect(() => {
     void loadPacks();
