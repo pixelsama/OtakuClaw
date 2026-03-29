@@ -52,7 +52,7 @@ function createSettingsStoreStub() {
   };
 }
 
-async function createImportedPackFixture(outputDir) {
+async function createImportedPackFixture(outputDir, { characters = null } = {}) {
   await fs.mkdir(path.join(outputDir, 'assets', 'backgrounds'), { recursive: true });
   await fs.writeFile(
     path.join(outputDir, 'manifest.json'),
@@ -74,6 +74,7 @@ async function createImportedPackFixture(outputDir) {
           assetKey: 'bg.office.main',
         },
       },
+      ...(characters ? { characters } : {}),
     }),
     'utf-8',
   );
@@ -149,6 +150,95 @@ test('validateZip accepts a valid pack manifest and references', async () => {
   assert.equal(validation.errors.length, 0);
   assert.equal(validation.pack.assetBaseUrl, 'openclaw-pixel-pack:///com.otakuclaw.pixel.demo/1.1.0/');
   assert.equal(validation.manifest.scene.backdrop.assetKey, 'bg.office.main');
+});
+
+test('validateZip accepts optional characters and anchors in the manifest', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pixel-pack-validate-characters-test-'));
+  const library = new PixelPackLibrary(createApp(root));
+  const characters = {
+    star: {
+      label: 'Star',
+      stateSprites: {
+        idle: {
+          assetKey: 'bg.office.main',
+        },
+        writing: {
+          assetKey: 'bg.office.main',
+        },
+      },
+      anchors: {
+        stand: {
+          offsetY: 0,
+        },
+      },
+    },
+  };
+
+  library.listZipEntries = async () => [
+    'manifest.json',
+    'assets/backgrounds/office.webp',
+  ];
+  library.extractZip = async (_zipPath, outputDir) => {
+    await createImportedPackFixture(outputDir, { characters });
+  };
+
+  const validation = await library.validateZip(path.join(root, 'fixture.zip'));
+  assert.equal(validation.ok, true);
+  assert.equal(validation.valid, true);
+  assert.equal(validation.errors.length, 0);
+  assert.equal(validation.manifest.characters.star.stateSprites.idle.assetKey, 'bg.office.main');
+  assert.equal(validation.manifest.characters.star.anchors.stand.offsetY, 0);
+});
+
+test('validateZip rejects character stateSprites that reference missing assets', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pixel-pack-validate-characters-missing-asset-test-'));
+  const library = new PixelPackLibrary(createApp(root));
+
+  library.listZipEntries = async () => [
+    'manifest.json',
+    'assets/backgrounds/office.webp',
+  ];
+  library.extractZip = async (_zipPath, outputDir) => {
+    await fs.mkdir(path.join(outputDir, 'assets', 'backgrounds'), { recursive: true });
+    await fs.writeFile(
+      path.join(outputDir, 'manifest.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        packId: 'com.otakuclaw.pixel.demo',
+        name: 'Pixel Demo',
+        version: '1.1.0',
+        engine: '>=0.2.1',
+        contractRevision: '1.1',
+        assets: {
+          'bg.office.main': {
+            path: 'assets/backgrounds/office.webp',
+            type: 'image',
+          },
+        },
+        characters: {
+          star: {
+            stateSprites: {
+              idle: {
+                assetKey: 'missing.asset.key',
+              },
+            },
+          },
+        },
+      }),
+      'utf-8',
+    );
+    await fs.writeFile(path.join(outputDir, 'assets', 'backgrounds', 'office.webp'), 'fake-image', 'utf-8');
+  };
+
+  const validation = await library.validateZip(path.join(root, 'fixture.zip'));
+  assert.equal(validation.valid, false);
+  assert.equal(
+    validation.errors.some(
+      (error) => error.code === 'pixel_pack_missing_asset_reference'
+        && error.path === 'characters.star.stateSprites.idle.assetKey',
+    ),
+    true,
+  );
 });
 
 test('import activate remove list and export manage installed packs and active settings', async () => {

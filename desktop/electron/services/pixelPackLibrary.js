@@ -226,6 +226,72 @@ function walkForAssetKeyRefs(value, visitor, currentPath = '') {
   }
 }
 
+function validateCharacterStateSprite(stateSprite, stateSpritePath, errors) {
+  if (!isObject(stateSprite)) {
+    addValidationError(
+      errors,
+      'pixel_pack_invalid_character_state_sprite',
+      'stateSprites entries must be objects.',
+      stateSpritePath,
+    );
+    return;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(stateSprite, 'assetKey')) {
+    addValidationError(
+      errors,
+      'pixel_pack_invalid_character_state_sprite_asset_key',
+      'stateSprites entries must define assetKey.',
+      `${stateSpritePath}.assetKey`,
+    );
+    return;
+  }
+
+  if (!normalizeAssetKey(stateSprite.assetKey)) {
+    addValidationError(
+      errors,
+      'pixel_pack_invalid_character_state_sprite_asset_key',
+      'stateSprites assetKey must be a non-empty string.',
+      `${stateSpritePath}.assetKey`,
+    );
+  }
+}
+
+function validateCharacterManifest(character, characterPath, errors) {
+  if (!isObject(character)) {
+    addValidationError(
+      errors,
+      'pixel_pack_invalid_character',
+      'Character entry must be an object.',
+      characterPath,
+    );
+    return;
+  }
+
+  const stateSprites = character.stateSprites;
+  if (!isObject(stateSprites)) {
+    addValidationError(
+      errors,
+      'pixel_pack_invalid_character_state_sprites',
+      'stateSprites must be an object.',
+      `${characterPath}.stateSprites`,
+    );
+  } else {
+    for (const [stateName, stateSprite] of Object.entries(stateSprites)) {
+      validateCharacterStateSprite(stateSprite, `${characterPath}.stateSprites.${stateName}`, errors);
+    }
+  }
+
+  if (character.anchors !== undefined && !isObject(character.anchors)) {
+    addValidationError(
+      errors,
+      'pixel_pack_invalid_character_anchors',
+      'anchors must be an object when provided.',
+      `${characterPath}.anchors`,
+    );
+  }
+}
+
 function validateSpritesheetAsset(asset, assetPath, errors) {
   const cols = Number.parseInt(asset.cols, 10);
   const rows = Number.parseInt(asset.rows, 10);
@@ -331,6 +397,29 @@ async function validatePackManifest(manifest, { baseDir = '' } = {}) {
       );
     } else if (assetType === 'spritesheet') {
       validateSpritesheetAsset(asset, assetPath, errors);
+    }
+  }
+
+  if (normalizedManifest.characters !== undefined) {
+    const charactersSource = isObject(normalizedManifest.characters) ? normalizedManifest.characters : null;
+    if (!charactersSource) {
+      addValidationError(errors, 'pixel_pack_invalid_characters', 'characters must be an object.', 'characters');
+    } else {
+      for (const [rawCharacterId, character] of Object.entries(charactersSource)) {
+        const characterId = normalizeText(rawCharacterId);
+        const characterPath = characterId ? `characters.${characterId}` : 'characters';
+        if (!characterId) {
+          addValidationError(
+            errors,
+            'pixel_pack_invalid_character_id',
+            'Character key is missing or invalid.',
+            characterPath,
+          );
+          continue;
+        }
+
+        validateCharacterManifest(character, characterPath, errors);
+      }
     }
   }
 
