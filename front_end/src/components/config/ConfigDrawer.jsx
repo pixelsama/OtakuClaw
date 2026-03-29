@@ -18,6 +18,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AgentRoleSettingsPanel from './AgentRoleSettingsPanel.jsx';
 import VoiceSettingsPanel from './VoiceSettingsPanel.jsx';
 import { desktopBridge } from '../../services/desktopBridge.js';
+import { normalizePixelPackCharacterOptions } from '../office/pixelPack.js';
 import {
   LANGUAGE_EN_US,
   LANGUAGE_ZH_CN,
@@ -252,6 +253,10 @@ export default function ConfigDrawer({
   const showSkillsError =
     Boolean(settingsError)
     && (settingsError.includes('技能') || normalizedSettingsError.includes('skill'));
+  const pixelRoomCharacterOptions = useMemo(
+    () => normalizePixelPackCharacterOptions(pixelPackState?.activePack?.manifest?.characters || {}),
+    [pixelPackState?.activePack?.manifest?.characters],
+  );
   const testButtonDisabled = settingsSaving
     || settingsTesting
     || (selectedBackend === 'nanobot' && !nanobotSettings.enabled)
@@ -509,6 +514,7 @@ export default function ConfigDrawer({
                   onRemoveAgent={onRemoveOfficeAgent}
                   onSetActiveAgent={onSetActiveOfficeAgent}
                   onStaticAvatarPacksChange={onStaticAvatarPacksChange}
+                  pixelRoomCharacterOptions={pixelRoomCharacterOptions}
                 />
               )}
 

@@ -133,6 +133,66 @@ function normalizePixelPackAssetMap(value = {}, options = {}) {
   );
 }
 
+function normalizePixelPackCharacterState(value = {}) {
+  const source = normalizePlainObject(value);
+  const assetKey = normalizeText(source.assetKey || source.key, '');
+  if (!assetKey) {
+    return null;
+  }
+
+  const normalizedState = {
+    assetKey,
+  };
+  const frameIndex = normalizeOptionalNumber(source.frameIndex, null);
+  if (Number.isFinite(frameIndex)) {
+    normalizedState.frameIndex = frameIndex;
+  }
+  const animation = normalizePlainObject(source.animation);
+  if (Object.keys(animation).length > 0) {
+    normalizedState.animation = animation;
+  }
+  const overrides = normalizePlainObject(source.overrides);
+  if (Object.keys(overrides).length > 0) {
+    normalizedState.overrides = overrides;
+  }
+
+  return normalizedState;
+}
+
+function normalizePixelPackCharacterProfile(value = {}, fallbackKey = '') {
+  const source = normalizePlainObject(value);
+  const statesSource = normalizePlainObject(source.states || source.stateSprites);
+  const states = Object.fromEntries(
+    Object.entries(statesSource)
+      .map(([state, stateValue]) => [
+        normalizeText(state, '').toLowerCase(),
+        normalizePixelPackCharacterState(stateValue),
+      ])
+      .filter(([state, stateValue]) => Boolean(state) && Boolean(stateValue)),
+  );
+  const characterId = normalizeText(source.characterId || source.id || fallbackKey, fallbackKey);
+  if (!characterId) {
+    return null;
+  }
+
+  return {
+    characterId,
+    label: normalizeText(source.label || source.name, characterId),
+    states,
+    anchors: normalizePlainObject(source.anchors),
+  };
+}
+
+function normalizePixelPackCharacterMap(value = {}) {
+  const source = normalizePlainObject(value);
+  return Object.fromEntries(
+    Object.entries(source)
+      .map(([characterId, character]) => normalizePixelPackCharacterProfile(character, characterId))
+      .filter(Boolean)
+      .map((character) => [character.characterId, character]),
+  );
+}
+
 function resolvePixelPackManifestSource(source = {}) {
   const normalizedSource = normalizePlainObject(source);
   const nestedManifest = normalizePlainObject(normalizedSource.manifest);
@@ -150,6 +210,11 @@ function resolvePixelPackManifestSource(source = {}) {
     || nestedManifest.assets,
     { assetBaseUrl },
   );
+  const characters = normalizePixelPackCharacterMap(
+    normalizedSource.characters
+    || nestedOfficeScene.characters
+    || nestedManifest.characters,
+  );
 
   return {
     id: normalizeText(normalizedSource.id || normalizedSource.packId || nestedManifest.id, ''),
@@ -161,6 +226,7 @@ function resolvePixelPackManifestSource(source = {}) {
     updatedAt: normalizeText(normalizedSource.updatedAt || nestedManifest.updatedAt, ''),
     assetBaseUrl,
     assets,
+    characters,
     officeScene: nestedOfficeScene,
   };
 }
@@ -213,6 +279,57 @@ export function normalizePixelPackRecord(source = {}) {
     canRemove: normalizedSource.canRemove !== false,
     canExport: normalizedSource.canExport !== false,
   };
+}
+
+function normalizePixelPackCharacterEntry(value = {}, fallbackKey = '') {
+  const source = normalizePlainObject(value);
+  const characterId = normalizeText(source.characterId || source.id || fallbackKey, fallbackKey);
+  if (!characterId) {
+    return null;
+  }
+
+  return {
+    characterId,
+    label: normalizeText(source.label || source.name, characterId),
+    description: normalizeText(source.description, ''),
+  };
+}
+
+export function normalizePixelPackCharacterOptions(value = {}) {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry, index) => normalizePixelPackCharacterEntry(entry, `character-${index + 1}`))
+      .filter(Boolean)
+      .reduce((accumulator, entry) => {
+        if (accumulator.some((existing) => existing.characterId === entry.characterId)) {
+          return accumulator;
+        }
+        return [...accumulator, entry];
+      }, []);
+  }
+
+  const rawSource = value && typeof value === 'object' ? value : {};
+  const rawCharacters = Array.isArray(rawSource.characters)
+    ? rawSource.characters
+    : rawSource.characters && typeof rawSource.characters === 'object'
+      ? Object.entries(rawSource.characters).map(([characterId, character]) => ({
+        characterId,
+        ...(normalizePlainObject(character)),
+      }))
+      : Object.entries(rawSource).map(([characterId, character]) => ({
+        characterId,
+        ...(normalizePlainObject(character)),
+      }));
+
+  return rawCharacters
+    .map((entry, index) => normalizePixelPackCharacterEntry(entry, `character-${index + 1}`))
+    .filter(Boolean)
+    .reduce((accumulator, entry) => {
+      if (accumulator.some((existing) => existing.characterId === entry.characterId)) {
+        return accumulator;
+      }
+      return [...accumulator, entry];
+    }, []);
 }
 
 function isSamePack(left = {}, rightPackId = '', rightVersion = '') {
@@ -307,6 +424,13 @@ export function buildOfficeSceneAssetRegistry(baseRegistry = {}, pixelPackSource
       rows: normalizeFrameDimension(asset.rows, builtIn.rows || 1),
     };
   }
+
+  Object.defineProperty(mergedRegistry, '__pixelPackManifest', {
+    value: manifest,
+    enumerable: false,
+    configurable: true,
+    writable: false,
+  });
 
   return mergedRegistry;
 }

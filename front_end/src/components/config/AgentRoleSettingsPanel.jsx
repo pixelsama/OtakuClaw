@@ -51,6 +51,11 @@ const DEFAULT_AGENT_AVATAR = {
   },
 };
 
+const DEFAULT_AGENT_PIXEL_ROOM = {
+  characterId: '',
+  overrides: {},
+};
+
 function clamp(value, min, max, fallback) {
   const numericValue = Number(value);
   if (!Number.isFinite(numericValue)) {
@@ -160,6 +165,19 @@ function normalizeAvatar(value = {}, legacyModelPath = '') {
   };
 }
 
+export function normalizeAgentPixelRoom(value = {}) {
+  const source = isPlainObject(value) ? value : {};
+  const overrides = isPlainObject(source.overrides) ? { ...source.overrides } : {};
+  return {
+    characterId: typeof source.characterId === 'string' ? source.characterId.trim() : '',
+    overrides,
+  };
+}
+
+function hasAgentPixelRoom(value = {}) {
+  return Boolean(value?.characterId) || Object.keys(value?.overrides || {}).length > 0;
+}
+
 function isValidAgentId(value) {
   return /^[a-z0-9_-]+$/.test(value);
 }
@@ -173,6 +191,7 @@ function createEmptyDraft(defaultBackend = 'nanobot') {
     detail: '',
     backend: normalizeAgentBackend(defaultBackend, 'nanobot'),
     avatar: normalizeAvatar(DEFAULT_AGENT_AVATAR),
+    pixelRoom: normalizeAgentPixelRoom(DEFAULT_AGENT_PIXEL_ROOM),
   };
 }
 
@@ -195,6 +214,9 @@ function normalizeConfiguredAgent(entry = {}, index = 0, defaultBackend = 'nanob
     detail: typeof source.detail === 'string' ? source.detail.trim() : '',
     backend: normalizeAgentBackend(source.backend, defaultBackend),
     avatar,
+    ...(hasAgentPixelRoom(normalizeAgentPixelRoom(source.pixelRoom))
+      ? { pixelRoom: normalizeAgentPixelRoom(source.pixelRoom) }
+      : {}),
     live2dModelPath: avatar.live2d.selectedModelPath,
   };
 }
@@ -212,6 +234,7 @@ function AgentDraftForm({
   isCreateMode = false,
   desktopMode = false,
   selectedStaticPack = null,
+  pixelRoomCharacterOptions = [],
   editingAgentId = '',
   updateDraftAvatarRenderMode,
   updateDraftStaticAvatar,
@@ -354,6 +377,37 @@ function AgentDraftForm({
         />
       )}
 
+      <Divider />
+
+      <Stack spacing={0.5}>
+        <Typography variant="subtitle2">{t('agent.role.pixelRoomSection')}</Typography>
+        <Typography variant="caption" color="text.secondary">
+          {t('agent.role.pixelRoomSectionHelper')}
+        </Typography>
+      </Stack>
+      <TextField
+        select
+        label={t('agent.role.pixelRoomCharacter')}
+        value={draft.pixelRoom?.characterId || ''}
+        onChange={(event) => setDraft((current) => ({
+          ...current,
+          pixelRoom: normalizeAgentPixelRoom({
+            ...(current.pixelRoom || DEFAULT_AGENT_PIXEL_ROOM),
+            characterId: event.target.value,
+          }),
+        }))}
+        fullWidth
+        disabled={busy}
+        helperText={t('agent.role.pixelRoomCharacterHelper')}
+      >
+        <MenuItem value="">{t('agent.role.pixelRoomCharacterNone')}</MenuItem>
+        {pixelRoomCharacterOptions.map((option) => (
+          <MenuItem key={option.characterId} value={option.characterId}>
+            {option.label || option.characterId}
+          </MenuItem>
+        ))}
+      </TextField>
+
       <TextField
         label={t('agent.role.detail')}
         value={draft.detail}
@@ -382,6 +436,7 @@ export default function AgentRoleSettingsPanel({
   onUpsertAgent,
   onRemoveAgent,
   onStaticAvatarPacksChange,
+  pixelRoomCharacterOptions = [],
 }) {
   const { t } = useI18n();
   const desktopMode = desktopBridge.isDesktop();
@@ -488,6 +543,7 @@ export default function AgentRoleSettingsPanel({
       detail: agent.detail || '',
       backend: normalizeAgentBackend(agent.backend, normalizedDefaultBackend),
       avatar: normalizeAvatar(agent.avatar, agent.live2dModelPath),
+      pixelRoom: normalizeAgentPixelRoom(agent.pixelRoom),
     });
     setFeedback('');
     setError('');
@@ -585,6 +641,7 @@ export default function AgentRoleSettingsPanel({
     }
 
     const normalizedAvatar = normalizeAvatar(draft.avatar, draft.avatar?.live2d?.selectedModelPath);
+    const normalizedPixelRoom = normalizeAgentPixelRoom(draft.pixelRoom);
     const normalizedAgent = {
       agentId: nextAgentId,
       id: nextAgentId,
@@ -594,6 +651,7 @@ export default function AgentRoleSettingsPanel({
       detail: typeof draft.detail === 'string' ? draft.detail.trim() : '',
       backend: normalizeAgentBackend(draft.backend, normalizedDefaultBackend),
       avatar: normalizedAvatar,
+      ...(hasAgentPixelRoom(normalizedPixelRoom) ? { pixelRoom: normalizedPixelRoom } : {}),
       live2dModelPath: normalizedAvatar.live2d.selectedModelPath,
     };
 
@@ -615,6 +673,7 @@ export default function AgentRoleSettingsPanel({
         detail: normalizedAgent.detail,
         backend: normalizedAgent.backend,
         avatar: normalizeAvatar(normalizedAgent.avatar, normalizedAgent.live2dModelPath),
+        pixelRoom: normalizeAgentPixelRoom(normalizedAgent.pixelRoom),
       });
       setExpandedSectionId(sectionId);
       scrollToSection(sectionId);
@@ -669,7 +728,10 @@ export default function AgentRoleSettingsPanel({
   const emptyAndCollapsed = configuredAgents.length === 0 && expandedSectionId !== CREATE_SECTION_ID;
 
   return (
-    <Stack spacing={2}>
+    <Stack
+      spacing={2}
+      data-pixel-room-character-count={Array.isArray(pixelRoomCharacterOptions) ? pixelRoomCharacterOptions.length : 0}
+    >
       <Alert severity="info">{t('agent.role.notice.fixedStateKeys')}</Alert>
       {feedback && <Alert severity="success">{feedback}</Alert>}
       {error && <Alert severity="error">{error}</Alert>}
@@ -736,6 +798,7 @@ export default function AgentRoleSettingsPanel({
                 isCreateMode={draftSectionIsCreate}
                 desktopMode={desktopMode}
                 selectedStaticPack={selectedStaticPack}
+                pixelRoomCharacterOptions={pixelRoomCharacterOptions}
                 editingAgentId={editingAgentId}
                 updateDraftAvatarRenderMode={updateDraftAvatarRenderMode}
                 updateDraftStaticAvatar={updateDraftStaticAvatar}
@@ -808,6 +871,7 @@ export default function AgentRoleSettingsPanel({
                   isCreateMode={false}
                   desktopMode={desktopMode}
                   selectedStaticPack={selectedStaticPack}
+                  pixelRoomCharacterOptions={pixelRoomCharacterOptions}
                   editingAgentId={editingAgentId}
                   updateDraftAvatarRenderMode={updateDraftAvatarRenderMode}
                   updateDraftStaticAvatar={updateDraftStaticAvatar}

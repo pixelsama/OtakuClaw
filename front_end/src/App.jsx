@@ -86,6 +86,7 @@ function normalizeStoredAgentRole(entry = {}, fallbackId = '') {
     backend: normalizeAgentBackend(source.backend, 'nanobot'),
     live2dModelPath,
     avatar: normalizeAgentAvatarSettings(source.avatar, live2dModelPath),
+    ...(normalized.pixelRoom ? { pixelRoom: normalized.pixelRoom } : {}),
   };
 }
 
@@ -379,6 +380,14 @@ function AppContent({ desktopMode }) {
   const activeConfiguredAgent = useMemo(
     () => configuredAgentMap.get(resolvedConversationAgentId) || null,
     [configuredAgentMap, resolvedConversationAgentId],
+  );
+
+  const activeOfficeAgent = useMemo(
+    () =>
+      officeStateSnapshot?.agents?.find((agent) => agent?.agentId === resolvedConversationAgentId)
+      || activeConfiguredAgent
+      || null,
+    [activeConfiguredAgent, officeStateSnapshot?.agents, resolvedConversationAgentId],
   );
 
   const activeConversationBackend = useMemo(
@@ -1212,6 +1221,7 @@ function AppContent({ desktopMode }) {
       derivePrimaryOfficeAgent({
         agentId: resolvedConversationAgentId || 'primary',
         displayName: 'OtakuClaw',
+        pixelRoom: activeOfficeAgent?.pixelRoom || null,
         isStreaming,
         activeDownloadTasks,
         errorMessage: officeErrorMessage,
@@ -1226,6 +1236,7 @@ function AppContent({ desktopMode }) {
       }),
     [
       activeDownloadTasks,
+      activeOfficeAgent?.pixelRoom,
       activeTask?.currentFile,
       activeTask?.title,
       isStreaming,

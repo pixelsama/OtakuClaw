@@ -507,6 +507,22 @@ function normalizeOptionalObject(value) {
   return isObject(value) ? { ...value } : null;
 }
 
+function normalizeOfficePixelRoom(pixelRoom = null) {
+  if (!isObject(pixelRoom)) {
+    return null;
+  }
+
+  const characterId = normalizeString(pixelRoom.characterId, '');
+  const overrides = normalizeOptionalObject(pixelRoom.overrides) || {};
+  if (!characterId && Object.keys(overrides).length === 0) {
+    return null;
+  }
+  return {
+    characterId,
+    overrides,
+  };
+}
+
 function normalizeLabels(labels = {}) {
   return {
     ...DEFAULT_LABELS,
@@ -1089,6 +1105,7 @@ export function normalizeOfficeAgent(agent = {}, fallbackId = '') {
   const businessState = normalizeString(source.businessState, 'idle').toLowerCase();
   const activeAgentId = normalizeString(source.activeAgentId, '');
   const isPrimary = Boolean(source.isPrimary) || (activeAgentId ? agentId === activeAgentId : false);
+  const pixelRoom = normalizeOfficePixelRoom(source.pixelRoom);
   return {
     agentId,
     id: agentId,
@@ -1105,6 +1122,7 @@ export function normalizeOfficeAgent(agent = {}, fallbackId = '') {
     sessionId: normalizeString(source.sessionId, ''),
     sessionNamespace: normalizeString(source.sessionNamespace, ''),
     turnId: normalizeString(source.turnId, ''),
+    ...(pixelRoom ? { pixelRoom } : {}),
     mood: normalizeOptionalNumber(source.mood),
     affinity: normalizeOptionalNumber(source.affinity),
     stats: normalizeOptionalObject(source.stats),
@@ -1142,6 +1160,7 @@ export function normalizeOfficeState(state = {}) {
 export function derivePrimaryOfficeAgent({
   agentId = 'primary',
   displayName = 'OtakuClaw',
+  pixelRoom = null,
   isStreaming = false,
   activeDownloadTasks = [],
   errorMessage = '',
@@ -1173,6 +1192,7 @@ export function derivePrimaryOfficeAgent({
       : normalizedActivityState && businessState === normalizedActivityState
         ? normalizedActivityDetail || normalizedDetail
       : normalizedDetail || (businessState === 'writing' ? 'The assistant is actively responding.' : 'Ready for the next prompt.');
+  const normalizedPixelRoom = normalizeOfficePixelRoom(pixelRoom);
 
   return normalizeOfficeAgent({
     agentId,
@@ -1182,6 +1202,7 @@ export function derivePrimaryOfficeAgent({
     role: 'primary',
     updatedAt: normalizeString(updatedAt, new Date().toISOString()),
     isPrimary: true,
+    ...(normalizedPixelRoom ? { pixelRoom: normalizedPixelRoom } : {}),
   }, agentId || 'primary');
 }
 

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import AgentRoleSettingsPanel from '../src/components/config/AgentRoleSettingsPanel.jsx';
+import AgentRoleSettingsPanel, { normalizeAgentPixelRoom } from '../src/components/config/AgentRoleSettingsPanel.jsx';
+import { normalizePixelPackCharacterOptions } from '../src/components/office/pixelPack.js';
 
 globalThis.React = React;
 
@@ -67,5 +68,34 @@ describe('AgentRoleSettingsPanel', () => {
     expect(html).toContain('agent.role.deleteModeEnter');
     expect(html).not.toContain('agent-role-create-first-button');
   });
-});
 
+  it('normalizes pixel room selection while preserving overrides', () => {
+    expect(normalizeAgentPixelRoom({
+      characterId: '  star ',
+      overrides: { pose: 'sit', anchor: 'desk' },
+    })).toEqual({
+      characterId: 'star',
+      overrides: { pose: 'sit', anchor: 'desk' },
+    });
+  });
+
+  it('passes the pixel room character option count into the draft form', () => {
+    const html = renderPanel({
+      pixelRoomCharacterOptions: [
+        { characterId: 'star', label: 'Star' },
+      ],
+    });
+
+    expect(html).toContain('data-pixel-room-character-count="1"');
+  });
+
+  it('normalizes pixel pack character options from manifest maps', () => {
+    expect(normalizePixelPackCharacterOptions({
+      star: { label: 'Star' },
+      bug: { name: 'Bug' },
+    })).toEqual([
+      { characterId: 'star', label: 'Star', description: '' },
+      { characterId: 'bug', label: 'Bug', description: '' },
+    ]);
+  });
+});

@@ -5,8 +5,13 @@ import ConfigDrawer from '../src/components/config/ConfigDrawer.jsx';
 
 globalThis.React = React;
 
+let lastAgentRoleSettingsPanelProps = null;
+
 vi.mock('../src/components/config/AgentRoleSettingsPanel.jsx', () => ({
-  default: () => React.createElement('div', { 'data-testid': 'agent-role-settings-panel-mock' }),
+  default: (props) => {
+    lastAgentRoleSettingsPanelProps = props;
+    return React.createElement('div', { 'data-testid': 'agent-role-settings-panel-mock' });
+  },
 }));
 
 vi.mock('../src/components/config/VoiceSettingsPanel.jsx', () => ({
@@ -58,12 +63,56 @@ function renderDrawer(props = {}) {
 
 describe('ConfigDrawer tabs after avatar-tab removal', () => {
   it('renders the full-window settings workspace and agent role panel by default', () => {
+    lastAgentRoleSettingsPanelProps = null;
     const html = renderDrawer();
     expect(html).toContain('settings-workspace-overlay');
     expect(html).toContain('settings-workspace-nav');
     expect(html).not.toContain('MuiDrawer-root');
     expect(html).toContain('data-testid="agent-role-settings-panel-mock"');
     expect(html).not.toContain('app.tab.avatar');
+  });
+
+  it('passes active pack character options into the agent role panel', () => {
+    lastAgentRoleSettingsPanelProps = null;
+    renderDrawer({
+      pixelPackState: {
+        activePack: {
+          manifest: {
+            characters: {
+              star: {
+                label: 'Star',
+                states: {
+                  idle: {
+                    assetKey: 'starIdle',
+                  },
+                },
+              },
+              guest: {
+                label: 'Guest',
+                states: {
+                  idle: {
+                    assetKey: 'guestRole1',
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(lastAgentRoleSettingsPanelProps.pixelRoomCharacterOptions).toEqual([
+      {
+        characterId: 'star',
+        label: 'Star',
+        description: '',
+      },
+      {
+        characterId: 'guest',
+        label: 'Guest',
+        description: '',
+      },
+    ]);
   });
 
   it('still renders core settings navigation entries', () => {
