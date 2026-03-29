@@ -3,6 +3,7 @@ import { resolveContainedStageSize } from '../src/components/office/OfficeScene.
 import {
   buildOfficeDisplayState,
   derivePrimaryOfficeAgent,
+  normalizeOfficeAgent,
   normalizeOfficeState,
   reduceOfficeActivityHint,
   resolveOfficeSceneEditorState,
@@ -13,7 +14,7 @@ import {
   resolveOfficeOccupantSprite,
   resolveOfficeSceneAsset,
 } from '../src/components/office/officeSceneAssets.js';
-import { buildOfficeSceneAssetRegistry } from '../src/components/office/pixelPack.js';
+import { buildOfficeSceneAssetRegistry, normalizePixelPackState } from '../src/components/office/pixelPack.js';
 
 const OFFICE_AGENT_CASES = [
   {
@@ -92,6 +93,97 @@ describe('derivePrimaryOfficeAgent', () => {
 
     expect(agent.businessState).toBe('syncing');
     expect(agent.detail).toContain('Installing runtime');
+  });
+
+  it('passes pixelRoom through for the primary agent', () => {
+    const agent = derivePrimaryOfficeAgent({
+      pixelRoom: {
+        characterId: 'star',
+        overrides: {
+          mood: 'happy',
+        },
+      },
+    });
+
+    expect(agent.pixelRoom).toEqual({
+      characterId: 'star',
+      overrides: {
+        mood: 'happy',
+      },
+    });
+  });
+});
+
+describe('normalizeOfficeAgent', () => {
+  it('preserves pixelRoom character metadata and overrides', () => {
+    const agent = normalizeOfficeAgent({
+      agentId: 'agent-alpha',
+      displayName: 'Agent Alpha',
+      businessState: 'idle',
+      pixelRoom: {
+        characterId: 'star',
+        overrides: {
+          states: {
+            idle: {
+              assetKey: 'customStarIdle',
+            },
+          },
+        },
+      },
+    });
+
+    expect(agent.pixelRoom).toEqual({
+      characterId: 'star',
+      overrides: {
+        states: {
+          idle: {
+            assetKey: 'customStarIdle',
+          },
+        },
+      },
+    });
+  });
+});
+
+describe('pixel pack character preservation', () => {
+  it('keeps manifest character profiles available for runtime resolution', () => {
+    const packState = normalizePixelPackState({
+      activePack: {
+        id: 'star-office@1.0.0',
+        manifest: {
+          assets: {
+            packStarIdle: {
+              assetUrl: 'https://example.com/pack-star-idle.webp',
+              cols: 1,
+              rows: 1,
+            },
+          },
+          characters: {
+            star: {
+              label: 'Pack Star',
+              states: {
+                idle: {
+                  assetKey: 'packStarIdle',
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(packState.activePack.manifest.characters).toEqual({
+      star: {
+        characterId: 'star',
+        label: 'Pack Star',
+        states: {
+          idle: {
+            assetKey: 'packStarIdle',
+          },
+        },
+        anchors: {},
+      },
+    });
   });
 });
 
@@ -564,6 +656,112 @@ describe('resolveOfficeSceneState', () => {
 });
 
 describe('resolveOfficeOccupantSprite', () => {
+  it('prefers active pack character profiles for both primary and guest occupants', () => {
+    const assetRegistry = buildOfficeSceneAssetRegistry(OFFICE_SCENE_ASSET_REGISTRY, normalizePixelPackState({
+      activePack: {
+        id: 'star-office@1.0.0',
+        manifest: {
+          assets: {
+            packStarWriting: {
+              assetUrl: 'https://example.com/pack-star-writing.webp',
+              cols: 2,
+              rows: 1,
+            },
+          },
+          characters: {
+            star: {
+              label: 'Pack Star',
+              states: {
+                idle: {
+                  assetKey: 'packStarWriting',
+                },
+                writing: {
+                  assetKey: 'packStarWriting',
+                },
+              },
+            },
+          },
+        },
+      },
+    }));
+
+    const primarySprite = resolveOfficeOccupantSprite({
+      agentId: 'main',
+      isPrimary: true,
+      businessState: 'writing',
+      pixelRoom: {
+        characterId: 'star',
+        overrides: {},
+      },
+    }, assetRegistry);
+
+    const guestSprite = resolveOfficeOccupantSprite({
+      agentId: 'guest-7',
+      isPrimary: false,
+      businessState: 'writing',
+      pixelRoom: {
+        characterId: 'star',
+        overrides: {},
+      },
+    }, assetRegistry);
+
+    expect(primarySprite).toMatchObject({
+      variant: 'character-profile',
+      characterId: 'star',
+      characterState: 'writing',
+      cols: 2,
+      rows: 1,
+    });
+    expect(primarySprite.assetUrl).toBe('https://example.com/pack-star-writing.webp');
+    expect(guestSprite).toMatchObject({
+      variant: 'character-profile',
+      characterId: 'star',
+      characterState: 'writing',
+      cols: 2,
+      rows: 1,
+    });
+    expect(guestSprite.assetUrl).toBe('https://example.com/pack-star-writing.webp');
+  });
+
+  it('falls back to the built-in star profile when no pack profile is present', () => {
+    const primarySprite = resolveOfficeOccupantSprite({
+      agentId: 'main',
+      isPrimary: true,
+      businessState: 'researching',
+      pixelRoom: {
+        characterId: 'star',
+        overrides: {},
+      },
+    });
+
+    expect(primarySprite).toMatchObject({
+      variant: 'character-profile',
+      characterId: 'star',
+      characterState: 'researching',
+    });
+    expect(primarySprite.assetUrl).toBeTruthy();
+    expect(primarySprite.assetUrl).not.toContain('guest_anim_');
+  });
+
+  it('falls back to the legacy guest hash flow when the profile cannot be resolved', () => {
+    const guestSprite = resolveOfficeOccupantSprite({
+      agentId: 'guest-7',
+      isPrimary: false,
+      businessState: 'writing',
+      pixelRoom: {
+        characterId: 'missing-profile',
+        overrides: {},
+      },
+    });
+
+    expect(guestSprite).toMatchObject({
+      variant: 'guest-animated',
+      cols: 4,
+      rows: 2,
+      animation: { fromFrame: 0, toFrame: 7, fps: 8 },
+    });
+  });
+
   it('prefers animated guest art for non-primary occupants and keeps static fallback available', () => {
     const guestSprite = resolveOfficeOccupantSprite({
       agentId: 'guest-7',

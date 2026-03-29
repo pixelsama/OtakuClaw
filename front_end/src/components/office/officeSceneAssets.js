@@ -66,6 +66,109 @@ const GUEST_ANIMATION = Object.freeze({
   fps: 8,
 });
 
+function normalizeCharacterStateEntry(stateEntry = {}) {
+  const source = stateEntry && typeof stateEntry === 'object' ? stateEntry : {};
+  const assetKey = typeof source.assetKey === 'string' && source.assetKey.trim()
+    ? source.assetKey.trim()
+    : typeof source.key === 'string' && source.key.trim()
+      ? source.key.trim()
+      : '';
+  if (!assetKey) {
+    return null;
+  }
+
+  const normalizedState = {
+    assetKey,
+  };
+  if (Number.isFinite(source.frameIndex)) {
+    normalizedState.frameIndex = source.frameIndex;
+  }
+  if (source.animation && typeof source.animation === 'object' && !Array.isArray(source.animation)) {
+    normalizedState.animation = { ...source.animation };
+  }
+  if (source.overrides && typeof source.overrides === 'object' && !Array.isArray(source.overrides)) {
+    normalizedState.overrides = { ...source.overrides };
+  }
+
+  return normalizedState;
+}
+
+function normalizeCharacterProfile(profile = {}, fallbackCharacterId = '') {
+  const source = profile && typeof profile === 'object' ? profile : {};
+  const characterId = typeof source.characterId === 'string' && source.characterId.trim()
+    ? source.characterId.trim()
+    : typeof source.id === 'string' && source.id.trim()
+      ? source.id.trim()
+      : typeof fallbackCharacterId === 'string' && fallbackCharacterId.trim()
+        ? fallbackCharacterId.trim()
+        : '';
+  if (!characterId) {
+    return null;
+  }
+
+  const rawStates = source.states && typeof source.states === 'object' && !Array.isArray(source.states)
+    ? source.states
+    : source.stateSprites && typeof source.stateSprites === 'object' && !Array.isArray(source.stateSprites)
+      ? source.stateSprites
+      : {};
+
+  return {
+    characterId,
+    label: typeof source.label === 'string' && source.label.trim()
+      ? source.label.trim()
+      : typeof source.name === 'string' && source.name.trim()
+        ? source.name.trim()
+        : characterId,
+    states: Object.fromEntries(
+      Object.entries(rawStates)
+        .map(([state, entry]) => [
+          typeof state === 'string' ? state.trim().toLowerCase() : '',
+          normalizeCharacterStateEntry(entry),
+        ])
+        .filter(([state, entry]) => Boolean(state) && Boolean(entry)),
+    ),
+    anchors: source.anchors && typeof source.anchors === 'object' && !Array.isArray(source.anchors)
+      ? { ...source.anchors }
+      : {},
+  };
+}
+
+function resolveProfileState(profile = null, businessState = '') {
+  if (!profile || typeof profile !== 'object') {
+    return {
+      stateKey: 'idle',
+      stateEntry: null,
+    };
+  }
+
+  const normalizedBusinessState = typeof businessState === 'string' ? businessState.trim().toLowerCase() : '';
+  const stateKey = normalizedBusinessState && profile.states[normalizedBusinessState]
+    ? normalizedBusinessState
+    : 'idle';
+  return {
+    stateKey,
+    stateEntry: profile.states[stateKey] || profile.states.idle || null,
+  };
+}
+
+export const BUILTIN_CHARACTER_PROFILES = Object.freeze({
+  star: Object.freeze({
+    characterId: 'star',
+    label: 'Star',
+    states: Object.freeze({
+      idle: Object.freeze({ assetKey: 'starIdle' }),
+      writing: Object.freeze({ assetKey: 'starWorking' }),
+      researching: Object.freeze({ assetKey: 'starWorking' }),
+      executing: Object.freeze({ assetKey: 'starWorking' }),
+      thinking: Object.freeze({ assetKey: 'starWorking' }),
+      streaming: Object.freeze({ assetKey: 'starWorking' }),
+      gaming: Object.freeze({ assetKey: 'starWorking' }),
+      error: Object.freeze({ assetKey: 'errorBug' }),
+    }),
+    anchors: Object.freeze({}),
+  }),
+});
+
 function normalizeSceneAssetEntry(asset = {}, fallbackKey = '') {
   const source = asset && typeof asset === 'object' ? asset : {};
   const key = typeof source.key === 'string' && source.key.trim()
@@ -137,7 +240,87 @@ function resolveGuestFallbackSprite(agentId, assetRegistry = OFFICE_SCENE_ASSET_
   return resolveOfficeSceneAsset(pickGuestRoleAssetKey(agentId), assetRegistry) || resolveOfficeSceneAsset('starIdle', assetRegistry);
 }
 
+function resolveCharacterSpriteFromProfile(occupant, profile, assetRegistry = OFFICE_SCENE_ASSET_REGISTRY) {
+  const baseProfile = normalizeCharacterProfile(profile, occupant?.pixelRoom?.characterId || '');
+  if (!baseProfile) {
+    return null;
+  }
+
+  const overrideSource = occupant?.pixelRoom?.overrides && typeof occupant.pixelRoom.overrides === 'object'
+    && !Array.isArray(occupant.pixelRoom.overrides)
+    ? occupant.pixelRoom.overrides
+    : {};
+  const overrideStatesSource = overrideSource.states && typeof overrideSource.states === 'object' && !Array.isArray(overrideSource.states)
+    ? overrideSource.states
+    : overrideSource.stateSprites && typeof overrideSource.stateSprites === 'object' && !Array.isArray(overrideSource.stateSprites)
+      ? overrideSource.stateSprites
+      : {};
+  const overrideStates = Object.fromEntries(
+    Object.entries(overrideStatesSource)
+      .map(([state, entry]) => [
+        typeof state === 'string' ? state.trim().toLowerCase() : '',
+        normalizeCharacterStateEntry(entry),
+      ])
+      .filter(([state, entry]) => Boolean(state) && Boolean(entry)),
+  );
+  const resolvedProfile = {
+    ...baseProfile,
+    ...(typeof overrideSource.label === 'string' && overrideSource.label.trim()
+      ? { label: overrideSource.label.trim() }
+      : {}),
+    states: {
+      ...baseProfile.states,
+      ...overrideStates,
+    },
+    anchors: {
+      ...baseProfile.anchors,
+      ...(overrideSource.anchors && typeof overrideSource.anchors === 'object' && !Array.isArray(overrideSource.anchors)
+        ? overrideSource.anchors
+        : {}),
+    },
+  };
+  const { stateKey, stateEntry } = resolveProfileState(resolvedProfile, occupant?.businessState);
+  const asset = stateEntry?.assetKey ? resolveOfficeSceneAsset(stateEntry.assetKey, assetRegistry) : null;
+  if (!asset) {
+    return null;
+  }
+
+  return {
+    ...asset,
+    variant: 'character-profile',
+    characterId: resolvedProfile.characterId,
+    characterState: stateKey,
+    characterLabel: resolvedProfile.label,
+  };
+}
+
+function resolveOccupantCharacterSprite(occupant, assetRegistry = OFFICE_SCENE_ASSET_REGISTRY) {
+  const characterId = typeof occupant?.pixelRoom?.characterId === 'string'
+    ? occupant.pixelRoom.characterId.trim()
+    : '';
+  if (!characterId) {
+    return null;
+  }
+
+  const activePackProfile = normalizeCharacterProfile(
+    assetRegistry?.__pixelPackManifest?.characters?.[characterId],
+    characterId,
+  );
+  const builtInProfile = normalizeCharacterProfile(BUILTIN_CHARACTER_PROFILES[characterId], characterId);
+  const activePackSprite = resolveCharacterSpriteFromProfile(occupant, activePackProfile, assetRegistry);
+  if (activePackSprite) {
+    return activePackSprite;
+  }
+
+  return resolveCharacterSpriteFromProfile(occupant, builtInProfile, assetRegistry);
+}
+
 export function resolveOfficeOccupantSprite(occupant, assetRegistry = OFFICE_SCENE_ASSET_REGISTRY) {
+  const characterSprite = resolveOccupantCharacterSprite(occupant, assetRegistry);
+  if (characterSprite) {
+    return characterSprite;
+  }
+
   if (occupant?.isPrimary) {
     switch (occupant.businessState) {
       case 'writing':
