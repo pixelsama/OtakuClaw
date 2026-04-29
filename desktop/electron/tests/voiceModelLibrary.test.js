@@ -7,6 +7,7 @@ const test = require('node:test');
 const { promisify } = require('node:util');
 
 const { VoiceModelLibrary } = require('../services/voice/voiceModelLibrary');
+const { getBuiltInVoiceModelCatalog } = require('../services/voice/voiceModelCatalog');
 
 const execFileAsync = promisify(execFile);
 
@@ -345,11 +346,27 @@ test('listCatalog returns built-in model items', async () => {
 
   const catalog = library.listCatalog();
   assert.ok(Array.isArray(catalog));
-  assert.ok(catalog.length >= 4);
   assert.ok(catalog.some((item) => item.id === 'builtin-asr-zh-int8-zipformer-v1'));
-  assert.ok(catalog.some((item) => item.id === 'builtin-asr-qwen3-0.6b-4bit-v1'));
-  assert.ok(catalog.some((item) => item.id === 'builtin-tts-qwen3-0.6b-8bit-v1'));
   assert.ok(catalog.some((item) => item.id === 'builtin-tts-edge-v1'));
+
+  const hasAppleSiliconMlxCatalog =
+    catalog.some((item) => item.id === 'builtin-asr-qwen3-0.6b-4bit-v1')
+    || catalog.some((item) => item.id === 'builtin-tts-qwen3-0.6b-8bit-v1');
+  assert.equal(hasAppleSiliconMlxCatalog, process.platform === 'darwin' && process.arch === 'arm64');
+});
+
+test('built-in voice catalog filters Apple Silicon MLX items away from Windows', () => {
+  const windowsCatalog = getBuiltInVoiceModelCatalog({ platform: 'win32', arch: 'x64' });
+  assert.ok(windowsCatalog.some((item) => item.id === 'builtin-asr-zh-int8-zipformer-v1'));
+  assert.ok(windowsCatalog.some((item) => item.id === 'builtin-tts-edge-v1'));
+  assert.ok(!windowsCatalog.some((item) => item.id === 'builtin-asr-qwen3-0.6b-4bit-v1'));
+  assert.ok(!windowsCatalog.some((item) => item.id === 'builtin-tts-qwen3-0.6b-8bit-v1'));
+});
+
+test('built-in voice catalog keeps Apple Silicon MLX items on darwin arm64', () => {
+  const appleSiliconCatalog = getBuiltInVoiceModelCatalog({ platform: 'darwin', arch: 'arm64' });
+  assert.ok(appleSiliconCatalog.some((item) => item.id === 'builtin-asr-qwen3-0.6b-4bit-v1'));
+  assert.ok(appleSiliconCatalog.some((item) => item.id === 'builtin-tts-qwen3-0.6b-8bit-v1'));
 });
 
 test('getRuntimeEnv infers kokoro data dir and lexicon for legacy bundles', async () => {

@@ -33,6 +33,7 @@ const BUILT_IN_VOICE_MODEL_CATALOG = [
     requiresCredential: false,
     hasAsr: true,
     hasTts: false,
+    supportedPlatforms: ['darwin-arm64'],
     runtime: {
       kind: 'python',
       pythonVersion: DEFAULT_PYTHON_VERSION,
@@ -61,6 +62,7 @@ const BUILT_IN_VOICE_MODEL_CATALOG = [
     requiresCredential: false,
     hasAsr: false,
     hasTts: true,
+    supportedPlatforms: ['darwin-arm64'],
     runtime: {
       kind: 'python',
       pythonVersion: DEFAULT_PYTHON_VERSION,
@@ -114,23 +116,45 @@ const BUILT_IN_VOICE_MODEL_CATALOG = [
   },
 ];
 
-function getBuiltInVoiceModelCatalog() {
-  return BUILT_IN_VOICE_MODEL_CATALOG.map((item) => ({
-    ...item,
-    asr: item.asr ? { ...item.asr } : null,
-    tts: item.tts ? { ...item.tts } : null,
-    runtime: item.runtime
-      ? {
-          ...item.runtime,
-          packages: item.runtime.packages ? { ...item.runtime.packages } : {},
-          pipPackages: Array.isArray(item.runtime.pipPackages)
-            ? [...item.runtime.pipPackages]
-            : [],
-        }
-      : null,
-  }));
+function resolveCatalogPlatformKey({
+  platform = process.platform,
+  arch = process.arch,
+} = {}) {
+  return `${platform}-${arch}`;
+}
+
+function isCatalogItemSupportedOnPlatform(item = {}, platformKey = resolveCatalogPlatformKey()) {
+  const supportedPlatforms = Array.isArray(item.supportedPlatforms)
+    ? item.supportedPlatforms
+    : [];
+  if (!supportedPlatforms.length) {
+    return true;
+  }
+  return supportedPlatforms.includes(platformKey);
+}
+
+function getBuiltInVoiceModelCatalog(options = {}) {
+  const platformKey = resolveCatalogPlatformKey(options);
+  return BUILT_IN_VOICE_MODEL_CATALOG
+    .filter((item) => isCatalogItemSupportedOnPlatform(item, platformKey))
+    .map((item) => ({
+      ...item,
+      asr: item.asr ? { ...item.asr } : null,
+      tts: item.tts ? { ...item.tts } : null,
+      runtime: item.runtime
+        ? {
+            ...item.runtime,
+            packages: item.runtime.packages ? { ...item.runtime.packages } : {},
+            pipPackages: Array.isArray(item.runtime.pipPackages)
+              ? [...item.runtime.pipPackages]
+              : [],
+          }
+        : null,
+    }));
 }
 
 module.exports = {
   getBuiltInVoiceModelCatalog,
+  isCatalogItemSupportedOnPlatform,
+  resolveCatalogPlatformKey,
 };

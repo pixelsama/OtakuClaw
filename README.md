@@ -4,17 +4,17 @@
   <img src="./Logo.jpg" alt="OtakuClaw Logo" width="180" />
 </p>
 
-OtakuClaw 是一个可直接安装使用的跨平台桌面应用（Electron），当前支持 macOS 与 Windows 构建。
+OtakuClaw 是一个可直接安装使用的跨平台桌面应用（Electron），当前支持 Windows 与 macOS 构建。
 
 ## 下载
 
-- 最新版本（macOS / Windows）：  
+- 最新版本（Windows / macOS）：
   https://github.com/pixelsama/OtakuClaw/releases/latest
 
 ## 当前版本状态
 
-- 已提供稳定可安装的 macOS App（DMG）。
 - Windows 支持 NSIS 安装包，可通过 `pnpm run desktop:build:win` 生成。
+- macOS 支持 DMG 安装包，可通过 `pnpm run desktop:build:mac` 生成。
 - 当前公开版本仅开放 `Nanobot` 后端。
 - `OpenClaw` 后端已在现版本中临时禁用，后续版本再重新开放。
 
@@ -22,8 +22,14 @@ OtakuClaw 是一个可直接安装使用的跨平台桌面应用（Electron）�
 
 - 安装依赖：`pnpm install`
 - 开发模式：`pnpm run desktop:dev`
-- macOS 安装包：`pnpm run desktop:build:mac`
 - Windows 安装包：`pnpm run desktop:build:win`
+- macOS 安装包：`pnpm run desktop:build:mac`
+
+## Windows 本地说明
+
+- 安装版应用数据目录：`%APPDATA%\otakuclaw-desktop`
+- 卸载时默认保留应用数据；需要完全重置时，可先退出应用，再删除上述目录。
+- Windows 默认显示跨平台可用的内置语音模型：Sherpa ASR 与 Edge TTS。Apple Silicon 专用的 MLX/Qwen3 本地模型只会在 macOS arm64 上显示。
 
 ## 主要能力
 
