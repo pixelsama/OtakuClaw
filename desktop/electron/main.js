@@ -95,6 +95,7 @@ let chatBackendManager = null;
 let appUpdaterService = null;
 let disposeOfficeStateSubscription = null;
 let disposeValueStateSubscription = null;
+let mainWindowInitialShowTimer = null;
 const PINNED_NANOBOT_ARCHIVE_URL = 'https://codeload.github.com/HKUDS/nanobot/tar.gz/refs/tags/v0.1.4.post4';
 const legacyConversationMirrorEnabled = (() => {
   const value = process.env.OPENCLAW_ENABLE_LEGACY_STREAM_EVENTS;
@@ -111,6 +112,28 @@ function normalizeEnvText(value) {
 
 function prepareQuitForUpdate() {
   isQuitting = true;
+}
+
+function showMainWindowWhenAvailable() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function clearMainWindowInitialShowTimer() {
+  if (!mainWindowInitialShowTimer) {
+    return;
+  }
+
+  clearTimeout(mainWindowInitialShowTimer);
+  mainWindowInitialShowTimer = null;
 }
 
 function getDefaultVoiceToggleAccelerator() {
@@ -577,9 +600,17 @@ async function createMainWindow() {
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow?.show();
+  const revealInitialWindow = () => {
+    clearMainWindowInitialShowTimer();
+    showMainWindowWhenAvailable();
+  };
+
+  mainWindow.once('ready-to-show', revealInitialWindow);
+  mainWindow.webContents.once('did-finish-load', () => {
+    setTimeout(revealInitialWindow, 50);
   });
+  mainWindowInitialShowTimer = setTimeout(revealInitialWindow, 3000);
+  mainWindowInitialShowTimer.unref?.();
 
   mainWindow.on('close', (event) => {
     if (isQuitting) {
@@ -591,6 +622,7 @@ async function createMainWindow() {
   });
 
   mainWindow.on('closed', () => {
+    clearMainWindowInitialShowTimer();
     windowModeManager.detachWindow();
     mainWindow = null;
   });
@@ -1022,13 +1054,22 @@ async function bootstrap() {
   });
 }
 
-app
-  .whenReady()
-  .then(bootstrap)
-  .catch((error) => {
-    console.error('Electron bootstrap failed:', error);
-    app.quit();
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    showMainWindowWhenAvailable();
   });
+
+  app
+    .whenReady()
+    .then(bootstrap)
+    .catch((error) => {
+      console.error('Electron bootstrap failed:', error);
+      app.quit();
+    });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -1038,6 +1079,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   prepareQuitForUpdate();
+  clearMainWindowInitialShowTimer();
   unregisterGlobalVoiceToggleShortcut();
 
   if (conversationRuntime) {
