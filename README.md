@@ -4,18 +4,26 @@
   <img src="./Logo.jpg" alt="OtakuClaw Logo" width="180" />
 </p>
 
-OtakuClaw 是一个可直接安装使用的 macOS 桌面应用（Electron）。
+OtakuClaw 是一个可直接安装使用的跨平台桌面应用（Electron），当前支持 macOS 与 Windows 构建。
 
 ## 下载
 
-- 最新版本（macOS）：  
+- 最新版本（macOS / Windows）：  
   https://github.com/pixelsama/OtakuClaw/releases/latest
 
 ## 当前版本状态
 
 - 已提供稳定可安装的 macOS App（DMG）。
+- Windows 支持 NSIS 安装包，可通过 `pnpm run desktop:build:win` 生成。
 - 当前公开版本仅开放 `Nanobot` 后端。
 - `OpenClaw` 后端已在现版本中临时禁用，后续版本再重新开放。
+
+## 本地构建
+
+- 安装依赖：`pnpm install`
+- 开发模式：`pnpm run desktop:dev`
+- macOS 安装包：`pnpm run desktop:build:mac`
+- Windows 安装包：`pnpm run desktop:build:win`
 
 ## 主要能力
 

@@ -1,6 +1,8 @@
 {
   "name": "otakuclaw-desktop",
   "version": "0.2.1",
+  "description": "OtakuClaw desktop application.",
+  "author": "OtakuClaw",
   "private": true,
   "packageManager": "pnpm@10.28.0",
   "main": "desktop/electron/main.js",
@@ -11,6 +13,8 @@
     "desktop:dev:electron": "node desktop/electron/scripts/waitForDevServer.js && cross-env ELECTRON_DEV_SERVER_URL=http://127.0.0.1:3000 electron .",
     "desktop:dev": "concurrently -k \"pnpm run desktop:dev:renderer\" \"pnpm run desktop:dev:electron\"",
     "desktop:build": "pnpm run frontend:build && electron-builder",
+    "desktop:build:mac": "pnpm run frontend:build && electron-builder --mac",
+    "desktop:build:win": "pnpm run frontend:build && electron-builder --win --x64",
     "test:frontend": "pnpm --dir front_end exec vitest --run",
     "test:desktop": "node --test desktop/electron/tests/*.test.js"
   },
@@ -51,9 +55,26 @@
       "package.json"
     ],
     "win": {
+      "icon": "desktop/electron/assets/icon.ico",
+      "artifactName": "${productName}-${version}-${arch}-setup.${ext}",
       "target": [
-        "nsis"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "OtakuClaw",
+      "deleteAppDataOnUninstall": false
     },
     "mac": {
       "icon": "desktop/electron/assets/icon.icns",
