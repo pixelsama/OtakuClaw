@@ -67,6 +67,24 @@ const settings = {
   },
 };
 
+const scenicGuide = {
+  getManifest() {
+    return ipcRenderer.invoke('scenic-guide:get-manifest');
+  },
+  pickDataDirectory() {
+    return ipcRenderer.invoke('scenic-guide:pick-data-directory');
+  },
+  inspectDataDirectory(request) {
+    return ipcRenderer.invoke('scenic-guide:inspect-data-directory', request);
+  },
+  importOfficialData(request) {
+    return ipcRenderer.invoke('scenic-guide:import-official-data', request);
+  },
+  getImportSummary() {
+    return ipcRenderer.invoke('scenic-guide:get-import-summary');
+  },
+};
+
 const appUpdater = {
   getState() {
     return ipcRenderer.invoke('app-updater:get-state');
@@ -327,6 +345,7 @@ contextBridge.exposeInMainWorld('desktop', {
   platform: process.platform,
   chatStream,
   conversation,
+  scenicGuide,
   settings,
   appUpdater,
   nanobotRuntime,

@@ -4,6 +4,7 @@ const {
   BrowserWindow,
   shell,
   ipcMain,
+  dialog,
   protocol,
   screen,
   globalShortcut,
@@ -14,6 +15,7 @@ const {
 
 const { registerChatStreamIpc } = require('./ipc/chatStream');
 const { registerConversationIpc } = require('./ipc/conversation');
+const { registerScenicGuideIpc } = require('./ipc/scenicGuide');
 const { registerOfficeStateIpc } = require('./ipc/officeState');
 const { registerValueStateIpc } = require('./ipc/valueState');
 const { registerLive2DModelsIpc } = require('./ipc/live2dModels');
@@ -28,6 +30,8 @@ const { registerVoiceSessionIpc } = require('./ipc/voiceSession');
 const { createConversationRuntime } = require('./services/chat/conversationRuntime');
 const { createChatBackendManager } = require('./services/chat/backendManager');
 const { NanobotBackendAdapter } = require('./services/chat/backends/nanobotBackend');
+const { OfficialDataImporter } = require('./services/scenicGuide/officialDataImporter');
+const { OfficialDataManifestStore } = require('./services/scenicGuide/officialDataManifestStore');
 const { NanobotRuntimeManager } = require('./services/chat/nanobot/nanobotRuntimeManager');
 const { NanobotSkillsLibrary } = require('./services/chat/nanobot/nanobotSkillsLibrary');
 const { Live2DModelLibrary, MODEL_PROTOCOL } = require('./services/live2dModelLibrary');
@@ -62,6 +66,7 @@ protocol.registerSchemesAsPrivileged([
 let mainWindow = null;
 let disposeChatStreamHandlers = null;
 let disposeConversationHandlers = null;
+let disposeScenicGuideHandlers = null;
 let disposeOfficeStateHandlers = null;
 let disposeValueStateHandlers = null;
 let disposeModeHandlers = null;
@@ -79,6 +84,8 @@ let officePresenceProducer = null;
 let valueStateStore = null;
 let valueProposalService = null;
 let settingsStore = null;
+let officialDataManifestStore = null;
+let officialDataImporter = null;
 let windowModeManager = null;
 let trayManager = null;
 let live2dModelLibrary = null;
@@ -631,6 +638,11 @@ async function createMainWindow() {
 async function bootstrap() {
   settingsStore = new SettingsStore(app);
   await settingsStore.init();
+  officialDataManifestStore = new OfficialDataManifestStore({ app });
+  await officialDataManifestStore.init();
+  officialDataImporter = new OfficialDataImporter({
+    manifestStore: officialDataManifestStore,
+  });
   live2dModelLibrary = new Live2DModelLibrary(app);
   await live2dModelLibrary.init();
   screenshotCaptureService = new ScreenshotCaptureService(app);
@@ -706,6 +718,13 @@ async function bootstrap() {
     settingsStore,
     getWindow: () => mainWindow,
     backendManager: chatBackendManager,
+  });
+  disposeScenicGuideHandlers = registerScenicGuideIpc({
+    ipcMain,
+    dialog,
+    getWindow: () => mainWindow,
+    officialDataManifestStore,
+    officialDataImporter,
   });
   disposeOfficeStateHandlers = registerOfficeStateIpc({
     ipcMain,
@@ -1088,6 +1107,9 @@ app.on('before-quit', () => {
   }
   if (disposeConversationHandlers) {
     disposeConversationHandlers();
+  }
+  if (disposeScenicGuideHandlers) {
+    disposeScenicGuideHandlers();
   }
   if (disposeOfficeStateHandlers) {
     disposeOfficeStateHandlers();

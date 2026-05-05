@@ -1027,6 +1027,67 @@ export const desktopBridge = {
       });
     },
   },
+  scenicGuide: {
+    getManifest() {
+      const api = getDesktopApi();
+      if (api?.scenicGuide?.getManifest) {
+        return api.scenicGuide.getManifest();
+      }
+      return Promise.resolve({
+        ok: true,
+        manifest: null,
+      });
+    },
+    pickDataDirectory() {
+      const api = getDesktopApi();
+      if (api?.scenicGuide?.pickDataDirectory) {
+        return api.scenicGuide.pickDataDirectory();
+      }
+      return Promise.resolve({
+        ok: false,
+        error: {
+          code: 'desktop_scenic_guide_unavailable',
+          message: 'Scenic guide directory picker is only available in the desktop app.',
+        },
+      });
+    },
+    inspectDataDirectory(request = {}) {
+      const api = getDesktopApi();
+      if (api?.scenicGuide?.inspectDataDirectory) {
+        return api.scenicGuide.inspectDataDirectory(request);
+      }
+      return Promise.resolve({
+        ok: false,
+        error: {
+          code: 'desktop_scenic_guide_unavailable',
+          message: 'Scenic guide data inspection is only available in the desktop app.',
+        },
+      });
+    },
+    importOfficialData(request = {}) {
+      const api = getDesktopApi();
+      if (api?.scenicGuide?.importOfficialData) {
+        return api.scenicGuide.importOfficialData(request);
+      }
+      return Promise.resolve({
+        ok: false,
+        error: {
+          code: 'desktop_scenic_guide_unavailable',
+          message: 'Official scenic guide data import is only available in the desktop app.',
+        },
+      });
+    },
+    getImportSummary() {
+      const api = getDesktopApi();
+      if (api?.scenicGuide?.getImportSummary) {
+        return api.scenicGuide.getImportSummary();
+      }
+      return Promise.resolve({
+        ok: true,
+        importSummary: null,
+      });
+    },
+  },
   office: {
     async getState() {
       const api = getDesktopApi();
