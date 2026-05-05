@@ -35,6 +35,67 @@ describe('desktopBridge voice model selection', () => {
   });
 });
 
+describe('desktopBridge scenic guide knowledge API', () => {
+  it('routes scenic guide knowledge queries to the desktop preload API', async () => {
+    const getKnowledgeSummary = vi.fn(async () => ({ ok: true, knowledgeSummary: { knowledgeBlockCount: 94 } }));
+    const listSpots = vi.fn(async (payload) => ({ ok: true, spots: [{ spotId: 'LS-011' }], payload }));
+    const listRoutes = vi.fn(async (payload) => ({ ok: true, routes: [{ routeId: 'official-family-4h' }], payload }));
+    const listKnowledgeBlocks = vi.fn(async (payload) => ({ ok: true, knowledgeBlocks: [], payload }));
+    globalThis.window = {
+      desktop: {
+        isElectron: true,
+        scenicGuide: {
+          getKnowledgeSummary,
+          listSpots,
+          listRoutes,
+          listKnowledgeBlocks,
+        },
+      },
+    };
+
+    await expect(desktopBridge.scenicGuide.getKnowledgeSummary()).resolves.toEqual({
+      ok: true,
+      knowledgeSummary: { knowledgeBlockCount: 94 },
+    });
+    await expect(desktopBridge.scenicGuide.listSpots({ query: '灵山大佛' })).resolves.toEqual({
+      ok: true,
+      spots: [{ spotId: 'LS-011' }],
+      payload: { query: '灵山大佛' },
+    });
+    await expect(desktopBridge.scenicGuide.listRoutes({ query: '亲子' })).resolves.toEqual({
+      ok: true,
+      routes: [{ routeId: 'official-family-4h' }],
+      payload: { query: '亲子' },
+    });
+    await expect(desktopBridge.scenicGuide.listKnowledgeBlocks({ query: '九龙灌浴' })).resolves.toEqual({
+      ok: true,
+      knowledgeBlocks: [],
+      payload: { query: '九龙灌浴' },
+    });
+  });
+
+  it('returns empty scenic guide knowledge fallbacks in web mode', async () => {
+    globalThis.window = {};
+
+    await expect(desktopBridge.scenicGuide.getKnowledgeSummary()).resolves.toEqual({
+      ok: true,
+      knowledgeSummary: null,
+    });
+    await expect(desktopBridge.scenicGuide.listSpots({ query: '灵山大佛' })).resolves.toEqual({
+      ok: true,
+      spots: [],
+    });
+    await expect(desktopBridge.scenicGuide.listRoutes({ query: '亲子' })).resolves.toEqual({
+      ok: true,
+      routes: [],
+    });
+    await expect(desktopBridge.scenicGuide.listKnowledgeBlocks({ query: '九龙灌浴' })).resolves.toEqual({
+      ok: true,
+      knowledgeBlocks: [],
+    });
+  });
+});
+
 describe('desktopBridge conversation-only routing', () => {
   it('returns unavailable when conversation submit API is missing', async () => {
     globalThis.window = {

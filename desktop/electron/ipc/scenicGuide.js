@@ -21,6 +21,7 @@ function registerScenicGuideIpc({
   getWindow,
   officialDataManifestStore,
   officialDataImporter,
+  scenicKnowledgeStore,
 } = {}) {
   if (!ipcMain) {
     return () => {};
@@ -104,6 +105,78 @@ function registerScenicGuideIpc({
       return {
         ok: true,
         importSummary: manifest?.importSummary || null,
+        knowledgeSummary:
+          scenicKnowledgeStore && typeof scenicKnowledgeStore.getSummary === 'function'
+            ? scenicKnowledgeStore.getSummary()
+            : manifest?.knowledgeSummary || null,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: toScenicGuideIpcError(error),
+      };
+    }
+  });
+
+  ipcMain.handle('scenic-guide:get-knowledge-summary', async () => {
+    try {
+      return {
+        ok: true,
+        knowledgeSummary:
+          scenicKnowledgeStore && typeof scenicKnowledgeStore.getSummary === 'function'
+            ? scenicKnowledgeStore.getSummary()
+            : null,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: toScenicGuideIpcError(error),
+      };
+    }
+  });
+
+  ipcMain.handle('scenic-guide:list-spots', async (_event, request = {}) => {
+    try {
+      return {
+        ok: true,
+        spots:
+          scenicKnowledgeStore && typeof scenicKnowledgeStore.listSpots === 'function'
+            ? scenicKnowledgeStore.listSpots(request)
+            : [],
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: toScenicGuideIpcError(error),
+      };
+    }
+  });
+
+  ipcMain.handle('scenic-guide:list-routes', async (_event, request = {}) => {
+    try {
+      return {
+        ok: true,
+        routes:
+          scenicKnowledgeStore && typeof scenicKnowledgeStore.listRoutes === 'function'
+            ? scenicKnowledgeStore.listRoutes(request)
+            : [],
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: toScenicGuideIpcError(error),
+      };
+    }
+  });
+
+  ipcMain.handle('scenic-guide:list-knowledge-blocks', async (_event, request = {}) => {
+    try {
+      return {
+        ok: true,
+        knowledgeBlocks:
+          scenicKnowledgeStore && typeof scenicKnowledgeStore.listKnowledgeBlocks === 'function'
+            ? scenicKnowledgeStore.listKnowledgeBlocks(request)
+            : [],
       };
     } catch (error) {
       return {
@@ -119,6 +192,10 @@ function registerScenicGuideIpc({
     ipcMain.removeHandler('scenic-guide:inspect-data-directory');
     ipcMain.removeHandler('scenic-guide:import-official-data');
     ipcMain.removeHandler('scenic-guide:get-import-summary');
+    ipcMain.removeHandler('scenic-guide:get-knowledge-summary');
+    ipcMain.removeHandler('scenic-guide:list-spots');
+    ipcMain.removeHandler('scenic-guide:list-routes');
+    ipcMain.removeHandler('scenic-guide:list-knowledge-blocks');
   };
 }
 

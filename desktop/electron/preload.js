@@ -83,6 +83,18 @@ const scenicGuide = {
   getImportSummary() {
     return ipcRenderer.invoke('scenic-guide:get-import-summary');
   },
+  getKnowledgeSummary() {
+    return ipcRenderer.invoke('scenic-guide:get-knowledge-summary');
+  },
+  listSpots(request) {
+    return ipcRenderer.invoke('scenic-guide:list-spots', request);
+  },
+  listRoutes(request) {
+    return ipcRenderer.invoke('scenic-guide:list-routes', request);
+  },
+  listKnowledgeBlocks(request) {
+    return ipcRenderer.invoke('scenic-guide:list-knowledge-blocks', request);
+  },
 };
 
 const appUpdater = {

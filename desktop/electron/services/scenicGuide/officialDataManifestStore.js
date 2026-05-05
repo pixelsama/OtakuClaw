@@ -23,6 +23,7 @@ function createEmptyManifest() {
     importedAt: '',
     sources: [],
     importSummary: null,
+    knowledgeSummary: null,
   };
 }
 

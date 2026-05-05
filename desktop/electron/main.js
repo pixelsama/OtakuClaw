@@ -32,6 +32,7 @@ const { createChatBackendManager } = require('./services/chat/backendManager');
 const { NanobotBackendAdapter } = require('./services/chat/backends/nanobotBackend');
 const { OfficialDataImporter } = require('./services/scenicGuide/officialDataImporter');
 const { OfficialDataManifestStore } = require('./services/scenicGuide/officialDataManifestStore');
+const { ScenicKnowledgeStore } = require('./services/scenicGuide/scenicKnowledgeStore');
 const { NanobotRuntimeManager } = require('./services/chat/nanobot/nanobotRuntimeManager');
 const { NanobotSkillsLibrary } = require('./services/chat/nanobot/nanobotSkillsLibrary');
 const { Live2DModelLibrary, MODEL_PROTOCOL } = require('./services/live2dModelLibrary');
@@ -85,6 +86,7 @@ let valueStateStore = null;
 let valueProposalService = null;
 let settingsStore = null;
 let officialDataManifestStore = null;
+let scenicKnowledgeStore = null;
 let officialDataImporter = null;
 let windowModeManager = null;
 let trayManager = null;
@@ -640,8 +642,11 @@ async function bootstrap() {
   await settingsStore.init();
   officialDataManifestStore = new OfficialDataManifestStore({ app });
   await officialDataManifestStore.init();
+  scenicKnowledgeStore = new ScenicKnowledgeStore({ app });
+  await scenicKnowledgeStore.init();
   officialDataImporter = new OfficialDataImporter({
     manifestStore: officialDataManifestStore,
+    knowledgeStore: scenicKnowledgeStore,
   });
   live2dModelLibrary = new Live2DModelLibrary(app);
   await live2dModelLibrary.init();
@@ -725,6 +730,7 @@ async function bootstrap() {
     getWindow: () => mainWindow,
     officialDataManifestStore,
     officialDataImporter,
+    scenicKnowledgeStore,
   });
   disposeOfficeStateHandlers = registerOfficeStateIpc({
     ipcMain,

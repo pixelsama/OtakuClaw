@@ -62,9 +62,11 @@ function buildSourcePath(directoryPath, source) {
 class OfficialDataImporter {
   constructor({
     manifestStore = null,
+    knowledgeStore = null,
     sourceFiles = OFFICIAL_SOURCE_FILES,
   } = {}) {
     this.manifestStore = manifestStore;
+    this.knowledgeStore = knowledgeStore;
     this.sourceFiles = sourceFiles;
   }
 
@@ -177,6 +179,24 @@ class OfficialDataImporter {
         behaviorMissingHeaders: behaviorSummary.missingHeaders,
       };
 
+      let knowledgeSummary = null;
+      if (this.knowledgeStore && typeof this.knowledgeStore.rebuildFromOfficialData === 'function') {
+        await this.knowledgeStore.rebuildFromOfficialData({
+          datasetId: OFFICIAL_DATASET_ID,
+          scenicId: OFFICIAL_SCENIC_ID,
+          sources: inspection.sources,
+          importSummary,
+          behaviorSummary,
+          spots: spotDataset.spots,
+          guideSections: guideDataset.sections,
+          routes: guideDataset.routes,
+        });
+        knowledgeSummary =
+          typeof this.knowledgeStore.getSummary === 'function'
+            ? this.knowledgeStore.getSummary()
+            : null;
+      }
+
       const manifest = {
         datasetId: OFFICIAL_DATASET_ID,
         scenicId: OFFICIAL_SCENIC_ID,
@@ -184,6 +204,7 @@ class OfficialDataImporter {
         importedAt: new Date().toISOString(),
         sources: inspection.sources,
         importSummary,
+        knowledgeSummary,
       };
 
       if (this.manifestStore && typeof this.manifestStore.saveManifest === 'function') {
@@ -194,6 +215,7 @@ class OfficialDataImporter {
         ok: true,
         manifest,
         importSummary,
+        knowledgeSummary,
         data: {
           spots: spotDataset.spots,
           guideSections: guideDataset.sections,

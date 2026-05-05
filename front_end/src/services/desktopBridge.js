@@ -1087,6 +1087,46 @@ export const desktopBridge = {
         importSummary: null,
       });
     },
+    getKnowledgeSummary() {
+      const api = getDesktopApi();
+      if (api?.scenicGuide?.getKnowledgeSummary) {
+        return api.scenicGuide.getKnowledgeSummary();
+      }
+      return Promise.resolve({
+        ok: true,
+        knowledgeSummary: null,
+      });
+    },
+    listSpots(request = {}) {
+      const api = getDesktopApi();
+      if (api?.scenicGuide?.listSpots) {
+        return api.scenicGuide.listSpots(request);
+      }
+      return Promise.resolve({
+        ok: true,
+        spots: [],
+      });
+    },
+    listRoutes(request = {}) {
+      const api = getDesktopApi();
+      if (api?.scenicGuide?.listRoutes) {
+        return api.scenicGuide.listRoutes(request);
+      }
+      return Promise.resolve({
+        ok: true,
+        routes: [],
+      });
+    },
+    listKnowledgeBlocks(request = {}) {
+      const api = getDesktopApi();
+      if (api?.scenicGuide?.listKnowledgeBlocks) {
+        return api.scenicGuide.listKnowledgeBlocks(request);
+      }
+      return Promise.resolve({
+        ok: true,
+        knowledgeBlocks: [],
+      });
+    },
   },
   office: {
     async getState() {
