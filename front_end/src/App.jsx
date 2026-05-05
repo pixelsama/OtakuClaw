@@ -1152,6 +1152,9 @@ function AppContent({ desktopMode }) {
   });
 
   const isScenicGuideShellActive = !isPetMode && mainWindowShell === 'scenic-guide';
+  const shouldShowFirstRunOnboarding = !isScenicGuideShellActive && firstRunOnboardingOpen;
+  const shouldShowDownloadDialog =
+    (!isScenicGuideShellActive || showConfigPanel) && !shouldShowFirstRunOnboarding && downloadDialogOpen;
 
   return (
     <Box sx={stageStyle}>
@@ -1186,6 +1189,7 @@ function AppContent({ desktopMode }) {
           desktopMode={desktopMode}
           platform={platform}
           onWindowControl={controlWindow}
+          onOpenAdvancedSettings={openConfigPanel}
         />
       ) : (
         <MainShell
@@ -1220,7 +1224,7 @@ function AppContent({ desktopMode }) {
       )}
 
       <ConfigDrawer
-        open={!isScenicGuideShellActive && showConfigPanel}
+        open={showConfigPanel}
         isPetMode={isPetMode}
         isNarrowViewport={isNarrowViewport}
         onClose={closeConfigPanel}
@@ -1253,6 +1257,7 @@ function AppContent({ desktopMode }) {
         onOpenNanobotSkillsLibrary={onOpenNanobotSkillsLibrary}
         onOpenDownloadCenter={openDownloadTask}
         onBuiltinTtsEnabledChange={syncBuiltinTtsEnabled}
+        panelTitle={isScenicGuideShellActive ? '高级设置' : ''}
       />
       <ChatSidebar
         open={!isScenicGuideShellActive && showChatPanel}
@@ -1267,7 +1272,7 @@ function AppContent({ desktopMode }) {
         {...textComposerWithVoiceProps}
       />
       <FirstRunOnboardingDialog
-        open={!isScenicGuideShellActive && firstRunOnboardingOpen}
+        open={shouldShowFirstRunOnboarding}
         desktopMode={desktopMode}
         chatBackendSettings={chatBackendSettings}
         settingsSaving={settingsSaving}
@@ -1287,7 +1292,7 @@ function AppContent({ desktopMode }) {
         onFinish={handleFinishFirstRunOnboarding}
       />
       <UnifiedDownloadDialog
-        open={!isScenicGuideShellActive && !firstRunOnboardingOpen && downloadDialogOpen}
+        open={shouldShowDownloadDialog}
         task={activeTask}
         detailsOpen={downloadDetailsOpen}
         onToggleDetails={() => setDownloadDetailsOpen((prev) => !prev)}

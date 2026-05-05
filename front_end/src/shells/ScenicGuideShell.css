@@ -77,6 +77,21 @@
   min-width: 154px;
 }
 
+.scenic-guide-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  -webkit-app-region: no-drag;
+}
+
+.scenic-guide-admin-button {
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(20, 91, 100, 0.18);
+  color: #1a5876;
+  background: rgba(255, 255, 255, 0.78);
+}
+
 .scenic-guide-status-row {
   min-height: 54px;
   display: flex;
@@ -322,7 +337,17 @@
   }
 
   .scenic-guide-import-button {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .scenic-guide-header-actions {
     width: 100%;
+  }
+
+  .scenic-guide-admin-button {
+    flex: 0 0 auto;
   }
 
   .scenic-guide-stat-grid {

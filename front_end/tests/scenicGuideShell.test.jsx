@@ -25,6 +25,7 @@ function renderShell(props = {}) {
       desktopMode: false,
       platform: 'win32',
       onWindowControl: () => {},
+      onOpenAdvancedSettings: () => {},
       ...props,
     }),
   );
@@ -37,6 +38,10 @@ describe('ScenicGuideShell', () => {
     expect(html).toContain('灵山胜境 AI 导游');
     expect(html).toContain('景区导览服务 AI 数字人');
     expect(html).toContain('请管理员导入官方资料包');
+    expect(html).toContain('aria-label="高级设置"');
+    expect(html).not.toContain('OpenClaw');
+    expect(html).not.toContain('Nanobot');
+    expect(html).not.toContain('Python');
     expect(html).not.toContain('Pixel');
     expect(html).not.toContain('Decorate');
     expect(html).not.toContain('办公室');

@@ -14,6 +14,7 @@ import ChatBubbleOutlineRoundedIcon from '@mui/icons-material/ChatBubbleOutlineR
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded';
 import MicRoundedIcon from '@mui/icons-material/MicRounded';
 import RouteRoundedIcon from '@mui/icons-material/RouteRounded';
+import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import TravelExploreRoundedIcon from '@mui/icons-material/TravelExploreRounded';
 import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
 import WindowTitleBar from '../components/window/WindowTitleBar.jsx';
@@ -43,6 +44,7 @@ export default function ScenicGuideShell({
   desktopMode = false,
   platform = '',
   onWindowControl,
+  onOpenAdvancedSettings,
   initialManifest = null,
 }) {
   const [manifest, setManifest] = useState(initialManifest);
@@ -180,15 +182,26 @@ export default function ScenicGuideShell({
             </Box>
           </Box>
 
-          <Button
-            variant="contained"
-            startIcon={importing ? <CircularProgress size={16} color="inherit" /> : <UploadFileRoundedIcon />}
-            onClick={handleImportOfficialData}
-            disabled={importing}
-            className="scenic-guide-import-button"
-          >
-            {importing ? '导入中' : '导入官方资料包'}
-          </Button>
+          <Box className="scenic-guide-header-actions">
+            <Button
+              variant="contained"
+              startIcon={importing ? <CircularProgress size={16} color="inherit" /> : <UploadFileRoundedIcon />}
+              onClick={handleImportOfficialData}
+              disabled={importing}
+              className="scenic-guide-import-button"
+            >
+              {importing ? '导入中' : '导入官方资料包'}
+            </Button>
+            <Tooltip title="高级设置">
+              <IconButton
+                className="scenic-guide-admin-button"
+                aria-label="高级设置"
+                onClick={onOpenAdvancedSettings}
+              >
+                <SettingsRoundedIcon />
+              </IconButton>
+            </Tooltip>
+          </Box>
         </header>
 
         <Box className="scenic-guide-status-row">

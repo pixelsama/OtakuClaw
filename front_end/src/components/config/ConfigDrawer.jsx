@@ -185,6 +185,7 @@ export default function ConfigDrawer({
   onOpenNanobotSkillsLibrary,
   onOpenDownloadCenter,
   onBuiltinTtsEnabledChange,
+  panelTitle = '',
 }) {
   const { language, setLanguage, t } = useI18n();
   const { themeMode, setThemeMode } = useThemeMode();
@@ -380,7 +381,7 @@ export default function ConfigDrawer({
             <IconButton onClick={onClose}>
               <CloseIcon />
             </IconButton>
-            <span>{t('app.settingsPanel')}</span>
+            <span>{panelTitle || t('app.settingsPanel')}</span>
             {modelLoaded && <Chip color="success" size="small" label={t('app.modelLoaded')} />}
           </Stack>
         </Box>
