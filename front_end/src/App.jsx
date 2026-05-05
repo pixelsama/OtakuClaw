@@ -35,6 +35,7 @@ import {
 import { ModeProvider, MODE_PET, MODE_WINDOW, useModeContext } from './mode/ModeContext.jsx';
 import MainShell from './shells/MainShell.jsx';
 import PetShell from './shells/PetShell.jsx';
+import ScenicGuideShell from './shells/ScenicGuideShell.jsx';
 import { desktopBridge } from './services/desktopBridge.js';
 import { I18nProvider, useI18n } from './i18n/I18nContext.jsx';
 import { normalizeErrorMessage } from './utils/normalizeErrorMessage.js';
@@ -58,6 +59,7 @@ function AppContent({ desktopMode }) {
   const [officeActivityHint, setOfficeActivityHint] = useState(null);
   const [officePreviewMode, setOfficePreviewMode] = useState('live');
   const [mainWindowViewMode, setMainWindowViewMode] = useState('office');
+  const [mainWindowShell] = useState('scenic-guide');
   const [immersiveContext, setImmersiveContext] = useState(null);
   const [valueStateSnapshot, setValueStateSnapshot] = useState(null);
   const [builtinTtsEnabled, setBuiltinTtsEnabled] = useState(false);
@@ -1149,6 +1151,8 @@ function AppContent({ desktopMode }) {
     live2dViewerRef,
   });
 
+  const isScenicGuideShellActive = !isPetMode && mainWindowShell === 'scenic-guide';
+
   return (
     <Box sx={stageStyle}>
       {isPetMode ? (
@@ -1176,6 +1180,12 @@ function AppContent({ desktopMode }) {
           onOpenNanobotWorkspace={onOpenNanobotWorkspace}
           showVoicePermissionWarning={showVoicePermissionWarning}
           voicePermissionWarningText={voicePermissionWarningText}
+        />
+      ) : isScenicGuideShellActive ? (
+        <ScenicGuideShell
+          desktopMode={desktopMode}
+          platform={platform}
+          onWindowControl={controlWindow}
         />
       ) : (
         <MainShell
@@ -1210,7 +1220,7 @@ function AppContent({ desktopMode }) {
       )}
 
       <ConfigDrawer
-        open={showConfigPanel}
+        open={!isScenicGuideShellActive && showConfigPanel}
         isPetMode={isPetMode}
         isNarrowViewport={isNarrowViewport}
         onClose={closeConfigPanel}
@@ -1245,7 +1255,7 @@ function AppContent({ desktopMode }) {
         onBuiltinTtsEnabledChange={syncBuiltinTtsEnabled}
       />
       <ChatSidebar
-        open={showChatPanel}
+        open={!isScenicGuideShellActive && showChatPanel}
         onClose={closeChatPanel}
         variant={isPetMode ? 'pet' : 'main'}
         isPetMode={isPetMode}
@@ -1257,7 +1267,7 @@ function AppContent({ desktopMode }) {
         {...textComposerWithVoiceProps}
       />
       <FirstRunOnboardingDialog
-        open={firstRunOnboardingOpen}
+        open={!isScenicGuideShellActive && firstRunOnboardingOpen}
         desktopMode={desktopMode}
         chatBackendSettings={chatBackendSettings}
         settingsSaving={settingsSaving}
@@ -1277,7 +1287,7 @@ function AppContent({ desktopMode }) {
         onFinish={handleFinishFirstRunOnboarding}
       />
       <UnifiedDownloadDialog
-        open={!firstRunOnboardingOpen && downloadDialogOpen}
+        open={!isScenicGuideShellActive && !firstRunOnboardingOpen && downloadDialogOpen}
         task={activeTask}
         detailsOpen={downloadDetailsOpen}
         onToggleDetails={() => setDownloadDetailsOpen((prev) => !prev)}
