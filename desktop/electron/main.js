@@ -33,6 +33,7 @@ const { NanobotBackendAdapter } = require('./services/chat/backends/nanobotBacke
 const { OfficialDataImporter } = require('./services/scenicGuide/officialDataImporter');
 const { OfficialDataManifestStore } = require('./services/scenicGuide/officialDataManifestStore');
 const { ScenicKnowledgeStore } = require('./services/scenicGuide/scenicKnowledgeStore');
+const { ScenicRagService } = require('./services/scenicGuide/scenicRagService');
 const { NanobotRuntimeManager } = require('./services/chat/nanobot/nanobotRuntimeManager');
 const { NanobotSkillsLibrary } = require('./services/chat/nanobot/nanobotSkillsLibrary');
 const { Live2DModelLibrary, MODEL_PROTOCOL } = require('./services/live2dModelLibrary');
@@ -87,6 +88,7 @@ let valueProposalService = null;
 let settingsStore = null;
 let officialDataManifestStore = null;
 let scenicKnowledgeStore = null;
+let scenicRagService = null;
 let officialDataImporter = null;
 let windowModeManager = null;
 let trayManager = null;
@@ -644,6 +646,9 @@ async function bootstrap() {
   await officialDataManifestStore.init();
   scenicKnowledgeStore = new ScenicKnowledgeStore({ app });
   await scenicKnowledgeStore.init();
+  scenicRagService = new ScenicRagService({
+    knowledgeStore: scenicKnowledgeStore,
+  });
   officialDataImporter = new OfficialDataImporter({
     manifestStore: officialDataManifestStore,
     knowledgeStore: scenicKnowledgeStore,
@@ -731,6 +736,7 @@ async function bootstrap() {
     officialDataManifestStore,
     officialDataImporter,
     scenicKnowledgeStore,
+    scenicRagService,
   });
   disposeOfficeStateHandlers = registerOfficeStateIpc({
     ipcMain,

@@ -1,0 +1,223 @@
+.scenic-admin-shell {
+  position: relative;
+  width: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow: hidden;
+  color: #172033;
+  background:
+    linear-gradient(135deg, rgba(235, 243, 247, 0.98) 0%, rgba(246, 248, 252, 0.98) 48%, rgba(238, 241, 232, 0.96) 100%);
+}
+
+.scenic-admin-main {
+  height: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 28px clamp(22px, 4vw, 56px) 34px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow: auto;
+}
+
+.scenic-admin-header {
+  min-height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  -webkit-app-region: drag;
+}
+
+.scenic-admin-title,
+.scenic-admin-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.scenic-admin-actions,
+.scenic-admin-icon-button {
+  -webkit-app-region: no-drag;
+}
+
+.scenic-admin-icon-button {
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(20, 91, 100, 0.18);
+  color: #1a5876;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.scenic-admin-title h1,
+.scenic-admin-title p,
+.scenic-admin-section-heading h2 {
+  margin: 0;
+}
+
+.scenic-admin-title h1 {
+  font-size: clamp(24px, 3vw, 34px);
+  line-height: 1.14;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.scenic-admin-title p {
+  margin-top: 5px;
+  color: #526077;
+  font-size: 14px;
+}
+
+.scenic-admin-status-row {
+  min-height: 54px;
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.scenic-admin-alert,
+.scenic-admin-feedback {
+  min-height: 48px;
+  align-items: center;
+  border-radius: 8px;
+}
+
+.scenic-admin-alert {
+  flex: 1 1 320px;
+}
+
+.scenic-admin-feedback {
+  flex: 0 1 420px;
+}
+
+.scenic-admin-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.scenic-admin-metric {
+  min-height: 126px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(30, 83, 98, 0.16);
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.scenic-admin-metric span {
+  color: #0a6c74;
+  display: inline-flex;
+}
+
+.scenic-admin-metric strong {
+  font-size: clamp(24px, 3vw, 34px);
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.scenic-admin-metric em {
+  color: #59687b;
+  font-size: 13px;
+  font-style: normal;
+}
+
+.scenic-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.scenic-admin-section {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 8px;
+  border: 1px solid rgba(30, 83, 98, 0.16);
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.scenic-admin-section--wide {
+  grid-column: 1 / -1;
+}
+
+.scenic-admin-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #1a5876;
+}
+
+.scenic-admin-section-heading h2 {
+  font-size: 18px;
+  letter-spacing: 0;
+}
+
+.scenic-admin-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scenic-admin-list-item,
+.scenic-admin-route {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(30, 83, 98, 0.12);
+  color: #29364a;
+  background: #f8faf8;
+}
+
+.scenic-admin-route-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 980px) {
+  .scenic-admin-metrics,
+  .scenic-admin-grid,
+  .scenic-admin-route-row {
+    grid-template-columns: 1fr;
+  }
+
+  .scenic-admin-section--wide {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .scenic-admin-main {
+    padding: 18px 14px 24px;
+  }
+
+  .scenic-admin-header,
+  .scenic-admin-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .scenic-admin-actions {
+    width: 100%;
+  }
+
+  .scenic-admin-actions .MuiButton-root {
+    width: 100%;
+  }
+
+  .scenic-admin-icon-button {
+    align-self: flex-end;
+  }
+}

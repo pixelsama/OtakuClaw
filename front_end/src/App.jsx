@@ -35,6 +35,7 @@ import {
 import { ModeProvider, MODE_PET, MODE_WINDOW, useModeContext } from './mode/ModeContext.jsx';
 import MainShell from './shells/MainShell.jsx';
 import PetShell from './shells/PetShell.jsx';
+import ScenicAdminShell from './shells/ScenicAdminShell.jsx';
 import ScenicGuideShell from './shells/ScenicGuideShell.jsx';
 import { desktopBridge } from './services/desktopBridge.js';
 import { I18nProvider, useI18n } from './i18n/I18nContext.jsx';
@@ -60,6 +61,7 @@ function AppContent({ desktopMode }) {
   const [officePreviewMode, setOfficePreviewMode] = useState('live');
   const [mainWindowViewMode, setMainWindowViewMode] = useState('office');
   const [mainWindowShell] = useState('scenic-guide');
+  const [scenicViewMode, setScenicViewMode] = useState('tourist');
   const [immersiveContext, setImmersiveContext] = useState(null);
   const [valueStateSnapshot, setValueStateSnapshot] = useState(null);
   const [builtinTtsEnabled, setBuiltinTtsEnabled] = useState(false);
@@ -1152,9 +1154,20 @@ function AppContent({ desktopMode }) {
   });
 
   const isScenicGuideShellActive = !isPetMode && mainWindowShell === 'scenic-guide';
+  const isScenicAdminShellActive = isScenicGuideShellActive && scenicViewMode === 'admin';
   const shouldShowFirstRunOnboarding = !isScenicGuideShellActive && firstRunOnboardingOpen;
   const shouldShowDownloadDialog =
-    (!isScenicGuideShellActive || showConfigPanel) && !shouldShowFirstRunOnboarding && downloadDialogOpen;
+    (!isScenicGuideShellActive || (isScenicAdminShellActive && showConfigPanel))
+    && !shouldShowFirstRunOnboarding
+    && downloadDialogOpen;
+  const handleOpenScenicAdmin = useCallback(() => {
+    setShowChatPanel(false);
+    setScenicViewMode('admin');
+  }, []);
+  const handleBackToScenicGuide = useCallback(() => {
+    closeConfigPanel();
+    setScenicViewMode('tourist');
+  }, [closeConfigPanel]);
 
   return (
     <Box sx={stageStyle}>
@@ -1184,12 +1197,20 @@ function AppContent({ desktopMode }) {
           showVoicePermissionWarning={showVoicePermissionWarning}
           voicePermissionWarningText={voicePermissionWarningText}
         />
+      ) : isScenicAdminShellActive ? (
+        <ScenicAdminShell
+          desktopMode={desktopMode}
+          platform={platform}
+          onWindowControl={controlWindow}
+          onBackToGuide={handleBackToScenicGuide}
+          onOpenAdvancedSettings={openConfigPanel}
+        />
       ) : isScenicGuideShellActive ? (
         <ScenicGuideShell
           desktopMode={desktopMode}
           platform={platform}
           onWindowControl={controlWindow}
-          onOpenAdvancedSettings={openConfigPanel}
+          onOpenAdminPortal={handleOpenScenicAdmin}
         />
       ) : (
         <MainShell
@@ -1224,7 +1245,7 @@ function AppContent({ desktopMode }) {
       )}
 
       <ConfigDrawer
-        open={showConfigPanel}
+        open={showConfigPanel && (!isScenicGuideShellActive || isScenicAdminShellActive)}
         isPetMode={isPetMode}
         isNarrowViewport={isNarrowViewport}
         onClose={closeConfigPanel}
@@ -1257,7 +1278,7 @@ function AppContent({ desktopMode }) {
         onOpenNanobotSkillsLibrary={onOpenNanobotSkillsLibrary}
         onOpenDownloadCenter={openDownloadTask}
         onBuiltinTtsEnabledChange={syncBuiltinTtsEnabled}
-        panelTitle={isScenicGuideShellActive ? '高级设置' : ''}
+        panelTitle={isScenicAdminShellActive ? '高级设置' : ''}
       />
       <ChatSidebar
         open={!isScenicGuideShellActive && showChatPanel}

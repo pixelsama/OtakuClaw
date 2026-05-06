@@ -70,6 +70,16 @@ test('scenic guide ipc exposes manifest, import summary, and knowledge queries',
         return [{ blockId: 'official:spot:LS-011' }];
       },
     },
+    scenicRagService: {
+      askQuestion(request) {
+        calls.push(['ask', request]);
+        return {
+          ok: true,
+          answer: '根据官方资料，灵山大佛是景区标志性景观。',
+          sources: [{ blockId: 'official:spot:LS-011' }],
+        };
+      },
+    },
   });
 
   assert.equal((await ipcMain.invoke('scenic-guide:get-manifest')).manifest.datasetId, 'official-lingshan-2026');
@@ -94,10 +104,16 @@ test('scenic guide ipc exposes manifest, import summary, and knowledge queries',
     ok: true,
     knowledgeBlocks: [{ blockId: 'official:spot:LS-011' }],
   });
+  assert.deepEqual(await ipcMain.invoke('scenic-guide:ask-question', { question: '灵山大佛有什么特色？' }), {
+    ok: true,
+    answer: '根据官方资料，灵山大佛是景区标志性景观。',
+    sources: [{ blockId: 'official:spot:LS-011' }],
+  });
 
   assert.ok(calls.some((call) => Array.isArray(call) && call[0] === 'spots'));
   dispose();
   assert.equal(ipcMain.hasHandler('scenic-guide:list-spots'), false);
+  assert.equal(ipcMain.hasHandler('scenic-guide:ask-question'), false);
 });
 
 test('scenic guide ipc maps knowledge store errors to safe errors', async () => {

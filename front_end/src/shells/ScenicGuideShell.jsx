@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -6,17 +6,17 @@ import {
   Chip,
   CircularProgress,
   IconButton,
+  TextField,
   Tooltip,
 } from '@mui/material';
+import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded';
 import CameraAltRoundedIcon from '@mui/icons-material/CameraAltRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import ChatBubbleOutlineRoundedIcon from '@mui/icons-material/ChatBubbleOutlineRounded';
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded';
 import MicRoundedIcon from '@mui/icons-material/MicRounded';
 import RouteRoundedIcon from '@mui/icons-material/RouteRounded';
-import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import TravelExploreRoundedIcon from '@mui/icons-material/TravelExploreRounded';
-import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
 import WindowTitleBar from '../components/window/WindowTitleBar.jsx';
 import { desktopBridge } from '../services/desktopBridge.js';
 import './ScenicGuideShell.css';
@@ -33,23 +33,20 @@ function formatNumber(value, fallback = '--') {
   return Number.isFinite(value) ? value.toLocaleString('zh-CN') : fallback;
 }
 
-function normalizeImportError(result) {
-  if (result?.canceled) {
-    return '';
-  }
-  return result?.error?.message || '资料包导入失败';
-}
-
 export default function ScenicGuideShell({
   desktopMode = false,
   platform = '',
   onWindowControl,
-  onOpenAdvancedSettings,
+  onOpenAdminPortal,
   initialManifest = null,
+  initialAnswerResult = null,
 }) {
+  const questionInputRef = useRef(null);
   const [manifest, setManifest] = useState(initialManifest);
   const [loadingManifest, setLoadingManifest] = useState(true);
-  const [importing, setImporting] = useState(false);
+  const [questionText, setQuestionText] = useState('');
+  const [askingQuestion, setAskingQuestion] = useState(false);
+  const [answerResult, setAnswerResult] = useState(initialAnswerResult);
   const [feedback, setFeedback] = useState(null);
 
   const imported = hasImportedOfficialData(manifest);
@@ -97,12 +94,12 @@ export default function ScenicGuideShell({
       },
       {
         key: 'records',
-        label: '游客记录',
-        value: imported ? formatNumber(summary.behaviorDataRowCount) : '--',
+        label: '讲解资料',
+        value: imported ? formatNumber(manifest?.knowledgeSummary?.knowledgeBlockCount || 0) : '--',
         icon: <CheckCircleRoundedIcon />,
       },
     ],
-    [imported, summary.behaviorDataRowCount, summary.routeCount, summary.spotCount],
+    [imported, manifest?.knowledgeSummary?.knowledgeBlockCount, summary.routeCount, summary.spotCount],
   );
 
   const routeNames = useMemo(
@@ -114,43 +111,80 @@ export default function ScenicGuideShell({
     [],
   );
 
-  const handleImportOfficialData = useCallback(async () => {
-    setImporting(true);
+  const suggestedQuestions = useMemo(
+    () => [
+      '灵山大佛有什么特色？',
+      '九龙灌浴适合什么时候看？',
+      '亲子家庭适合走哪条路线？',
+    ],
+    [],
+  );
+
+  const activePromptText = answerResult?.question || questionText.trim() || '九龙灌浴有什么看点？';
+  const answerStatusLabel = askingQuestion
+    ? '检索中'
+    : answerResult?.status === 'no_hit'
+      ? '未命中'
+      : answerResult?.answer
+        ? '可追溯来源'
+        : imported
+          ? '可追溯来源'
+          : '准备中';
+
+  const answerConfidenceLabel = Number.isFinite(answerResult?.confidence)
+    ? `匹配度 ${Math.round(answerResult.confidence * 100)}%`
+    : '';
+
+  const handleAskQuestion = useCallback(async (nextQuestion) => {
+    const normalizedQuestion = typeof nextQuestion === 'string' ? nextQuestion.trim() : questionText.trim();
+    if (!normalizedQuestion || askingQuestion || !imported) {
+      return;
+    }
+
+    setAskingQuestion(true);
     setFeedback(null);
+    setQuestionText(normalizedQuestion);
     try {
-      const picked = await desktopBridge.scenicGuide.pickDataDirectory();
-      if (!picked?.ok) {
-        const errorText = normalizeImportError(picked);
-        if (errorText) {
-          setFeedback({ severity: 'warning', text: errorText });
-        }
-        return;
-      }
-
-      const result = await desktopBridge.scenicGuide.importOfficialData({
-        directoryPath: picked.directoryPath,
+      const result = await desktopBridge.scenicGuide.askQuestion({
+        question: normalizedQuestion,
+        limit: 5,
       });
-      if (!result?.ok) {
-        setFeedback({
-          severity: 'error',
-          text: normalizeImportError(result),
-        });
+      if (result?.ok) {
+        setAnswerResult(result);
         return;
       }
 
-      setManifest(result.manifest || null);
+      setAnswerResult(null);
       setFeedback({
-        severity: 'success',
-        text: '官方资料包已导入',
+        severity: 'warning',
+        text: result?.error?.message || '导览回答失败',
       });
     } catch (error) {
+      setAnswerResult(null);
       setFeedback({
-        severity: 'error',
-        text: error?.message || '资料包导入失败',
+        severity: 'warning',
+        text: error?.message || '导览回答失败',
       });
     } finally {
-      setImporting(false);
+      setAskingQuestion(false);
     }
+  }, [askingQuestion, imported, questionText]);
+
+  const handleSubmitQuestion = useCallback((event) => {
+    event.preventDefault();
+    void handleAskQuestion();
+  }, [handleAskQuestion]);
+
+  const handleUseSuggestedQuestion = useCallback((question) => {
+    setQuestionText(question);
+    void handleAskQuestion(question);
+  }, [handleAskQuestion]);
+
+  const handleShowPlannedFeature = useCallback((featureName) => {
+    setFeedback({
+      severity: 'info',
+      text: `${featureName}正在接入中，当前版本先支持文字导览问答。`,
+    });
   }, []);
 
   return (
@@ -182,26 +216,15 @@ export default function ScenicGuideShell({
             </Box>
           </Box>
 
-          <Box className="scenic-guide-header-actions">
-            <Button
-              variant="contained"
-              startIcon={importing ? <CircularProgress size={16} color="inherit" /> : <UploadFileRoundedIcon />}
-              onClick={handleImportOfficialData}
-              disabled={importing}
-              className="scenic-guide-import-button"
+          <Tooltip title="景区管理后台">
+            <IconButton
+              className="scenic-guide-admin-button"
+              aria-label="景区管理后台"
+              onClick={onOpenAdminPortal}
             >
-              {importing ? '导入中' : '导入官方资料包'}
-            </Button>
-            <Tooltip title="高级设置">
-              <IconButton
-                className="scenic-guide-admin-button"
-                aria-label="高级设置"
-                onClick={onOpenAdvancedSettings}
-              >
-                <SettingsRoundedIcon />
-              </IconButton>
-            </Tooltip>
-          </Box>
+              <AdminPanelSettingsRoundedIcon />
+            </IconButton>
+          </Tooltip>
         </header>
 
         <Box className="scenic-guide-status-row">
@@ -211,11 +234,11 @@ export default function ScenicGuideShell({
               icon={loadingManifest ? <CircularProgress size={18} /> : <ErrorOutlineRoundedIcon />}
               className="scenic-guide-alert"
             >
-              请管理员导入官方资料包
+              导览资料准备中，请联系景区工作人员
             </Alert>
           ) : (
             <Alert severity="success" icon={<CheckCircleRoundedIcon />} className="scenic-guide-alert">
-              官方资料包已就绪
+              灵山胜境导览资料已就绪
             </Alert>
           )}
           {feedback?.text ? (
@@ -243,24 +266,110 @@ export default function ScenicGuideShell({
                 <span>导览问答</span>
               </Box>
               <Box className="scenic-guide-prompt-row">
-                <span>九龙灌浴有什么看点？</span>
-                <Chip size="small" label={imported ? '可追溯来源' : '待导入'} />
+                <span>{activePromptText}</span>
+                <Chip size="small" label={answerStatusLabel} />
+              </Box>
+
+              <Box
+                component="form"
+                className="scenic-guide-question-form"
+                onSubmit={handleSubmitQuestion}
+              >
+                <TextField
+                  inputRef={questionInputRef}
+                  value={questionText}
+                  onChange={(event) => {
+                    setQuestionText(event.target.value);
+                  }}
+                  placeholder={imported ? '输入想问的景点、路线或游玩建议' : '导入官方资料后可开始提问'}
+                  multiline
+                  minRows={3}
+                  fullWidth
+                  disabled={!imported || askingQuestion}
+                />
+                <Button
+                  type="submit"
+                  variant="contained"
+                  disabled={!imported || askingQuestion || !questionText.trim()}
+                >
+                  {askingQuestion ? '检索中' : '开始导览'}
+                </Button>
+              </Box>
+
+              <Box className="scenic-guide-answer-panel" aria-label="导览回答">
+                {askingQuestion ? (
+                  <Box className="scenic-guide-answer-placeholder">
+                    <CircularProgress size={20} />
+                    <span>正在检索灵山胜境官方资料并整理回答</span>
+                  </Box>
+                ) : answerResult?.answer ? (
+                  <>
+                    <Box className="scenic-guide-answer-copy">
+                      <p>{answerResult.answer}</p>
+                    </Box>
+                    <Box className="scenic-guide-answer-meta">
+                      {answerConfidenceLabel ? (
+                        <Chip size="small" label={answerConfidenceLabel} />
+                      ) : null}
+                      <Chip
+                        size="small"
+                        label={`来源 ${Array.isArray(answerResult.sources) ? answerResult.sources.length : 0} 条`}
+                      />
+                    </Box>
+                    {Array.isArray(answerResult.sources) && answerResult.sources.length ? (
+                      <Box className="scenic-guide-source-list" aria-label="来源列表">
+                        {answerResult.sources.map((source) => (
+                          <Box className="scenic-guide-source-item" key={source.blockId || source.title}>
+                            <strong>{source.title}</strong>
+                            <span>{source.excerpt}</span>
+                          </Box>
+                        ))}
+                      </Box>
+                    ) : null}
+                  </>
+                ) : (
+                  <Box className="scenic-guide-answer-placeholder">
+                    <ChatBubbleOutlineRoundedIcon />
+                    <span>可以先问景点特色、官方路线、游玩顺序或亲子推荐。</span>
+                  </Box>
+                )}
               </Box>
             </Box>
 
             <Box className="scenic-guide-actions" aria-label="导览输入">
               <Tooltip title="文字提问">
-                <IconButton className="scenic-guide-action-button" aria-label="文字提问" disabled={!imported}>
+                <IconButton
+                  className="scenic-guide-action-button"
+                  aria-label="文字提问"
+                  disabled={!imported}
+                  onClick={() => {
+                    questionInputRef.current?.focus?.();
+                  }}
+                >
                   <ChatBubbleOutlineRoundedIcon />
                 </IconButton>
               </Tooltip>
-              <Tooltip title="语音提问">
-                <IconButton className="scenic-guide-action-button" aria-label="语音提问" disabled={!imported}>
+              <Tooltip title={imported ? '语音问答开发中' : '语音提问'}>
+                <IconButton
+                  className="scenic-guide-action-button"
+                  aria-label="语音提问"
+                  disabled={!imported}
+                  onClick={() => {
+                    handleShowPlannedFeature('语音问答');
+                  }}
+                >
                   <MicRoundedIcon />
                 </IconButton>
               </Tooltip>
-              <Tooltip title="拍照问导游">
-                <IconButton className="scenic-guide-action-button" aria-label="拍照问导游" disabled={!imported}>
+              <Tooltip title={imported ? '拍照问导游开发中' : '拍照问导游'}>
+                <IconButton
+                  className="scenic-guide-action-button"
+                  aria-label="拍照问导游"
+                  disabled={!imported}
+                  onClick={() => {
+                    handleShowPlannedFeature('拍照问导游');
+                  }}
+                >
                   <CameraAltRoundedIcon />
                 </IconButton>
               </Tooltip>
@@ -268,7 +377,30 @@ export default function ScenicGuideShell({
           </section>
 
           <aside className="scenic-guide-side">
-            <section className="scenic-guide-stat-grid" aria-label="资料摘要">
+            <section className="scenic-guide-tourist-panel" aria-label="推荐问法">
+              <Box className="scenic-guide-section-heading">
+                <ChatBubbleOutlineRoundedIcon />
+                <h2>推荐问法</h2>
+              </Box>
+              <Box className="scenic-guide-route-list">
+                {suggestedQuestions.map((question) => (
+                  <button
+                    className="scenic-guide-route-item scenic-guide-route-button"
+                    type="button"
+                    key={question}
+                    disabled={!imported || askingQuestion}
+                    onClick={() => {
+                      handleUseSuggestedQuestion(question);
+                    }}
+                  >
+                    <span>{question}</span>
+                    <Chip size="small" label={imported ? '可问' : '准备中'} />
+                  </button>
+                ))}
+              </Box>
+            </section>
+
+            <section className="scenic-guide-stat-grid" aria-label="导览资料摘要">
               {stats.map((item) => (
                 <Box className="scenic-guide-stat" key={item.key}>
                   <span className="scenic-guide-stat-icon">{item.icon}</span>

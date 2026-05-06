@@ -41,6 +41,12 @@ describe('desktopBridge scenic guide knowledge API', () => {
     const listSpots = vi.fn(async (payload) => ({ ok: true, spots: [{ spotId: 'LS-011' }], payload }));
     const listRoutes = vi.fn(async (payload) => ({ ok: true, routes: [{ routeId: 'official-family-4h' }], payload }));
     const listKnowledgeBlocks = vi.fn(async (payload) => ({ ok: true, knowledgeBlocks: [], payload }));
+    const askQuestion = vi.fn(async (payload) => ({
+      ok: true,
+      answer: '根据官方资料，灵山大佛是景区标志性景观。',
+      sources: [],
+      payload,
+    }));
     globalThis.window = {
       desktop: {
         isElectron: true,
@@ -49,6 +55,7 @@ describe('desktopBridge scenic guide knowledge API', () => {
           listSpots,
           listRoutes,
           listKnowledgeBlocks,
+          askQuestion,
         },
       },
     };
@@ -72,6 +79,12 @@ describe('desktopBridge scenic guide knowledge API', () => {
       knowledgeBlocks: [],
       payload: { query: '九龙灌浴' },
     });
+    await expect(desktopBridge.scenicGuide.askQuestion({ question: '灵山大佛有什么特色？' })).resolves.toEqual({
+      ok: true,
+      answer: '根据官方资料，灵山大佛是景区标志性景观。',
+      sources: [],
+      payload: { question: '灵山大佛有什么特色？' },
+    });
   });
 
   it('returns empty scenic guide knowledge fallbacks in web mode', async () => {
@@ -92,6 +105,13 @@ describe('desktopBridge scenic guide knowledge API', () => {
     await expect(desktopBridge.scenicGuide.listKnowledgeBlocks({ query: '九龙灌浴' })).resolves.toEqual({
       ok: true,
       knowledgeBlocks: [],
+    });
+    await expect(desktopBridge.scenicGuide.askQuestion({ question: '灵山大佛有什么特色？' })).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'desktop_scenic_guide_unavailable',
+        message: 'Scenic guide question answering is only available in the desktop app.',
+      },
     });
   });
 });

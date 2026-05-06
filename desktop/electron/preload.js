@@ -95,6 +95,9 @@ const scenicGuide = {
   listKnowledgeBlocks(request) {
     return ipcRenderer.invoke('scenic-guide:list-knowledge-blocks', request);
   },
+  askQuestion(request) {
+    return ipcRenderer.invoke('scenic-guide:ask-question', request);
+  },
 };
 
 const appUpdater = {

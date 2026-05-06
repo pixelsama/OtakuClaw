@@ -1127,6 +1127,19 @@ export const desktopBridge = {
         knowledgeBlocks: [],
       });
     },
+    askQuestion(request = {}) {
+      const api = getDesktopApi();
+      if (api?.scenicGuide?.askQuestion) {
+        return api.scenicGuide.askQuestion(request);
+      }
+      return Promise.resolve({
+        ok: false,
+        error: {
+          code: 'desktop_scenic_guide_unavailable',
+          message: 'Scenic guide question answering is only available in the desktop app.',
+        },
+      });
+    },
   },
   office: {
     async getState() {

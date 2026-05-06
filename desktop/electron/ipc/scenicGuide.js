@@ -22,6 +22,7 @@ function registerScenicGuideIpc({
   officialDataManifestStore,
   officialDataImporter,
   scenicKnowledgeStore,
+  scenicRagService,
 } = {}) {
   if (!ipcMain) {
     return () => {};
@@ -186,6 +187,27 @@ function registerScenicGuideIpc({
     }
   });
 
+  ipcMain.handle('scenic-guide:ask-question', async (_event, request = {}) => {
+    try {
+      if (!scenicRagService || typeof scenicRagService.askQuestion !== 'function') {
+        return {
+          ok: false,
+          error: {
+            code: 'scenic_rag_unavailable',
+            message: 'Scenic guide question answering is unavailable.',
+          },
+        };
+      }
+
+      return scenicRagService.askQuestion(request);
+    } catch (error) {
+      return {
+        ok: false,
+        error: toScenicGuideIpcError(error),
+      };
+    }
+  });
+
   return () => {
     ipcMain.removeHandler('scenic-guide:get-manifest');
     ipcMain.removeHandler('scenic-guide:pick-data-directory');
@@ -196,6 +218,7 @@ function registerScenicGuideIpc({
     ipcMain.removeHandler('scenic-guide:list-spots');
     ipcMain.removeHandler('scenic-guide:list-routes');
     ipcMain.removeHandler('scenic-guide:list-knowledge-blocks');
+    ipcMain.removeHandler('scenic-guide:ask-question');
   };
 }
 
